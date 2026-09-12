@@ -637,6 +637,16 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       return;
     }
 
+    // Summoning sickness, as a nudge rather than a wall. The bots' side
+    // enforces it; on yours haste can come from a lord the store cannot see,
+    // so the attack is allowed — but a creature that arrived this turn is
+    // called out, because Krenko swinging the turn it was cast teaches you
+    // the wrong clock and nothing said so.
+    const printedHaste = (card.card.keywords ?? []).some(k => k.toLowerCase() === 'haste');
+    if (card.arrivedTurn === playtest.turn && !printedHaste) {
+      playtest.showToast(`${card.card.name} arrived this turn — it needs haste to attack`);
+    }
+
     const current = get().declaration;
     // Already swinging at someone? Don't let it attack twice.
     if (current && Object.values(current).some(ids => ids.includes(instanceId))) return;

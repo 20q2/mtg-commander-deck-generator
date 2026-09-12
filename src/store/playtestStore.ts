@@ -928,6 +928,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         faceDown: false,
         flipped: false,
         counters,
+        arrivedTurn: state.turn,
       });
       targetLabel = 'battlefield';
     }
@@ -1353,6 +1354,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       faceDown: false,
       flipped: false,
       counters: { ...(arrival?.counters ?? {}) },
+      arrivedTurn: state.turn,
       // A stolen Lignified creature is still Lignified — the aura didn't move.
       ...(arrival?.edit ? { edit: arrival.edit } : {}),
     };
@@ -1400,6 +1402,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       faceDown: false,
       flipped: false,
       counters: {},
+      arrivedTurn: state.turn,
     };
     return {
       history,

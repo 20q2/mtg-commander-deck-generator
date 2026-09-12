@@ -77,4 +77,17 @@ describe('runAllTurns across seats', () => {
     expect(s.zones.command.map(c => c.name)).toContain('Krenko, Mob Boss');
     expect(s.zones.graveyard.map(c => c.name)).not.toContain('Krenko, Mob Boss');
   });
+  it('warns when a creature that arrived this turn is declared as an attacker', () => {
+    const goblin = card({ name: 'Goblin Piker', cmc: 2, power: '2', toughness: '1' });
+    usePlaytestStore.setState({
+      turn: 4,
+      toast: null,
+      battlefield: [{ instanceId: 'g1', card: goblin, x: 0, y: 0, tapped: false, faceDown: false, flipped: false, counters: {}, arrivedTurn: 4 }],
+    });
+    useOpponentStore.setState({ opponents: [bot({ id: 'A', name: 'Seat A' })], declaration: null, combatPhase: true });
+    useOpponentStore.getState().declareAttacker('A', 'g1');
+    expect(usePlaytestStore.getState().toast?.text).toMatch(/arrived this turn/);
+    // Allowed anyway — it's a sandbox — so the declaration still lands.
+    expect(useOpponentStore.getState().declaration?.A).toEqual(['g1']);
+  });
 });

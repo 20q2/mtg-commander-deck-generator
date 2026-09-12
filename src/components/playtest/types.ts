@@ -55,6 +55,12 @@ export interface BattlefieldCard {
   /** Set when this creature has been rewritten — see CardEdit. */
   edit?: CardEdit;
   attachedTo?: string;
+  /**
+   * The turn this permanent arrived on the battlefield, for the summoning-
+   * sickness nudge when it is declared as an attacker. Optional so the many
+   * places that construct a card need not all set it.
+   */
+  arrivedTurn?: number;
 }
 
 export type LogCategory = 'move' | 'tap' | 'library' | 'counter' | 'life' | 'turn' | 'bot' | 'system';
