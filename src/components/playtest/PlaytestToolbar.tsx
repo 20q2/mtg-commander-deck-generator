@@ -5,6 +5,7 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { PlaytestSettingsModal } from '@/components/playtest/PlaytestSettingsModal';
 import { NextTurnButton, CombatButton } from '@/components/playtest/PlaytestActionsBar';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 interface Props {
   onExit: () => void;
@@ -12,6 +13,7 @@ interface Props {
 }
 
 export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
+  const isDesktop = useMediaQuery('(min-width: 768px)');
   const sourceName = usePlaytestStore(s => s.source?.name ?? '');
   const turn = usePlaytestStore(s => s.turn);
   const life = usePlaytestStore(s => s.life);
@@ -85,11 +87,15 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
       <div className="basis-full h-0 md:hidden" aria-hidden />
 
       {/* Combat + Next Turn — only in the top toolbar on mobile. On desktop
-          they live in the hand toolbar's right column. */}
-      <div className="md:hidden flex [&>*+*]:-ml-px">
-        <CombatButton />
-        <NextTurnButton />
-      </div>
+          they live in the hand toolbar's right column. Rendered rather than
+          CSS-hidden: two mounted copies doubled the DOM and meant a strict
+          selector for "the Next Turn button" always matched two. */}
+      {!isDesktop && (
+        <div className="flex [&>*+*]:-ml-px">
+          <CombatButton />
+          <NextTurnButton />
+        </div>
+      )}
 
       <div className="hidden lg:flex items-center gap-4 mx-auto select-none text-[10px] text-muted-foreground/70">
         <span

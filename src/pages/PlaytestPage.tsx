@@ -5,6 +5,7 @@ import { createShakeDetector } from '@/components/playtest/hooks/shakeGesture';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import type { BattlefieldCard as BfCard, CounterColor, DieSides, MoveSource } from '@/components/playtest/types';
@@ -93,6 +94,7 @@ export interface PastedPlaytestDeck {
 
 export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }) {
   usePlaytestHotkeys();
+  const isDesktop = useMediaQuery('(min-width: 768px)');
   const navigate = useNavigate();
   const params = useParams<{ listId: string }>();
   const location = useLocation();
@@ -773,18 +775,20 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
             <Battlefield />
             <Hand />
           </main>
-          {/* Desktop / tablet: inline side panel */}
-          <div className="hidden md:flex">
-            <SidePanel />
-          </div>
-          {/* Mobile: slide-over overlay. `flex` so the aside child stretches
-              to fill the height — otherwise its inner `flex-1 overflow-y-auto`
-              has no bounded height and scroll silently fails. */}
-          <div
-            className={`md:hidden absolute inset-y-0 right-0 z-40 flex transition-transform duration-200 ${mobileSideOpen ? 'translate-x-0' : 'translate-x-full'}`}
-          >
-            <SidePanel />
-          </div>
+          {isDesktop ? (
+            <div className="flex">
+              <SidePanel />
+            </div>
+          ) : (
+            // Phone: slide-over overlay. `flex` so the aside child stretches
+            // to fill the height — otherwise its inner `flex-1 overflow-y-auto`
+            // has no bounded height and scroll silently fails.
+            <div
+              className={`absolute inset-y-0 right-0 z-40 flex transition-transform duration-200 ${mobileSideOpen ? 'translate-x-0' : 'translate-x-full'}`}
+            >
+              <SidePanel />
+            </div>
+          )}
           <GameOutcomeBanner />
           {mobileSideOpen && (
             <button

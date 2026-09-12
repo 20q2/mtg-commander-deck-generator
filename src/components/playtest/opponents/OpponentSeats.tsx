@@ -5,6 +5,7 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
 import { OpponentSeat } from '@/components/playtest/opponents/OpponentSeat';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 
 /** Never let one seated opponent sprawl across the whole table. */
 const MAX_SEAT_WIDTH = 460;
@@ -91,6 +92,7 @@ export function OpponentSeats() {
   const openModal = usePlaytestStore(s => s.openModal);
   const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
   const viewportWidth = useViewportWidth();
+  const isDesktop = useMediaQuery('(min-width: 768px)');
   const bandRef = useSeatBandMeasure(opponents.length);
   const [positions, setPositions] = useState<SeatPositions>(loadPositions);
   const [sizes, setSizes] = useState<SeatSizes>(loadSizes);
@@ -242,7 +244,7 @@ export function OpponentSeats() {
   // carried, and it has to survive the move.
   if (opponents.length === 0) {
     return (
-      <div className="hidden md:flex absolute top-2 inset-x-0 z-30 justify-center pointer-events-none">
+      <div className="flex absolute top-2 inset-x-0 z-30 justify-center pointer-events-none">
         <Button
           size="sm"
           variant="ghost"
@@ -252,6 +254,36 @@ export function OpponentSeats() {
           <Bot className="w-3.5 h-3.5 mr-1.5 text-violet-300/80" />
           Play against bots
         </Button>
+      </div>
+    );
+  }
+
+  // Phones: one horizontally scrolling row of full-featured seats. No drag,
+  // no resize — the seat itself, its combat strip and the stack are what a
+  // phone needs, and until now none of it rendered under 768px, so a phone
+  // could seat a bot only to find the feature did not exist.
+  if (!isDesktop) {
+    const w = Math.min(360, viewportWidth - 24);
+    return (
+      <div
+        ref={bandRef}
+        className="absolute top-1.5 inset-x-1.5 z-30 flex items-start gap-2 overflow-x-auto pb-1 snap-x"
+      >
+        {opponents.map(o => (
+          <div key={o.id} className="shrink-0 snap-start">
+            <OpponentSeat opponent={o} width={w} sized={{}} />
+          </div>
+        ))}
+        {opponents.length < MAX_OPPONENTS && (
+          <Button
+            size="sm" variant="ghost"
+            className="shrink-0 h-7 w-7 p-0 bg-background/70 backdrop-blur-sm"
+            onClick={() => openModal({ kind: 'opponents' })}
+            title="Seat another opponent"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </Button>
+        )}
       </div>
     );
   }
@@ -276,7 +308,7 @@ export function OpponentSeats() {
           seat dragged elsewhere should not push arriving cards down. */}
       <div
         ref={bandRef}
-        className="hidden md:flex absolute top-1.5 inset-x-1.5 z-30 justify-center items-start gap-2 pointer-events-none"
+        className="flex absolute top-1.5 inset-x-1.5 z-30 justify-center items-start gap-2 pointer-events-none"
       >
         {inRow.map(({ o }) => (
           <div key={o.id} className="relative pointer-events-auto" style={dragStyle(o.id)}>
@@ -297,7 +329,7 @@ export function OpponentSeats() {
       {/* Seats you have moved. After the row in DOM order so they paint on top
           of it when the two overlap. */}
       {placed.length > 0 && (
-        <div className="hidden md:block absolute inset-0 z-30 pointer-events-none">
+        <div className="block absolute inset-0 z-30 pointer-events-none">
           {placed.map(({ o, pos }) => (
             <div
               key={o.id}
@@ -321,7 +353,7 @@ export function OpponentSeats() {
       )}
 
       {/* Pinned top-right, independent of where the seats end up. */}
-      <div className="hidden md:flex absolute top-1.5 right-1.5 z-30 flex-col gap-1">
+      <div className="flex absolute top-1.5 right-1.5 z-30 flex-col gap-1">
         {/* With auto-turns off, Next Turn no longer moves the table, so this is
             the only way for the bots to act. */}
         {!autoTurns && (

@@ -108,17 +108,20 @@ export function Hand() {
         <div className="flex-1 flex justify-center min-w-0">
           <PlaytestActionsBar />
         </div>
-        {/* Right column: spacers + Combat / Next Turn on desktop. Hidden on
-            mobile (both live in the top toolbar there). The two buttons sit
-            flush as one segmented control — they're the pair that moves the
-            game forward a beat. */}
-        <div className="hidden md:flex items-center gap-2 shrink-0">
-          <div className="shrink-0" style={{ width: 'clamp(80px, 11vw, 130px)' }} aria-hidden />
-          <div className="shrink-0 flex justify-end [&>*+*]:-ml-px" style={{ width: 'clamp(190px, 25vw, 300px)' }}>
-            <CombatButton />
-            <NextTurnButton />
+        {/* Right column: spacers + Combat / Next Turn on desktop. The top
+            toolbar owns the pair on mobile, and it renders them rather than
+            hiding them, so only one copy of each is ever mounted. The two
+            buttons sit flush as one segmented control — they're the pair that
+            moves the game forward a beat. */}
+        {isDesktop && (
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="shrink-0" style={{ width: 'clamp(80px, 11vw, 130px)' }} aria-hidden />
+            <div className="shrink-0 flex justify-end [&>*+*]:-ml-px" style={{ width: 'clamp(190px, 25vw, 300px)' }}>
+              <CombatButton />
+              <NextTurnButton />
+            </div>
           </div>
-        </div>
+        )}
       </div>
       {/* The min-height holds the row open on mobile, where no piles are
           rendered and an empty hand would collapse it. On desktop the piles
