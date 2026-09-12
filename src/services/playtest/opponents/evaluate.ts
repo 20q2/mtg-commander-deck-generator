@@ -27,6 +27,10 @@ export interface PlayerBoardRead {
    * it exists for targeting, where a name and a power are enough.
    */
   untappedCreatures: Combatant[];
+  /** Whose board this is: absent/null for the player, a seat id for a rival bot. */
+  seatId?: string | null;
+  /** For logs and the stack label — "you" for the player. */
+  seatName?: string;
 }
 
 /** What the bot decided to do to the player. Small on purpose — the store applies it. */
@@ -43,6 +47,11 @@ export interface AppliedEffect {
    * wins. Kept separate from a huge `lifeLoss` so the log reads honestly.
    */
   lethal?: boolean;
+  /**
+   * Set when the effect lands on a rival bot's board rather than yours. The
+   * store applies these directly; only effects aimed at you go on the stack.
+   */
+  target?: { seatId: string; name: string };
 }
 
 /**
@@ -76,6 +85,8 @@ export interface CastDecision {
   target: string;
   /** ETB permanents stay on the bot's board; instants and sorceries don't. */
   staysOnBattlefield: boolean;
+  /** Rival copies of a sweeper, applied alongside `effect`. */
+  extra: AppliedEffect[];
 }
 
 const EMPTY: AppliedEffect = { destroy: [], destination: 'graveyard', lifeLoss: 0, discard: 0 };
@@ -203,6 +214,68 @@ export function resolveEffect(
   }
 }
 
+/**
+ * Resolve a spec against every seat and return the hit worth taking.
+ *
+ * Bots aimed every Murder at the human even when a rival had a 6/6 and an
+ * armed combo on board — three resistance bots meant every removal spell in
+ * the pod pointed one way. A hit is scored by what it costs the victim: a
+ * combo piece is worth everything, a commander a lot, then raw power, then
+ * life and cards. The player keeps a thumb on the scale — this is their
+ * playtest — so an exact tie still goes to them.
+ */
+export function pickTarget(
+  spec: BotEffectSpec,
+  boards: PlayerBoardRead[],
+  scale = 1,
+): { effect: AppliedEffect; target: string } | null {
+  let best: { effect: AppliedEffect; target: string; board: PlayerBoardRead } | null = null;
+  let bestScore = -Infinity;
+  for (const board of boards) {
+    const hit = resolveEffect(spec, board, scale);
+    if (!hit) continue;
+    const victims = hit.effect.destroy
+      .map(id => board.cards.find(c => c.instanceId === id))
+      .filter((c): c is PlayerCardRead => !!c);
+    const score = victims.reduce((n, c) => n + Math.max(1, c.power) + (c.isCommander ? 4 : 0) + (c.comboId ? 100 : 0), 0)
+      + hit.effect.lifeLoss
+      + hit.effect.discard * 2
+      + (board.seatId ? 0 : 1);
+    if (score > bestScore) { bestScore = score; best = { ...hit, board }; }
+  }
+  if (!best) return null;
+  if (!best.board.seatId) return { effect: best.effect, target: best.target };
+  const name = best.board.seatName ?? 'a rival';
+  return {
+    effect: { ...best.effect, target: { seatId: best.board.seatId, name } },
+    target: `${name}'s ${best.target}`,
+  };
+}
+
+/**
+ * A sweeper hits every seat. One effect per board it does anything to, the
+ * player's first, rival copies carrying their `target`.
+ */
+export function resolveEverywhere(
+  spec: BotEffectSpec,
+  boards: PlayerBoardRead[],
+): { effect: AppliedEffect; target: string }[] {
+  const out: { effect: AppliedEffect; target: string }[] = [];
+  for (const board of boards) {
+    const hit = resolveEffect(spec, board);
+    if (!hit) continue;
+    if (board.seatId) {
+      const name = board.seatName ?? 'a rival';
+      out.push({ effect: { ...hit.effect, target: { seatId: board.seatId, name } }, target: `${name}'s ${hit.target}` });
+    } else {
+      out.push(hit);
+    }
+  }
+  return out;
+}
+
+export const isSweep = (spec: BotEffectSpec) => spec.kind === 'boardWipe' || spec.kind === 'artifactSweep';
+
 /** How much of a problem the player's board is, relative to the bot's own. */
 function threatScore(board: PlayerBoardRead, botPower: number): number {
   const list = creatures(board);
@@ -233,6 +306,8 @@ export interface ResistanceContext {
    * its board than yours is a bad wrath, and without this it cannot tell.
    */
   botCreatureToughness: number[];
+  /** Rival boards, so removal can be pointed at whoever is scariest. */
+  rivals?: PlayerBoardRead[];
 }
 
 /**
@@ -243,7 +318,8 @@ export interface ResistanceContext {
 export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | null {
   const { hand, mana, board, botPower, turn, aggression } = ctx;
   const priceOf = ctx.costFor ?? costOf;
-  const threat = threatScore(board, botPower);
+  const boards = [board, ...(ctx.rivals ?? [])];
+  const threat = Math.max(...boards.map(b => threatScore(b, botPower)));
 
   interface Candidate {
     handIndex: number;
@@ -251,6 +327,8 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
     spec: BotEffectSpec;
     etb: boolean;
     resolved: { effect: AppliedEffect; target: string };
+    /** Rival copies of a sweeper — the same wrath, landing on the other seats. */
+    extra: AppliedEffect[];
     rank: number;
   }
 
@@ -259,8 +337,10 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
     const entry = lookupEffect(card.name);
     if (!entry) return;
     if (priceOf(card) > mana) return;
-    const resolved = resolveEffect(entry.spec, board);
+    const hits = isSweep(entry.spec) ? resolveEverywhere(entry.spec, boards) : [];
+    const resolved = isSweep(entry.spec) ? hits[0] : pickTarget(entry.spec, boards);
     if (!resolved) return;
+    const extra = hits.slice(1).map(h => h.effect);
 
     // Rank by how much of the problem it solves.
     let rank = 0;
@@ -269,14 +349,14 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
         const cap = entry.spec.maxToughness;
         const ownLosses = ctx.botCreatureToughness
           .filter(t => cap === undefined || t <= cap).length;
-        const net = resolved.effect.destroy.length - ownLosses;
+        const net = hits.reduce((n, h) => n + h.effect.destroy.length, 0) - ownLosses;
         // Only a wrath that leaves the bot ahead is worth the card.
         rank = net >= 3 ? 95 : net >= 1 ? 45 : 0;
         break;
       }
       case 'destroyCreature':
       case 'exileCreature':
-      case 'destroyPermanent': rank = comboPieceToBreak(board) ? 90 : 60; break;
+      case 'destroyPermanent': rank = boards.some(b => comboPieceToBreak(b)) ? 90 : 60; break;
       case 'artifactSweep':   rank = resolved.effect.destroy.length >= 2 ? 55 : 20; break;
       case 'edict':           rank = 40; break;
       case 'damage':          rank = resolved.effect.destroy.length > 0 ? 50 : 15; break;
@@ -286,7 +366,7 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
     // Rank 0 means the play is actively bad — a wrath that costs the bot more
     // than it costs you. Leave it in hand rather than offering it.
     if (rank <= 0) return;
-    candidates.push({ handIndex, card, spec: entry.spec, etb: !!entry.etb, resolved, rank });
+    candidates.push({ handIndex, card, spec: entry.spec, etb: !!entry.etb, resolved, extra, rank });
   });
 
   if (candidates.length === 0) return null;
@@ -304,6 +384,7 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
     handIndex: best.handIndex,
     card: best.card,
     effect: best.resolved.effect,
+    extra: best.extra,
     staysOnBattlefield: best.etb,
     reason: `${best.card.name} → ${best.resolved.target}`,
     target: best.resolved.target,
@@ -318,10 +399,10 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
  * that is simply a 2/2 because your board is empty. Without this, a bot with an
  * empty board opposite it holds the card forever.
  */
-export function hasLiveTarget(cardName: string, board: PlayerBoardRead): boolean {
+export function hasLiveTarget(cardName: string, boards: PlayerBoardRead[]): boolean {
   const entry = lookupEffect(cardName);
   if (!entry) return false;
-  return resolveEffect(entry.spec, board) !== null;
+  return pickTarget(entry.spec, boards) !== null;
 }
 
 /** Exposed so the engine can log why a bot sat on its hand. */

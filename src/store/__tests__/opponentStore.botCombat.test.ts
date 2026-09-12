@@ -92,4 +92,18 @@ describe('runAllTurns across seats', () => {
     // Allowed anyway — it's a sandbox — so the declaration still lands.
     expect(useOpponentStore.getState().declaration?.A).toEqual(['g1']);
   });
+  it('a bot effect aimed at a rival lands on that rival, not on your stack', async () => {
+    const murder = card({ name: 'Murder', type_line: 'Instant', cmc: 3 });
+    const fatty = perm(card({ name: 'Fatty', cmc: 6, power: '6', toughness: '6' }));
+    const caster = bot({ id: 'A', name: 'Seat A', resistance: true, hand: [murder], turnsTaken: 6,
+      battlefield: Array.from({ length: 3 }, () => perm(card({ name: 'Swamp', type_line: 'Basic Land — Swamp', cmc: 0 }))) });
+    const victim = bot({ id: 'B', name: 'Seat B', battlefield: [fatty] });
+    usePlaytestSettings.setState({ animations: false, stackHold: true });
+    useOpponentStore.setState({ opponents: [caster, victim], stack: [] });
+    await useOpponentStore.getState().runAllTurns();
+    const b = useOpponentStore.getState().opponents.find(o => o.id === 'B')!;
+    expect(b.battlefield.map(p => p.card.name)).not.toContain('Fatty');
+    expect(b.graveyard.map(c => c.name)).toContain('Fatty');
+    expect(useOpponentStore.getState().stack).toHaveLength(0);
+  });
 });

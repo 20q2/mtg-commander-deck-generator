@@ -13,6 +13,7 @@ import { buryPermanents } from '@/services/playtest/opponents/deaths';
 import { registerUndoParticipant } from '@/store/undoBridge';
 import { chooseBlocks, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
+import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import type { CombatState, Opponent, OpponentPermanent, OpponentZone, StackItem, TurnFrame } from '@/components/playtest/opponentTypes';
 import type { BattlefieldCard, CardEdit } from '@/components/playtest/types';
@@ -300,6 +301,38 @@ function readPlayerBoard(): PlayerBoardRead {
         toughness: Number.isNaN(toughness) ? 0 : toughness,
         isCommander: commanders.has(b.card.name),
         comboId: liveComboByCard.get(b.card.name) ?? null,
+      };
+    }),
+  };
+}
+
+/**
+ * A bot's board, flattened the same way yours is, so the engine can weigh it
+ * as a target. A rival's armed combo pieces carry the combo id, which is
+ * what lets another bot break it up — exactly what a fourth player would do.
+ */
+function readBotBoard(o: Opponent): PlayerBoardRead {
+  const armed = BOT_COMBOS.filter(c => (o.armedCombos ?? []).includes(c.id));
+  return {
+    seatId: o.id,
+    seatName: o.name,
+    life: o.life,
+    handSize: o.hand.length,
+    untappedCreatures: o.battlefield
+      .filter(p => !p.tapped && isCreatureCard(p.card))
+      .map(p => botCombatant(p, o.battlefield, o.graveyard)),
+    cards: o.battlefield.map(p => {
+      const type = getFrontFaceTypeLine(p.card).toLowerCase();
+      return {
+        instanceId: p.instanceId,
+        name: p.card.name,
+        isCreature: type.includes('creature'),
+        isArtifact: type.includes('artifact'),
+        isLand: type.includes('land'),
+        power: botPower(p, o.battlefield, o.graveyard),
+        toughness: botToughness(p, o.battlefield, o.graveyard),
+        isCommander: p.card.name === o.commanderName,
+        comboId: armed.find(c => c.onBattlefield.includes(p.card.name))?.id ?? null,
       };
     }),
   };
@@ -1042,6 +1075,43 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     };
 
     /**
+     * An effect aimed at another seat. Both sides are bots, so it applies
+     * at once — your stack is for things aimed at you.
+     */
+    const applyRivalEffect = (e: AppliedEffect, casterName: string) => {
+      const playtest = usePlaytestStore.getState();
+      const seatId = e.target!.seatId;
+      const rival = get().opponents.find(o => o.id === seatId);
+      if (!rival) return;
+      const ids = e.destroy.filter(id => rival.battlefield.some(p => p.instanceId === id));
+      if (ids.length > 0) {
+        if (e.destination === 'exile') {
+          set(s => ({
+            opponents: s.opponents.map(o => o.id === seatId
+              ? {
+                  ...o,
+                  battlefield: o.battlefield.filter(p => !ids.includes(p.instanceId)),
+                  exile: [...o.exile, ...o.battlefield.filter(p => ids.includes(p.instanceId) && !isTokenCard(p.card)).map(p => p.card)],
+                }
+              : o),
+          }));
+        } else {
+          // Death triggers on the rival's side still bill YOU (a Judith seeing
+          // its creature die), which is what deathToll returns.
+          const toll = deathToll(rival, ids);
+          set(s => ({ opponents: s.opponents.map(o => (o.id === seatId ? sendToGraveyard(o, ids) : o)) }));
+          toll.logs.forEach(line => playtest.appendLog(line, 'bot'));
+          if (toll.lifeLoss > 0) playtest.adjustLife(-toll.lifeLoss);
+        }
+        const names = rival.battlefield.filter(p => ids.includes(p.instanceId)).map(p => p.card.name);
+        playtest.appendLog(`${casterName} ${e.destination === 'exile' ? 'exiles' : 'destroys'} ${rival.name}'s ${names.join(', ')}`, 'bot');
+      }
+      if (e.lifeLoss > 0) get().adjustLife(seatId, -e.lifeLoss);
+      // Discard against a hidden hand is not modelled; the bot's own tutor and
+      // draw logic never sees a rival's hand either.
+    };
+
+    /**
      * Park the turn on one beat's effects.
      *
      * Holding priority is the default: the item waits until you resolve or
@@ -1107,7 +1177,10 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
               .filter(p => isCreatureCard(p.card))
               .reduce((n, p) => n + botPower(p, o.battlefield, o.graveyard), 0),
           }));
-        const { frames, final } = takeTurn(opponent, readPlayerBoard(), rivals);
+        // Every other live seat's board, so removal can be pointed at whichever
+        // of them is scariest rather than reflexively at the human.
+        const rivalBoards = get().opponents.filter(o => o.id !== seatId && o.life > 0).map(readBotBoard);
+        const { frames, final } = takeTurn(opponent, readPlayerBoard(), rivals, rivalBoards);
         const step = stepFor(frames.length);
 
         /**
@@ -1153,8 +1226,11 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           // your board. With priority held the turn parks here until you answer
           // it; without, the item still shows for a beat, so the panel is a
           // record of what hit you either way.
-          if (f.effects.length > 0) {
-            await putOnStack(f, step);
+          const toRivals = f.effects.filter(e => e.target);
+          const toYou = f.effects.filter(e => !e.target);
+          for (const e of toRivals) applyRivalEffect(e, f.opponent.name);
+          if (toYou.length > 0) {
+            await putOnStack({ ...f, effects: toYou }, step);
             if (!mine()) return false;
           }
           // Damage from the bot's own triggers, billed per beat.

@@ -297,4 +297,33 @@ describe('bot engine smoke', () => {
     const destroyed = r.frames.flatMap(f => f.effects).flatMap(e => e.destroy);
     expect(destroyed).toEqual(['big', 'small']);
   });
+  it("points removal at the scariest board at the table, not reflexively at you", () => {
+    const murder = card({ name: 'Murder', type_line: 'Instant', cmc: 3 });
+    const yours = (id: string, power: number) => ({ instanceId: id, name: id, isCreature: true, isArtifact: false, power, toughness: power, isCommander: false, comboId: null });
+    const rival = board({ seatId: 'R', seatName: 'Rival', cards: [yours('r-big', 6)] });
+    const r = takeTurn(
+      bot({ resistance: true, hand: [murder], turnsTaken: 6, battlefield: Array.from({ length: 3 }, () => perm(MOUNTAIN())) }),
+      board({ cards: [yours('my-small', 2)] }),
+      [],
+      [rival],
+    );
+    const effects = r.frames.flatMap(f => f.effects);
+    expect(effects).toHaveLength(1);
+    expect(effects[0].destroy).toEqual(['r-big']);
+    expect(effects[0].target).toEqual({ seatId: 'R', name: 'Rival' });
+  });
+
+  it('a tie in threat still goes to the player', () => {
+    const murder = card({ name: 'Murder', type_line: 'Instant', cmc: 3 });
+    const c = (id: string) => ({ instanceId: id, name: id, isCreature: true, isArtifact: false, power: 4, toughness: 4, isCommander: false, comboId: null });
+    const r = takeTurn(
+      bot({ resistance: true, hand: [murder], turnsTaken: 6, battlefield: Array.from({ length: 3 }, () => perm(MOUNTAIN())) }),
+      board({ cards: [c('mine')] }),
+      [],
+      [board({ seatId: 'R', seatName: 'Rival', cards: [c('theirs')] })],
+    );
+    const effects = r.frames.flatMap(f => f.effects);
+    expect(effects[0].destroy).toEqual(['mine']);
+    expect(effects[0].target).toBeUndefined();
+  });
 });

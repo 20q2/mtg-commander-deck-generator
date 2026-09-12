@@ -1,7 +1,7 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand, makeInstanceId } from '@/components/playtest/utils';
-import { chooseResistancePlay, describeEffect, hasLiveTarget, resolveEffect, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
+import { chooseResistancePlay, describeEffect, hasLiveTarget, pickTarget, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import {
   BOT_CYCLING,
   BOT_LANDFALL_EFFECTS,
@@ -226,6 +226,12 @@ export function takeTurn(
   playerBoard: PlayerBoardRead,
   /** The other seats, so a bot can swing at one of them instead of the player. */
   rivals: AttackCandidate[] = [],
+  /**
+   * The other seats' boards, so a removal spell can be pointed at whichever
+   * one is actually scary. Without them every Murder in the pod aimed at the
+   * human, because the human's board was the only one the engine could see.
+   */
+  rivalBoards: PlayerBoardRead[] = [],
 ): TurnResult {
   const frames: TurnFrame[] = [];
   const opp: Opponent = {
@@ -254,15 +260,22 @@ export function takeTurn(
     untappedCreatures: [...playerBoard.untappedCreatures],
   };
 
+  /** The rivals' boards, copied for the same reason the player's is. */
+  const rivalReads: PlayerBoardRead[] = rivalBoards.map(b => ({ ...b, cards: [...b.cards], untappedCreatures: [...b.untappedCreatures] }));
+  /** Every board a player-facing effect may land on, the player's first. */
+  const boards = () => [board, ...rivalReads];
+
   /** Take what an effect does out of the bot's view, so later picks skip it. */
   const spend = (effect: AppliedEffect) => {
+    const on = effect.target ? rivalReads.find(b => b.seatId === effect.target!.seatId) : board;
+    if (!on) return;
     if (effect.destroy.length > 0) {
       const gone = new Set(effect.destroy);
-      board.cards = board.cards.filter(c => !gone.has(c.instanceId));
-      board.untappedCreatures = board.untappedCreatures.filter(c => !gone.has(c.instanceId));
+      on.cards = on.cards.filter(c => !gone.has(c.instanceId));
+      on.untappedCreatures = on.untappedCreatures.filter(c => !gone.has(c.instanceId));
     }
-    board.handSize = Math.max(0, board.handSize - effect.discard);
-    board.life = Math.max(0, board.life - effect.lifeLoss);
+    on.handSize = Math.max(0, on.handSize - effect.discard);
+    on.life = Math.max(0, on.life - effect.lifeLoss);
   };
 
   /** Capture the board as it stands, as one beat of the turn. */
@@ -669,7 +682,7 @@ export function takeTurn(
   for (const p of opp.battlefield) {
     const spec = BOT_RECURRING_EFFECTS[p.card.name];
     if (!spec) continue;
-    const hit = resolveEffect(spec, board, effectScale(spec));
+    const hit = pickTarget(spec, boards(), effectScale(spec));
     if (hit) {
       frame(
         [`${opp.name}'s ${p.card.name} triggers`, `${opp.name} hits ${hit.target}`],
@@ -703,7 +716,7 @@ export function takeTurn(
     for (const p of opp.battlefield) {
       const spec = BOT_LANDFALL_EFFECTS[p.card.name];
       if (!spec) continue;
-      const hit = resolveEffect(spec, board, effectScale(spec));
+      const hit = pickTarget(spec, boards(), effectScale(spec));
       if (hit) {
         frame(
           [`${opp.name}'s ${p.card.name} triggers on the land`, `${opp.name} hits ${hit.target}`],
@@ -782,6 +795,7 @@ export function takeTurn(
         botCreatureToughness: opp.battlefield
           .filter(p => isCreatureCard(p.card))
           .map(p => liveToughness(p, opp.battlefield)),
+        rivals: rivalReads,
       });
       if (!play) break;
       opp.hand.splice(play.handIndex, 1);
@@ -810,7 +824,7 @@ export function takeTurn(
 
       frame(
         [`${opp.name} casts ${play.reason}`, ...wipeLogs],
-        play.effect ? [play.effect] : [], [], play.card.name, undefined,
+        play.effect ? [play.effect, ...play.extra] : [], [], play.card.name, undefined,
         play.effect
           ? {
               card: play.card,
@@ -838,7 +852,7 @@ export function takeTurn(
     if (affordable && !cycle.preferred) continue;
     const specs = specsOf({ spec: cycle.spec ?? [] });
     const hit = cycle.effect
-      ? resolveEffect(cycle.effect, board, effectScale(cycle.effect))
+      ? pickTarget(cycle.effect, boards(), effectScale(cycle.effect))
       : null;
     // Nothing to fetch and nothing to hit means the card is worth more in hand.
     if (!hit && !anySpecWouldDo(specs)) continue;
@@ -909,7 +923,7 @@ export function takeTurn(
       // A registry permanent is held back only while its effect has something to
       // hit. Once your board is empty it is just a body, and a bot that keeps it
       // in hand forever reads as a bot that has stopped playing.
-      if (opp.resistance && hasLiveTarget(card.name, board)) return;
+      if (opp.resistance && hasLiveTarget(card.name, boards())) return;
       const cost = effectiveCost(card, opp.battlefield);
       if (cost > mana) return;
       // Cast the most expensive thing affordable — a rough proxy for "best
@@ -976,7 +990,7 @@ export function takeTurn(
       // A player-facing ability is worth paying for when it has a target; a
       // self ability when at least one of its specs would do something.
       .filter(a => a.effect
-        ? resolveEffect(a.effect, board, effectScale(a.effect)) !== null
+        ? pickTarget(a.effect, boards(), effectScale(a.effect)) !== null
         : anySpecWouldDo(specsOf({ spec: a.spec ?? [] })))
       // Ramp-on-legs is held while it is still a useful blocker.
       .filter(a => a.only !== 'behindOnLands' || behindOnLands())
@@ -997,7 +1011,7 @@ export function takeTurn(
     // path, so a Reaper watching the Elder go still draws.
     const sacLogs = ability.sacrificesSelf ? bury([live.instanceId]) : [];
     if (ability.effect) {
-      const hit = resolveEffect(ability.effect, board, effectScale(ability.effect));
+      const hit = pickTarget(ability.effect, boards(), effectScale(ability.effect));
       if (hit) {
         frame(
           [`${opp.name} activates ${live.card.name}`, `${opp.name} hits ${hit.target}`, ...sacLogs],
