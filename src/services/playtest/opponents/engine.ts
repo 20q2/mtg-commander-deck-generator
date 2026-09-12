@@ -901,6 +901,8 @@ export function takeTurn(
       // A 0/0 with nothing to define its size never dies here and attacks for
       // nothing — holding it is strictly better than four mana for clutter.
       if (arrivesDead(card, opp.battlefield, opp.graveyard)) return;
+      // An additional cost the bot cannot pay is a card it cannot cast.
+      if (self?.sacrifice === 'creature' && !opp.battlefield.some(p => isCreatureCard(p.card))) return;
       // Don't burn a spell that would fizzle. Victimize with an empty graveyard
       // is a card worth keeping, not a card worth casting.
       if (self && !isPermanent(card) && self.timing === undefined && !anySpecWouldDo(specsOf(self))) return;
@@ -926,6 +928,18 @@ export function takeTurn(
     const spell = opp.hand.splice(bestIdx, 1)[0];
     opp.battlefield = tapForMana(opp.battlefield, effectiveCost(spell, opp.battlefield));
 
+    // Pay any additional cost first, through the shared death path so the
+    // sacrifice fires death triggers like any other death.
+    const entry = lookupSelfEffect(spell.name);
+    const sacLogs: string[] = [];
+    if (entry?.sacrifice === 'creature') {
+      const fodder = [...opp.battlefield]
+        .filter(p => isCreatureCard(p.card) && p.card.name !== opp.commanderName)
+        .sort((a, b) => livePower(a, opp.battlefield) - livePower(b, opp.battlefield))[0]
+        ?? opp.battlefield.find(p => isCreatureCard(p.card));
+      if (fodder) sacLogs.push(`${opp.name} sacrifices ${fodder.card.name}`, ...bury([fodder.instanceId]));
+    }
+
     // A permanent stays; a sorcery or instant does its thing and is done.
     if (isPermanent(spell)) {
       opp.battlefield.push(toPermanent(spell));
@@ -935,13 +949,12 @@ export function takeTurn(
     }
 
     // Combat-timed effects fire in the attack step, not on arrival.
-    const entry = lookupSelfEffect(spell.name);
     const label = entry && entry.timing === undefined ? applySelfEffect(spell.name) : null;
 
     // What the spell did to the bot's own board gets its own line. Four Warriors
     // used to arrive in silence — the log said "casts Secure the Wastes" and
     // nothing else, so a swarm appeared out of nowhere.
-    const castLogs = [`${opp.name} casts ${spell.name}`];
+    const castLogs = [`${opp.name} casts ${spell.name}`, ...sacLogs];
     if (label) castLogs.push(`${opp.name} ${label}`);
     frame(castLogs, [], [], label ?? spell.name);
   }

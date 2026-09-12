@@ -237,6 +237,13 @@ export interface BotSelfEntry {
   timing?: 'cast' | 'combat' | 'attack';
   /** A 'combat' source that taps to do this — Krenko does, Rabblemaster does not. */
   tapsSource?: boolean;
+  /**
+   * An additional cost paid on cast. 'creature' sacrifices the bot's cheapest
+   * creature — Diabolic Intent — and the card is held while there is nothing
+   * to sacrifice, because a bot casting it onto an empty board on turn three
+   * was reading the tutor and ignoring the price.
+   */
+  sacrifice?: 'creature';
 }
 
 /** Every spec an entry carries, whether it was written as one or as a list. */
@@ -409,7 +416,7 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   // Four tutors, because a two-card combo deck is only as fast as its ability
   // to find the half it is missing — and the tutor logic already prefers a
   // combo piece it is one short of over anything else.
-  'Diabolic Intent':      { spec: { kind: 'tutor', to: 'hand', count: 1 } },
+  'Diabolic Intent':      { spec: { kind: 'tutor', to: 'hand', count: 1 }, sacrifice: 'creature' },
   'Grim Tutor':           { spec: { kind: 'tutor', to: 'hand', count: 1 } },
   'Imperial Seal':        { spec: { kind: 'tutor', to: 'hand', count: 1 } },
   // Really puts it on top of the library; the next draw step gets it either

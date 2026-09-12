@@ -328,3 +328,27 @@ describe('land fetchers', () => {
     expect(r.final.hand.map(c => c.name)).toContain('Rampant Growth');
   });
 });
+
+describe('additional costs', () => {
+  // This file's land helpers are local to their own tests; these two need a
+  // black source and a count, so they get their own.
+  const SWAMP = () => card({ name: 'Swamp', type_line: 'Basic Land — Swamp', cmc: 0 });
+  const lands = (k: number) => Array.from({ length: k }, () => perm(SWAMP()));
+  const INTENT = () => card({ name: 'Diabolic Intent', type_line: 'Sorcery', cmc: 2 });
+  it('holds Diabolic Intent with nothing to sacrifice', () => {
+    const r = takeTurn(bot({ hand: [INTENT()], battlefield: lands(2), library: [card({ name: 'Drawn' }), card({ name: 'Prize', cmc: 5 })] }), board());
+    expect(r.final.hand.map(c => c.name)).toContain('Diabolic Intent');
+  });
+  it('sacrifices its cheapest creature to cast it', () => {
+    const fodder = perm(card({ name: 'Fodder', cmc: 1, power: '1', toughness: '1' }));
+    const keeper = perm(card({ name: 'Keeper', cmc: 5, power: '5', toughness: '5' }));
+    const r = takeTurn(
+      bot({ hand: [INTENT()], battlefield: [fodder, keeper, ...lands(2)], library: [card({ name: 'Drawn' }), card({ name: 'Prize', cmc: 5 })] }),
+      board(),
+    );
+    expect(logsOf(r.frames)).toContain('sacrifices Fodder');
+    expect(r.final.graveyard.map(c => c.name)).toEqual(expect.arrayContaining(['Fodder', 'Diabolic Intent']));
+    expect(r.final.battlefield.map(p => p.card.name)).toContain('Keeper');
+    expect(r.final.hand.map(c => c.name)).toContain('Prize');
+  });
+});
