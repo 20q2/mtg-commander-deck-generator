@@ -113,6 +113,48 @@ describe('bot engine smoke', () => {
     expect(res.frames.reduce((n, f) => n + (f.selfDamage ?? 0), 0)).toBe(2);
   });
 
+  it('does not bill Impact Tremors for a non-creature that arrives', () => {
+    // Gate to the Afterlife needs six creature cards in the yard, then fetches
+    // God-Pharaoh's Gift straight onto the battlefield. The Gift is an
+    // artifact: no creature arrived, so no Tremors trigger.
+    const gift = card({ name: "God-Pharaoh's Gift", type_line: 'Legendary Artifact', cmc: 7 });
+    const gate = perm(card({ name: 'Gate to the Afterlife', type_line: 'Artifact', cmc: 3 }));
+    const yard = Array.from({ length: 6 }, (_, i) => card({ name: `Corpse ${i}` }));
+    const r = takeTurn(
+      bot({
+        battlefield: [
+          gate,
+          perm(card({ name: 'Impact Tremors', type_line: 'Enchantment', cmc: 2 })),
+          perm(MOUNTAIN()), perm(MOUNTAIN()),
+        ],
+        graveyard: yard,
+        // First card is the turn's draw; the Gift is what the Gate finds.
+        library: [card({ name: 'Filler', type_line: 'Sorcery', cmc: 2 }), gift],
+      }),
+      board(),
+    );
+    expect(names(r.final)).toContain("God-Pharaoh's Gift");
+    // The beat the Gift arrives on bills nothing, because an artifact arrived.
+    // Read that beat rather than the turn's total: the Gift then triggers and
+    // reanimates a creature, and that later beat bills 1 quite correctly — a
+    // real creature really did arrive for Tremors to see.
+    const arrival = r.frames.find(f => f.logs.some(l => l.includes("searches up God-Pharaoh's Gift")))!;
+    expect(arrival.selfDamage ?? 0).toBe(0);
+  });
+
+  it('does not bill Purphoros for its own arrival', () => {
+    const purphoros = card({
+      name: 'Purphoros, God of the Forge', cmc: 4, power: '6', toughness: '5',
+      type_line: 'Legendary Enchantment Creature — God',
+    });
+    const r = takeTurn(
+      bot({ hand: [purphoros], battlefield: Array.from({ length: 4 }, () => perm(MOUNTAIN())) }),
+      board(),
+    );
+    expect(names(r.final)).toContain('Purphoros, God of the Forge');
+    expect(r.frames.reduce((n, f) => n + (f.selfDamage ?? 0), 0)).toBe(0);
+  });
+
   it('discards down to seven at end of turn', () => {
     const junk = (i: number) => card({ name: `Counterspell ${i}`, type_line: 'Instant', cmc: 2 });
     const res = takeTurn(bot({ hand: Array.from({ length: 11 }, (_, i) => junk(i)) }), board());

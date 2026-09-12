@@ -309,6 +309,18 @@ export function takeTurn(
   let pendingCreatures = 0;
 
   /**
+   * Bill the ETB triggers for a card arriving on the bot's board.
+   *
+   * Creatures only: a Gate to the Afterlife tutoring God-Pharaoh's Gift onto
+   * the battlefield was charging you for Corpse Knight over an artifact. And
+   * never the trigger source itself — every card in BOT_TRIGGERS says
+   * "another creature", so Purphoros does not see its own arrival.
+   */
+  const arrive = (card: ScryfallCard) => {
+    if (isCreatureCard(card) && !BOT_TRIGGERS[card.name]) pendingCreatures += 1;
+  };
+
+  /**
    * Life the player loses to the bot's own death triggers this beat — a
    * Judith or a Plague Belcher paid off by a wrath or a sacrifice. Billed
    * the same way ETB trigger damage is, straight onto the frame.
@@ -351,7 +363,7 @@ export function takeTurn(
   const addBody = (card: ScryfallCard): boolean => {
     if (opp.battlefield.length >= MAX_BOARD) return false;
     opp.battlefield.push(toPermanent(card));
-    pendingCreatures += 1;
+    arrive(card);
     return true;
   };
 
@@ -726,7 +738,7 @@ export function takeTurn(
       opp.command = opp.command.slice(1);
       opp.battlefield = tapForMana(opp.battlefield, price);
       opp.battlefield.push(toPermanent(commander));
-      if (isCreatureCard(commander)) pendingCreatures += 1;
+      arrive(commander);
       opp.commanderCasts += 1;
       frame([`${opp.name} casts ${commander.name}`], [], [], commander.name);
     }
@@ -773,7 +785,7 @@ export function takeTurn(
       opp.hand.splice(play.handIndex, 1);
       if (play.staysOnBattlefield) {
         opp.battlefield.push(toPermanent(play.card));
-        if (isCreatureCard(play.card)) pendingCreatures += 1;
+        arrive(play.card);
       } else {
         opp.graveyard.push(play.card);
       }
@@ -867,7 +879,7 @@ export function takeTurn(
     opp.graveyard.splice(i, 1);
     opp.battlefield = tapForMana(opp.battlefield, rec.cost);
     opp.battlefield.push({ ...toPermanent(card), tapped: rec.tapped ?? false });
-    pendingCreatures += 1;
+    arrive(card);
     frame([`${opp.name} returns ${card.name} from the graveyard`], [], [], card.name);
   }
 
@@ -908,7 +920,7 @@ export function takeTurn(
     // A permanent stays; a sorcery or instant does its thing and is done.
     if (isPermanent(spell)) {
       opp.battlefield.push(toPermanent(spell));
-      if (isCreatureCard(spell)) pendingCreatures += 1;
+      arrive(spell);
     } else {
       opp.graveyard.push(spell);
     }
