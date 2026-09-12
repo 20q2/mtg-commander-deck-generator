@@ -343,19 +343,37 @@ export function chooseAttackers(ctx: AttackContext): string[] {
     .reduce((n, a) => n + a.power, 0);
   if (throughAnyBlock >= playerLife) return able.map(a => a.instanceId);
 
-  // 2 and 3, per creature.
+  // 2 and 3. First, per creature: is there a block the defender would love?
+  // One where their creature lives and ours dies is one-sided. A mutual kill
+  // is a trade, and only an aggressive bot signs up for one.
   const takesTrades = aggression >= 0.5;
-  const wanted = able.filter(atk => {
+  const badlyBlocked = (atk: Combatant) => {
     const legal = blockers.filter(b => canBlock(atk, b));
-    if (legal.length === 0) return true;
-    // A block the player would love: their creature lives, ours dies.
-    const oneSided = legal.some(b => killsIt(b, atk) && !killsIt(atk, b));
-    if (oneSided) return false;
-    // An even trade: both die. Only an aggressive bot signs up for that.
+    if (legal.length === 0) return false;
+    if (legal.some(b => killsIt(b, atk) && !killsIt(atk, b))) return true;
     const trade = legal.some(b => killsIt(b, atk) && killsIt(atk, b));
-    if (trade) return takesTrades;
-    return true;
-  });
+    return trade && !takesTrades;
+  };
+  const safe = able.filter(atk => !badlyBlocked(atk));
+  const risky = able.filter(badlyBlocked);
+
+  // Then the swarm question. Each blocker stops one attacker, so once the
+  // risky attackers outnumber the blockers the defender can only punish a few
+  // of them and the rest connect. Judging every creature alone against every
+  // blocker missed this completely: ten 2/2s into a lone 5/5 stayed home for
+  // the whole game, every goblin flinching at the same wall, when the real
+  // play is to lose one goblin and deal eighteen. So when the swarm is bigger
+  // than the wall, weigh what gets through against what gets eaten — the
+  // worst case being that they block the biggest — and swing with everything
+  // if it pays. Aggression sets the rate: a reckless bot takes an even swap,
+  // a cautious one wants to deal one and a half times what it loses.
+  let wanted = safe;
+  if (risky.length > blockers.length) {
+    const byPow = [...risky].sort((a, b) => b.power - a.power);
+    const eaten = byPow.slice(0, blockers.length).reduce((n, a) => n + a.power, 0);
+    const through = byPow.slice(blockers.length).reduce((n, a) => n + a.power, 0);
+    if (through >= eaten * (1.5 - aggression)) wanted = able;
+  }
 
   // 4. Keep some defence home.
   //

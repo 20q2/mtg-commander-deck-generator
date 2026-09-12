@@ -171,6 +171,39 @@ describe('chooseAttackers', () => {
     }).length;
     expect(at(0.85)).toBeGreaterThan(at(0.15));
   });
+
+  it('a swarm swings into a lone big blocker', () => {
+    // Ten 2/2s against one 5/5: the 5/5 eats one goblin and eighteen damage
+    // connects. Every goblin used to see the 5/5, flinch, and stay home for
+    // the rest of the game.
+    const goblins = Array.from({ length: 10 }, () => c({ power: 2, toughness: 2 }));
+    const out = chooseAttackers({
+      candidates: goblins, blockers: [c({ power: 5, toughness: 5 })],
+      playerLife: 40, aggression: 0.5, botLife: 40,
+    });
+    expect(out).toHaveLength(10);
+  });
+
+  it('does not throw a few small bodies into more blockers than there are attackers', () => {
+    // Two 2/2s into two 5/5s: both get blocked, nothing connects.
+    const out = chooseAttackers({
+      candidates: [c({ power: 2, toughness: 2 }), c({ power: 2, toughness: 2 })],
+      blockers: [c({ power: 5, toughness: 5 }), c({ power: 5, toughness: 5 })],
+      playerLife: 40, aggression: 0.5, botLife: 40,
+    });
+    expect(out).toHaveLength(0);
+  });
+
+  it('holds the swarm when what gets eaten outweighs what gets through', () => {
+    // Three 3/3s into two 5/5s: six power eaten for three through. A cautious
+    // or middling bot waits for more bodies.
+    const out = chooseAttackers({
+      candidates: Array.from({ length: 3 }, () => c({ power: 3, toughness: 3 })),
+      blockers: [c({ power: 5, toughness: 5 }), c({ power: 5, toughness: 5 })],
+      playerLife: 40, aggression: 0.5, botLife: 40,
+    });
+    expect(out).toHaveLength(0);
+  });
 });
 
 describe('chooseAttackTarget', () => {
