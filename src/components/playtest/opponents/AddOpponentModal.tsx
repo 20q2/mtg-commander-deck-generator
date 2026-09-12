@@ -332,27 +332,31 @@ function DeckTile({ stub, artUrl, loading, seatedIds, full, onSeat, onUnseat }: 
             <button
               key={id}
               onClick={e => { e.stopPropagation(); onUnseat(id); }}
-              title="Remove this opponent"
+              title={`Remove ${stub.name} from the table`}
               className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-violet-400/40 bg-violet-500/15 text-[10px] text-violet-200 hover:bg-red-500/15 hover:border-red-400/50 hover:text-red-200 transition-colors"
             >
               <Trash2 className="w-2.5 h-2.5" />
-              Seated{seatedIds.length > 1 ? ` #${i + 1}` : ''}
+              Remove{seatedIds.length > 1 ? ` #${i + 1}` : ''}
             </button>
           ))}
 
           {/* Reads as a button and answers "what happens if I click?", but it
-              isn't one — the tile around it already is. */}
-          <span
-            className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors ${
-              blocked
-                ? 'border-border/50 text-muted-foreground/60'
-                : 'border-violet-400/40 bg-violet-500/10 text-violet-200 group-hover:bg-violet-500/25 group-hover:border-violet-400/70'
-            }`}
-          >
-            {loading
-              ? <><Loader2 className="w-2.5 h-2.5 animate-spin" />Dealing…</>
-              : <><Plus className="w-2.5 h-2.5" />Seat</>}
-          </span>
+              isn't one — the tile around it already is. Hidden once the table is
+              full and this deck is already on it: "Seat" next to "Remove" on a
+              table with no room read as two live choices, and only one was. */}
+          {(!seated || !full) && (
+            <span
+              className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-medium transition-colors ${
+                blocked
+                  ? 'border-border/50 text-muted-foreground/60'
+                  : 'border-violet-400/40 bg-violet-500/10 text-violet-200 group-hover:bg-violet-500/25 group-hover:border-violet-400/70'
+              }`}
+            >
+              {loading
+                ? <><Loader2 className="w-2.5 h-2.5 animate-spin" />Dealing…</>
+                : <><Plus className="w-2.5 h-2.5" />{seated ? 'Seat another' : 'Seat'}</>}
+            </span>
+          )}
         </div>
       </div>
     </div>
