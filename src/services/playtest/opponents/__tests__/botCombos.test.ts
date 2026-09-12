@@ -247,3 +247,18 @@ describe('tutors', () => {
     expect(r.final.hand.map(c => c.name)).toContain('Demonic Tutor');
   });
 });
+
+describe('deploying pieces', () => {
+  it('casts a combo piece ahead of a bigger spell', () => {
+    const kiki = card({ name: 'Kiki-Jiki, Mirror Breaker', cmc: 5, power: '2', toughness: '2' });
+    const fatty = card({ name: 'Big Dumb Dragon', cmc: 6, power: '6', toughness: '6' });
+    // Six mana: one of these, not both. Interaction already stands aside for
+    // an affordable piece; develop has to actually cast it.
+    const r = takeTurn(
+      bot({ hand: [kiki, fatty], battlefield: Array.from({ length: 6 }, () => perm(MOUNTAIN())) }),
+      board(),
+    );
+    expect(r.final.battlefield.map(p => p.card.name)).toContain('Kiki-Jiki, Mirror Breaker');
+    expect(r.final.hand.map(c => c.name)).toContain('Big Dumb Dragon');
+  });
+});

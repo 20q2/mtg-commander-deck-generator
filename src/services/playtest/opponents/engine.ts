@@ -889,7 +889,7 @@ export function takeTurn(
   for (let cast = 0; cast < MAX_CASTS_PER_TURN; cast++) {
     const mana = availableMana();
     let bestIdx = -1;
-    let bestCmc = -1;
+    let bestScore = -1;
     opp.hand.forEach((card, i) => {
       // A non-permanent is castable only when the registry says what it does.
       // Everything else — the counterspells especially — stays in hand, and the
@@ -907,9 +907,16 @@ export function takeTurn(
       // in hand forever reads as a bot that has stopped playing.
       if (opp.resistance && hasLiveTarget(card.name, board)) return;
       const cost = effectiveCost(card, opp.battlefield);
-      // Cast the most expensive thing affordable — a rough proxy for "best play".
-      if (cost <= mana && cost > bestCmc) {
-        bestCmc = cost;
+      if (cost > mana) return;
+      // Cast the most expensive thing affordable — a rough proxy for "best
+      // play" — except that a combo piece jumps the queue. The interaction
+      // step already stands aside when the bot is holding a piece it can pay
+      // for, and that sacrifice is wasted if develop then casts a 6-drop over
+      // it and the piece sits in hand for another turn.
+      const piece = BOT_COMBOS.some(combo => combo.onBattlefield.includes(card.name));
+      const score = cost + (piece ? 100 : 0);
+      if (score > bestScore) {
+        bestScore = score;
         bestIdx = i;
       }
     });
