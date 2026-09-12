@@ -167,3 +167,34 @@ export function applyDeathTriggers(
 
   return { opponent: next, lifeLoss, logs };
 }
+
+/**
+ * Take permanents off a bot's battlefield, put them where they belong, and
+ * fire the death triggers those deaths set off. A commander goes back to the
+ * command zone so it can be recast, a token ceases to exist, everything else
+ * goes to the graveyard.
+ *
+ * The one implementation for every death path. The store's combat and kill
+ * button already used this logic; the engine's own wraths and sacrifices wrote
+ * the zone moves out by hand and skipped the triggers, so a Sakura-Tribe Elder
+ * cracked with a Midnight Reaper out drew nothing.
+ */
+export function buryPermanents(o: Opponent, instanceIds: string[]): DeathResult {
+  if (instanceIds.length === 0) return { opponent: o, lifeLoss: 0, logs: [] };
+  const ids = new Set(instanceIds);
+  const leaving = o.battlefield.filter(p => ids.has(p.instanceId));
+  const next: Opponent = {
+    ...o,
+    battlefield: o.battlefield.filter(p => !ids.has(p.instanceId)),
+    graveyard: [
+      ...o.graveyard,
+      ...leaving
+        .filter(p => !isTokenCard(p.card) && p.card.name !== o.commanderName)
+        .map(p => p.card),
+    ],
+    command: [...o.command, ...leaving.filter(p => p.card.name === o.commanderName).map(p => p.card)],
+  };
+  // Triggers read the board AFTER the deaths: a watcher never counts itself
+  // dying, and a reanimation can legally bring back what just fell.
+  return applyDeathTriggers(next, leaving);
+}

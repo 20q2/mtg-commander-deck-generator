@@ -19,6 +19,7 @@ import type { BotEffectSpec, BotSelfSpec, TokenSpec } from '@/services/playtest/
 import { arrivesDead, botKeywords, botPower as livePower, botToughness as liveToughness, effectiveCost, hasHaste, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
 import { chooseAttackTarget, chooseAttackers, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { BOT_COMBOS, comboPiecesWanted, liveCombos } from '@/services/playtest/opponents/botCombos';
+import { buryPermanents } from '@/services/playtest/opponents/deaths';
 import { keywordsOf } from '@/services/playtest/combat';
 import type { AttackTarget, Opponent, OpponentPermanent, StackSource, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
@@ -277,8 +278,10 @@ export function takeTurn(
     effects.forEach(spend);
     // Triggers are billed against the board as it stands at the end of the
     // beat, so a Purphoros cast alongside its goblins counts them.
-    const selfDamage = etbDamage(opp.battlefield, pendingCreatures);
+    const etb = etbDamage(opp.battlefield, pendingCreatures);
+    const selfDamage = etb + pendingDrain;
     pendingCreatures = 0;
+    pendingDrain = 0;
     frames.push({
       opponent: {
         ...opp,
@@ -289,7 +292,7 @@ export function takeTurn(
         command: [...opp.command],
         battlefield: opp.battlefield.map(p => ({ ...p, counters: { ...p.counters } })),
       },
-      logs: selfDamage > 0 ? [...logs, `${opp.name} deals ${selfDamage} to you`] : logs,
+      logs: etb > 0 ? [...logs, `${opp.name} deals ${etb} to you`] : logs,
       effects,
       attackers,
       blurb,
@@ -304,6 +307,29 @@ export function takeTurn(
    * every beat bills its own triggers exactly once.
    */
   let pendingCreatures = 0;
+
+  /**
+   * Life the player loses to the bot's own death triggers this beat — a
+   * Judith or a Plague Belcher paid off by a wrath or a sacrifice. Billed
+   * the same way ETB trigger damage is, straight onto the frame.
+   */
+  let pendingDrain = 0;
+
+  /**
+   * Kill some of the bot's own permanents — a wrath, a sacrifice — through
+   * the same path the store uses for combat deaths, so their death triggers
+   * fire. Returns the trigger log lines for the frame.
+   */
+  const bury = (ids: string[]): string[] => {
+    const { opponent, lifeLoss, logs } = buryPermanents(opp, ids);
+    opp.battlefield = opponent.battlefield;
+    opp.graveyard = opponent.graveyard;
+    opp.command = opponent.command;
+    opp.hand = opponent.hand;
+    opp.library = opponent.library;
+    pendingDrain += lifeLoss;
+    return logs;
+  };
 
   /**
    * Apply a card's effect on the bot's own board — tokens and draw. Returns a
@@ -754,9 +780,10 @@ export function takeTurn(
       // Tap what it cost, so their board shows the spend.
       opp.battlefield = tapForMana(opp.battlefield, effectiveCost(play.card, opp.battlefield));
 
-      // A wrath is symmetrical. The bot's own creatures die too — tokens simply
-      // cease to exist, and its commander goes back to the command zone.
+      // A wrath is symmetrical. The bot's own creatures die too, through the
+      // same path as any other death, so a Solemn caught in it still draws.
       const wipe = lookupEffect(play.card.name);
+      const wipeLogs: string[] = [];
       if (wipe?.spec.kind === 'boardWipe' && !wipe.spec.oneSided) {
         const cap = wipe.spec.maxToughness;
         const dying = opp.battlefield.filter(
@@ -764,20 +791,11 @@ export function takeTurn(
             isCreatureCard(p.card) &&
             (cap === undefined || liveToughness(p, opp.battlefield) <= cap),
         );
-        const ids = new Set(dying.map(p => p.instanceId));
-        opp.graveyard.push(
-          ...dying
-            .filter(p => !isTokenCard(p.card) && p.card.name !== opp.commanderName)
-            .map(p => p.card),
-        );
-        opp.command.push(
-          ...dying.filter(p => p.card.name === opp.commanderName).map(p => p.card),
-        );
-        opp.battlefield = opp.battlefield.filter(p => !ids.has(p.instanceId));
+        wipeLogs.push(...bury(dying.map(p => p.instanceId)));
       }
 
       frame(
-        [`${opp.name} casts ${play.reason}`],
+        [`${opp.name} casts ${play.reason}`, ...wipeLogs],
         play.effect ? [play.effect] : [], [], play.card.name, undefined,
         play.effect
           ? {
@@ -941,18 +959,14 @@ export function takeTurn(
         p.instanceId === live.instanceId ? { ...p, tapped: true } : p,
       );
     }
-    if (ability.sacrificesSelf) {
-      opp.battlefield = opp.battlefield.filter(p => p.instanceId !== live.instanceId);
-      // A real card goes to the graveyard; a token ceases to exist.
-      if (!isTokenCard(live.card) && live.card.name !== opp.commanderName) {
-        opp.graveyard.push(live.card);
-      }
-    }
+    // The ability eats its source. A death like any other: through the shared
+    // path, so a Reaper watching the Elder go still draws.
+    const sacLogs = ability.sacrificesSelf ? bury([live.instanceId]) : [];
     if (ability.effect) {
       const hit = resolveEffect(ability.effect, board, effectScale(ability.effect));
       if (hit) {
         frame(
-          [`${opp.name} activates ${live.card.name}`, `${opp.name} hits ${hit.target}`],
+          [`${opp.name} activates ${live.card.name}`, `${opp.name} hits ${hit.target}`, ...sacLogs],
           [hit.effect], [], live.card.name, undefined,
           { card: live.card, name: live.card.name, kind: 'ability', label: describeEffect(hit.effect, hit.target) },
         );
@@ -960,7 +974,7 @@ export function takeTurn(
     } else {
       const label = applySpecs(specsOf({ spec: ability.spec ?? [] }));
       if (label) {
-        frame([`${opp.name} activates ${live.card.name}`, `${opp.name} ${label}`], [], [], label);
+        frame([`${opp.name} activates ${live.card.name}`, `${opp.name} ${label}`, ...sacLogs], [], [], label);
       }
     }
   }

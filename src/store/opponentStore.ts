@@ -9,7 +9,7 @@ import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT, describeEdit } from '@/services/playtest/powerToughness';
 import { canBlock, keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
 import { botKeywords, botPower, botToughness, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
-import { applyDeathTriggers, type DeathResult } from '@/services/playtest/opponents/deaths';
+import { buryPermanents } from '@/services/playtest/opponents/deaths';
 import { registerUndoParticipant } from '@/store/undoBridge';
 import { chooseBlocks, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
@@ -122,48 +122,19 @@ function botCombatant(
 }
 
 /**
- * Move permanents off a bot's battlefield to where they actually belong.
- * A commander goes back to the command zone so it can be recast, a token
- * ceases to exist, and everything else goes to the graveyard. Every death path
- * has to agree on this, so none of them writes it out by hand.
- */
-function resolveDeaths(o: Opponent, instanceIds: string[]): DeathResult {
-  if (instanceIds.length === 0) return { opponent: o, lifeLoss: 0, logs: [] };
-  const leaving = o.battlefield.filter(p => instanceIds.includes(p.instanceId));
-  const toGraveyard = leaving
-    .filter(p => !isTokenCard(p.card) && p.card.name !== o.commanderName)
-    .map(p => p.card);
-  const returning = leaving.filter(p => p.card.name === o.commanderName).map(p => p.card);
-
-  let next: Opponent = {
-    ...o,
-    battlefield: o.battlefield.filter(p => !instanceIds.includes(p.instanceId)),
-    graveyard: [...o.graveyard, ...toGraveyard],
-    command: [...o.command, ...returning],
-  };
-
-  // Death triggers resolve against the board AFTER the deaths, which is what
-  // makes a Gravecrawler reanimated by its own controller's Junji legal — and
-  // what stops a dying creature counting itself.
-  const { opponent, lifeLoss, logs } = applyDeathTriggers(next, leaving);
-  next = opponent;
-  return { opponent: next, lifeLoss, logs };
-}
-
-/**
  * The projection every existing death path wants: just the opponent.
  *
  * The player-facing half is read separately with `deathToll`, off the SAME
- * `resolveDeaths` — two callers deriving deaths independently is exactly how
+ * `buryPermanents` — two callers deriving deaths independently is exactly how
  * the combat preview and the damage maths came to disagree once already.
  */
 function sendToGraveyard(o: Opponent, instanceIds: string[]): Opponent {
-  return resolveDeaths(o, instanceIds).opponent;
+  return buryPermanents(o, instanceIds).opponent;
 }
 
 /** What these deaths cost YOU, and what to say about them. */
 function deathToll(o: Opponent, instanceIds: string[]): { lifeLoss: number; logs: string[] } {
-  const { lifeLoss, logs } = resolveDeaths(o, instanceIds);
+  const { lifeLoss, logs } = buryPermanents(o, instanceIds);
   return { lifeLoss, logs };
 }
 

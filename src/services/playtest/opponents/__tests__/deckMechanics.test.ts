@@ -392,3 +392,47 @@ describe('activated abilities that reach the player', () => {
     expect(logsOf(frames)).not.toContain('activates Necropolis Fiend');
   });
 });
+
+describe('deaths the engine causes itself', () => {
+  const ELDER = () => card({ name: 'Sakura-Tribe Elder', cmc: 2, power: '1', toughness: '1', type_line: 'Creature — Snake Shaman' });
+  const REAPER = () => card({ name: 'Midnight Reaper', cmc: 3, power: '3', toughness: '2', type_line: 'Creature — Zombie Knight' });
+
+  it('a sacrificed Sakura-Tribe Elder still feeds a Midnight Reaper', () => {
+    // One land against three turns taken: behind, so the Elder gets cracked.
+    // Library order matters, and it is the order a real game would give you:
+    // sacrificing the Elder is a cost, so the Reaper's trigger resolves before
+    // the fetch it paid for. The first Swamp is the turn's draw and land drop,
+    // Filler A is what the Reaper draws off the death, and the last Swamp is
+    // what the fetch finally finds.
+    const r = takeTurn(
+      bot({
+        battlefield: [perm(ELDER()), perm(REAPER()), perm(SWAMP())],
+        library: [SWAMP(), card({ name: 'Filler A' }), SWAMP()],
+        turnsTaken: 3,
+      }),
+      board(),
+    );
+    expect(logsOf(r.frames)).toContain('Midnight Reaper sees Sakura-Tribe Elder die');
+    expect(r.final.hand.map(c => c.name)).toContain('Filler A');
+  });
+
+  it("a Solemn Simulacrum caught in the bot's own wrath still draws", () => {
+    const act = card({ name: 'Blasphemous Act', type_line: 'Sorcery', cmc: 9 });
+    const solemn = perm(card({ name: 'Solemn Simulacrum', cmc: 4, power: '2', toughness: '2', type_line: 'Artifact Creature — Golem' }));
+    const yours = Array.from({ length: 4 }, (_, i) => ({
+      instanceId: `y${i}`, name: `Yours ${i}`, isCreature: true, isArtifact: false,
+      power: 3, toughness: 3, isCommander: false, comboId: null,
+    }));
+    const r = takeTurn(
+      bot({
+        resistance: true, hand: [act], turnsTaken: 6,
+        battlefield: [solemn, ...lands(5)],
+        library: [card({ name: 'Drawn for turn' }), card({ name: 'Drawn by Solemn' })],
+      }),
+      board({ cards: yours }),
+    );
+    expect(logsOf(r.frames)).toContain('Solemn Simulacrum dies — Bot draws 1');
+    expect(r.final.hand.map(c => c.name)).toContain('Drawn by Solemn');
+    expect(r.final.battlefield.map(p => p.card.name)).not.toContain('Solemn Simulacrum');
+  });
+});
