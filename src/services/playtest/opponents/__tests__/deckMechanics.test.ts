@@ -289,6 +289,19 @@ describe('death triggers', () => {
     expect(result.logs).toEqual([]);
     expect(result.opponent.hand).toHaveLength(0);
   });
+
+  it("Judith bills you a life for every nontoken creature of hers that dies", () => {
+    const judith = perm(card({
+      name: 'Judith, the Scourge Diva', cmc: 3, power: '2', toughness: '2',
+      type_line: 'Legendary Creature — Human Shaman',
+    }));
+    const dead = perm(card({ name: 'Footlight Fiend', cmc: 1, power: '1', toughness: '1', type_line: 'Creature — Devil' }));
+    const token = perm(card({ name: 'Devil', cmc: 0, power: '1', toughness: '1', type_line: 'Token Creature — Devil' }));
+    const r = applyDeathTriggers(bot({ battlefield: [judith] }), [dead, token]);
+    // One real creature died, one token: Judith says nontoken, so one damage.
+    expect(r.lifeLoss).toBe(1);
+    expect(r.logs.join(' | ')).toContain('Judith, the Scourge Diva deals 1 to you');
+  });
 });
 
 describe('creatures that would arrive as a 0/0', () => {

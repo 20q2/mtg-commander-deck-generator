@@ -150,9 +150,17 @@ export function applyDeathTriggers(
       const watcher = BOT_DEATH_WATCHERS[p.card.name];
       if (!watcher || !matchesWatcher(corpse, watcher)) continue;
       if (watcher.spec) run(`${p.card.name} sees ${corpse.card.name} die`, watcher.spec);
+      // The player-facing half. A drain is life loss by definition. A "deals
+      // N damage to any target" trigger has no read of your board here, so it
+      // goes to your face — which is where Judith points it once your blockers
+      // are gone anyway. Until this branch existed the bracket-4 deck's whole
+      // reach plan was registered and silently ignored.
       if (watcher.effect?.kind === 'drain') {
         lifeLoss += watcher.effect.amount;
         logs.push(`${next.name}'s ${p.card.name} drains you for ${watcher.effect.amount}`);
+      } else if (watcher.effect?.kind === 'damage') {
+        lifeLoss += watcher.effect.amount;
+        logs.push(`${next.name}'s ${p.card.name} deals ${watcher.effect.amount} to you`);
       }
     }
   }
