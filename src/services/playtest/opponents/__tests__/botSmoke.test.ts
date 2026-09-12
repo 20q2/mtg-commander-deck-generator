@@ -162,6 +162,16 @@ describe('bot engine smoke', () => {
     expect(res.final.graveyard.length).toBeGreaterThan(0);
   });
 
+  it('pitches a card it can never cast before a card it merely cannot afford yet', () => {
+    const counterspell = card({ name: 'Counterspell', type_line: 'Instant', cmc: 2 });
+    const bomb = card({ name: 'Inferno Titan', cmc: 6, power: '6', toughness: '6' });
+    const filler = Array.from({ length: 6 }, (_, i) => card({ name: `Goblin ${i}`, cmc: 1 }));
+    // No lands, so nothing is cast and eight cards face the seven-card limit.
+    const r = takeTurn(bot({ hand: [counterspell, bomb, ...filler] }), board());
+    expect(r.final.graveyard.map(c => c.name)).toEqual(['Counterspell']);
+    expect(r.final.hand.map(c => c.name)).toContain('Inferno Titan');
+  });
+
   it('a permanent with no tap ability makes no mana', () => {
     // Skirk Prospector: sacrifice a Goblin, not {T}. Two lands + it = 2 mana,
     // so a 3-drop must stay in hand.

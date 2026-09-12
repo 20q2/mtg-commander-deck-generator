@@ -1185,13 +1185,25 @@ export function takeTurn(
   // ── Cleanup ──
   // Seven cards, like anyone else. Without this a control bot's hand grows all
   // game, because a counterspell has no stack to answer and can never be cast.
-  // The most expensive card goes first: what is stuck is usually what is dear.
+  // Uncastable cards first, then the most expensive — see `priority` below.
   if (opp.hand.length > 7) {
+    /**
+     * What to pitch first. A card the bot can never cast — an instant or
+     * sorcery no registry has a script for, which in practice means the
+     * counterspells — is worth nothing in hand, so it goes before anything
+     * else. After that the most expensive card, since what is stuck is
+     * usually what is dear. Pitching the bombs first while a Counterspell
+     * sat in hand all game was the old order.
+     */
+    const uncastable = (c: ScryfallCard) =>
+      !isLand(c) && !isPermanent(c)
+      && !lookupSelfEffect(c.name) && !lookupEffect(c.name) && !BOT_CYCLING[c.name];
+    const priority = (c: ScryfallCard) => (uncastable(c) ? 1000 : 0) + costOf(c);
     const discarded: string[] = [];
     while (opp.hand.length > 7) {
       let worstIdx = 0;
       for (let i = 1; i < opp.hand.length; i++) {
-        if (costOf(opp.hand[i]) > costOf(opp.hand[worstIdx])) worstIdx = i;
+        if (priority(opp.hand[i]) > priority(opp.hand[worstIdx])) worstIdx = i;
       }
       discarded.push(opp.hand[worstIdx].name);
       opp.graveyard.push(opp.hand.splice(worstIdx, 1)[0]);
