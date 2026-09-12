@@ -236,6 +236,34 @@ export function takeTurn(
     battlefield: input.battlefield.map(p => ({ ...p })),
   };
 
+  /**
+   * The player's board as this turn sees it. A copy, because the bot's own
+   * plays change it: once a Murder has been pointed at your biggest creature,
+   * the second Murder this turn has to look at the board without it. The
+   * snapshot passed in never changes, so both used to pick the same target
+   * and the second one fizzled on resolution — two cards for one kill.
+   *
+   * Planned as if everything resolves. You might counter the first one, in
+   * which case the second was aimed at the wrong body; a real player makes
+   * the same bet.
+   */
+  const board: PlayerBoardRead = {
+    ...playerBoard,
+    cards: [...playerBoard.cards],
+    untappedCreatures: [...playerBoard.untappedCreatures],
+  };
+
+  /** Take what an effect does out of the bot's view, so later picks skip it. */
+  const spend = (effect: AppliedEffect) => {
+    if (effect.destroy.length > 0) {
+      const gone = new Set(effect.destroy);
+      board.cards = board.cards.filter(c => !gone.has(c.instanceId));
+      board.untappedCreatures = board.untappedCreatures.filter(c => !gone.has(c.instanceId));
+    }
+    board.handSize = Math.max(0, board.handSize - effect.discard);
+    board.life = Math.max(0, board.life - effect.lifeLoss);
+  };
+
   /** Capture the board as it stands, as one beat of the turn. */
   const frame = (
     logs: string[],
@@ -246,6 +274,7 @@ export function takeTurn(
     /** The card behind `effects`. Only beats that touch the player have one. */
     source?: StackSource,
   ) => {
+    effects.forEach(spend);
     // Triggers are billed against the board as it stands at the end of the
     // beat, so a Purphoros cast alongside its goblins counts them.
     const selfDamage = etbDamage(opp.battlefield, pendingCreatures);
@@ -600,7 +629,7 @@ export function takeTurn(
   for (const p of opp.battlefield) {
     const spec = BOT_RECURRING_EFFECTS[p.card.name];
     if (!spec) continue;
-    const hit = resolveEffect(spec, playerBoard, effectScale(spec));
+    const hit = resolveEffect(spec, board, effectScale(spec));
     if (hit) {
       frame(
         [`${opp.name}'s ${p.card.name} triggers`, `${opp.name} hits ${hit.target}`],
@@ -634,7 +663,7 @@ export function takeTurn(
     for (const p of opp.battlefield) {
       const spec = BOT_LANDFALL_EFFECTS[p.card.name];
       if (!spec) continue;
-      const hit = resolveEffect(spec, playerBoard, effectScale(spec));
+      const hit = resolveEffect(spec, board, effectScale(spec));
       if (hit) {
         frame(
           [`${opp.name}'s ${p.card.name} triggers on the land`, `${opp.name} hits ${hit.target}`],
@@ -706,7 +735,7 @@ export function takeTurn(
         hand: opp.hand,
         mana: availableMana(),
         costFor: card => effectiveCost(card, opp.battlefield),
-        board: playerBoard,
+        board,
         botPower: botPower(),
         turn: input.turnsTaken + 1,
         aggression: opp.aggression,
@@ -777,7 +806,7 @@ export function takeTurn(
     if (affordable && !cycle.preferred) continue;
     const specs = specsOf({ spec: cycle.spec ?? [] });
     const hit = cycle.effect
-      ? resolveEffect(cycle.effect, playerBoard, effectScale(cycle.effect))
+      ? resolveEffect(cycle.effect, board, effectScale(cycle.effect))
       : null;
     // Nothing to fetch and nothing to hit means the card is worth more in hand.
     if (!hit && !anySpecWouldDo(specs)) continue;
@@ -846,7 +875,7 @@ export function takeTurn(
       // A registry permanent is held back only while its effect has something to
       // hit. Once your board is empty it is just a body, and a bot that keeps it
       // in hand forever reads as a bot that has stopped playing.
-      if (opp.resistance && hasLiveTarget(card.name, playerBoard)) return;
+      if (opp.resistance && hasLiveTarget(card.name, board)) return;
       const cost = effectiveCost(card, opp.battlefield);
       // Cast the most expensive thing affordable — a rough proxy for "best play".
       if (cost <= mana && cost > bestCmc) {
@@ -895,7 +924,7 @@ export function takeTurn(
       // A player-facing ability is worth paying for when it has a target; a
       // self ability when at least one of its specs would do something.
       .filter(a => a.effect
-        ? resolveEffect(a.effect, playerBoard, effectScale(a.effect)) !== null
+        ? resolveEffect(a.effect, board, effectScale(a.effect)) !== null
         : anySpecWouldDo(specsOf({ spec: a.spec ?? [] })))
       // Ramp-on-legs is held while it is still a useful blocker.
       .filter(a => a.only !== 'behindOnLands' || behindOnLands())
@@ -920,7 +949,7 @@ export function takeTurn(
       }
     }
     if (ability.effect) {
-      const hit = resolveEffect(ability.effect, playerBoard, effectScale(ability.effect));
+      const hit = resolveEffect(ability.effect, board, effectScale(ability.effect));
       if (hit) {
         frame(
           [`${opp.name} activates ${live.card.name}`, `${opp.name} hits ${hit.target}`],
@@ -1051,11 +1080,11 @@ export function takeTurn(
     {
       id: null,
       name: 'you',
-      life: playerBoard.life,
-      untappedCreatures: playerBoard.untappedCreatures,
+      life: board.life,
+      untappedCreatures: board.untappedCreatures,
       // The player's whole board, not just what is untapped — a tapped
       // attacker is still a threat that comes back next turn.
-      threat: playerBoard.cards
+      threat: board.cards
         .filter(c => c.isCreature)
         .reduce((n, c) => n + Math.max(0, c.power), 0),
     },

@@ -189,4 +189,23 @@ describe('bot engine smoke', () => {
     const blocks = chooseBlocks({ attackers: [attacker], blockers, life: 40 });
     expect(blocks['atk']).toHaveLength(1);
   });
+
+  it('points two removal spells at two different creatures in one turn', () => {
+    const murder = () => card({ name: 'Murder', type_line: 'Instant', cmc: 3 });
+    const yours = (instanceId: string, power: number) => ({
+      instanceId, name: instanceId, isCreature: true, isArtifact: false,
+      power, toughness: power, isCommander: false, comboId: null,
+    });
+    const r = takeTurn(
+      bot({
+        resistance: true, hand: [murder(), murder()], turnsTaken: 6,
+        battlefield: Array.from({ length: 6 }, () => perm(MOUNTAIN())),
+      }),
+      board({ cards: [yours('big', 6), yours('small', 3)] }),
+    );
+    // The first Murder takes the 6/6. The second has to see a board without
+    // it, or it aims at the same corpse and fizzles.
+    const destroyed = r.frames.flatMap(f => f.effects).flatMap(e => e.destroy);
+    expect(destroyed).toEqual(['big', 'small']);
+  });
 });
