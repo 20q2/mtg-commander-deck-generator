@@ -93,12 +93,13 @@ export function OpponentSeat({
   const seatArt = useMemo(() => backgroundUrlForIdentity(opponent.colors), [opponent.colors]);
 
   /**
-   * Combat is the one moment the rest of the board stops mattering. While this
-   * seat is fighting, its rows and zones shrink so the strip can show the
-   * creatures actually in the fight at a size you can read. Nothing is hidden
-   * — everything they own is still on screen, just smaller for a beat.
+   * Combat is the one moment the rest of the board stops mattering — when
+   * THEY are attacking YOU. Their attackers are in the strip, so the rows can
+   * shrink to make room. Not the other way round: when you attack them, the
+   * creatures in the rows ARE the blockers you are trying to read, and
+   * shrinking them at that moment was the worst possible timing.
    */
-  const scale = inCombat ? COMBAT_SHRINK : 1;
+  const scale = attackingYou ? COMBAT_SHRINK : 1;
   const zoneWidth = Math.round(Math.max(14, width * 0.10 * scale));
 
   return (
