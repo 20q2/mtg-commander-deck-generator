@@ -1,6 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { isLand } from '@/components/playtest/utils';
+import { isLand, makeInstanceId } from '@/components/playtest/utils';
 import {
   BOT_DYNAMIC_STATS,
   costOf,
@@ -9,7 +9,7 @@ import {
   type BotStaticSpec,
 } from '@/services/playtest/opponents/effects';
 import { keywordsOf, type CombatKeyword } from '@/services/playtest/combat';
-import type { OpponentPermanent } from '@/components/playtest/opponentTypes';
+import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 
 /**
  * Power, toughness and type questions about a bot's permanents.
@@ -89,6 +89,17 @@ function counterDelta(p: OpponentPermanent): number {
   return (p.counters['+1/+1'] ?? 0) - (p.counters['-1/-1'] ?? 0);
 }
 
+/**
+ * The until-end-of-turn pump, if one is live — Goreclaw's attack trigger.
+ *
+ * Additive like a counter rather than replacing anything, which is the whole
+ * reason it is not a `CardEdit`: a pumped Lord of Extinction is still sized by
+ * the graveyard, it is just a point bigger than that for the turn.
+ */
+function tempDelta(p: OpponentPermanent, key: 'power' | 'toughness'): number {
+  return p.tempBoost?.[key] ?? 0;
+}
+
 /** What every anthem on the board adds to this one permanent. */
 export function anthemBonus(
   p: OpponentPermanent,
@@ -138,6 +149,7 @@ export function botPower(
 ): number {
   return baseStat(p, 'power')
     + counterDelta(p)
+    + tempDelta(p, 'power')
     + anthemBonus(p, battlefield).power
     // An edit replaces a characteristic-defining `*` outright, so there's
     // nothing left for the graveyard/land count to define.
@@ -154,6 +166,7 @@ export function botToughness(
     0,
     baseStat(p, 'toughness')
       + counterDelta(p)
+      + tempDelta(p, 'toughness')
       + anthemBonus(p, battlefield).toughness
       + (p.edit ? 0 : dynamicBonus(p, battlefield, graveyard).toughness),
   );
@@ -210,6 +223,11 @@ export function botKeywords(
   graveyard: ScryfallCard[] = [],
 ): Set<CombatKeyword> {
   const out = keywordsOf(p.card, p.edit);
+  // A pump's keywords come first, and survive `loseAbilities`. Unlike a lord's
+  // static — which a Frogified creature simply no longer answers to — this is a
+  // one-shot grant that lands AFTER whatever rewrote the creature, so Goreclaw
+  // hands trample to a thing that has been turned into a Frog.
+  for (const k of p.tempBoost?.keywords ?? []) out.add(k);
   // A creature stripped of its abilities can't be granted them back by a lord.
   if (p.edit?.loseAbilities) return out;
   const grant = (spec: BotStaticSpec) => {
@@ -252,10 +270,85 @@ export function arrivesDead(
   return botToughness(arriving, [...battlefield, arriving], graveyard) <= 0;
 }
 
+/**
+ * End an until-end-of-turn pump across a seat's whole board.
+ *
+ * Called when combat resolves rather than at the end of the bot's turn, and the
+ * order is the reason: the bot declares its attack and then STOPS, waiting for
+ * you to block. Clearing at the end of the turn loop would have taken Goreclaw's
+ * +1/+1 off the attackers before you ever saw them, so the trigger would have
+ * fired, logged, and changed nothing about the combat it exists for.
+ *
+ * Returns the seat unchanged when nothing is pumped, so the store's `set` does
+ * not churn every board every combat.
+ */
+export function clearTempBoosts(opp: Opponent): Opponent {
+  if (!opp.battlefield.some(p => p.tempBoost)) return opp;
+  return {
+    ...opp,
+    battlefield: opp.battlefield.map(p => (p.tempBoost ? { ...p, tempBoost: undefined } : p)),
+  };
+}
+
 /** Token counts are multiplied by this. Two doublers make four times as many. */
 export function tokenMultiplier(battlefield: OpponentPermanent[]): number {
   const doublers = battlefield.filter(
     p => staticsOf(p.card.name).some(spec => spec.kind === 'tokenDoubler'),
   ).length;
   return 2 ** doublers;
+}
+
+/**
+ * Does this card arrive sideways?
+ *
+ * Read off the oracle text, not a registry: "enters tapped" is on hundreds of
+ * cards a bot deck can contain — every Guildgate, Triome, Temple and bounce
+ * land, and half the two-and-three-mana rocks — and a per-card list would be
+ * out of date the week it was written. Nothing on the bot's side used to read
+ * those words at all, so a Worn Powerstone was cast and tapped for two on the
+ * same turn.
+ *
+ * Two things it deliberately gets wrong in the bot's favour:
+ *
+ *  - "…unless you pay 2 life" / "…unless you control two or more other lands"
+ *    reads as untapped. Shocklands, checklands and fast lands are conditional,
+ *    and the condition is met more often than not by the turn a bot plays one.
+ *  - A clause about OTHER permanents entering tapped is not about this card, so
+ *    the subject has to be the card itself — "Worn Powerstone enters tapped" or
+ *    the newer "This artifact enters tapped", never Amulet of Vigor's "Whenever
+ *    a permanent you control enters tapped".
+ */
+export function entersTapped(card: ScryfallCard): boolean {
+  const text = card.oracle_text ?? card.card_faces?.[0]?.oracle_text ?? '';
+  if (!text) return false;
+  const self = card.name.split('//')[0].trim().toLowerCase();
+  // Clause by clause: a card can say it enters tapped in one sentence and talk
+  // about something else entirely in the next.
+  for (const clause of text.split(/\n|\.\s+/)) {
+    const m = clause.match(/^(.*?)\benters(?: the battlefield)? tapped\b/i);
+    if (!m) continue;
+    if (/\bunless\b/i.test(clause)) continue;
+    const subject = m[1].trim().toLowerCase();
+    if (subject === self || /^this\b/.test(subject)) return true;
+  }
+  return false;
+}
+
+/**
+ * A card arriving on a bot's battlefield.
+ *
+ * Shared rather than written out wherever a permanent lands, because the two
+ * copies of this that used to exist — one in the engine, one in the death
+ * handler — are exactly how a card would come back from the graveyard ignoring
+ * a rule the engine had learned.
+ */
+export function toPermanent(card: ScryfallCard): OpponentPermanent {
+  return {
+    instanceId: makeInstanceId(),
+    card,
+    tapped: entersTapped(card),
+    // Only creatures care, but tracking it uniformly keeps the attack step simple.
+    summoningSick: true,
+    counters: {},
+  };
 }

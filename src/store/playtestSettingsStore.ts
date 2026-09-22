@@ -55,6 +55,13 @@ export const CARD_SIZES: Record<BattlefieldCardSize, { label: string; width: num
  */
 export type OpponentPreviewMode = 'ctrl' | 'hover' | 'off';
 
+/**
+ * The same choice for your own cards, minus `off` — a hand card is 130px wide
+ * and the preview is the only way to read one, so there always has to be a
+ * gesture that opens it.
+ */
+export type CardPreviewMode = 'ctrl' | 'hover';
+
 export type LogFilter = Record<LogCategory, boolean>;
 
 const ALL_LOG_CATEGORIES_ON: LogFilter = {
@@ -64,7 +71,11 @@ const ALL_LOG_CATEGORIES_ON: LogFilter = {
 interface Settings {
   bg: BgChoice;
   cardSize: BattlefieldCardSize;
+  /** How your own cards open their magnified preview. */
+  cardPreview: CardPreviewMode;
   animations: boolean;
+  /** Quiet synthesized table sounds — shuffle, draw, counter click, card landing, tap. */
+  sounds: boolean;
   dotGrid: boolean;
   logFilter: LogFilter;
   opponentPreview: OpponentPreviewMode;
@@ -83,7 +94,9 @@ interface Settings {
 interface SettingsActions {
   setBg: (bg: BgChoice) => void;
   setCardSize: (size: BattlefieldCardSize) => void;
+  setCardPreview: (mode: CardPreviewMode) => void;
   setAnimations: (v: boolean) => void;
+  setSounds: (v: boolean) => void;
   setDotGrid: (v: boolean) => void;
   setLogFilter: (filter: LogFilter) => void;
   toggleLogCategory: (category: LogCategory) => void;
@@ -96,7 +109,9 @@ interface SettingsActions {
 const defaults: Settings = {
   bg: { kind: 'preset', id: 'arena' },
   cardSize: 'medium',
+  cardPreview: 'ctrl',
   animations: true,
+  sounds: true,
   dotGrid: true,
   logFilter: ALL_LOG_CATEGORIES_ON,
   opponentPreview: 'ctrl',
@@ -144,7 +159,9 @@ export const usePlaytestSettings = create<Settings & SettingsActions>((set, get)
   ...load(),
   setBg: (bg) => { set({ bg }); save({ ...get(), bg }); },
   setCardSize: (cardSize) => { set({ cardSize }); save({ ...get(), cardSize }); },
+  setCardPreview: (cardPreview) => { set({ cardPreview }); save({ ...get(), cardPreview }); },
   setAnimations: (animations) => { set({ animations }); save({ ...get(), animations }); },
+  setSounds: (sounds) => { set({ sounds }); save({ ...get(), sounds }); },
   setDotGrid: (dotGrid) => { set({ dotGrid }); save({ ...get(), dotGrid }); },
   setLogFilter: (logFilter) => { set({ logFilter }); save({ ...get(), logFilter }); },
   setOpponentPreview: (opponentPreview) => { set({ opponentPreview }); save({ ...get(), opponentPreview }); },

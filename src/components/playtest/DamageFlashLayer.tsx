@@ -1,4 +1,3 @@
-import { createPortal } from 'react-dom';
 import { useDamageFlash } from '@/store/damageFlashStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 
@@ -12,8 +11,16 @@ const BLOOM = (towards: 'right' | 'left') =>
 
 /**
  * "Ouch." A soft red bloom pushing in from the left and right edges whenever your
- * life total drops. One fixed layer at the document level, above the board but under
- * the outcome banner, and never in the way of a click.
+ * life total drops. Above everything on the board and never in the way of a click.
+ *
+ * It lives inside the battlefield rather than over the document, so the bloom
+ * stops at the edges of the table. As a fixed full-viewport layer it also washed
+ * the game log and your hand, which made a hit read as the whole app flinching
+ * rather than as something happening on the board — and the log is text you may
+ * be reading at that moment.
+ *
+ * `overflow-hidden` on this layer rather than relying on the battlefield's: the
+ * canvas drops its own clip while a group of cards is being dragged.
  *
  * Peak opacity rides the `--flash-op` custom property so the keyframes can stay
  * generic while each hit lands at its own strength.
@@ -24,13 +31,19 @@ export function DamageFlashLayer() {
 
   if (!animations || !flash) return null;
 
-  // A light hit stays a thin rim; a heavy one reaches a third of the way across.
-  const reach = 14 + flash.intensity * 20;
-  const style = { width: `${reach}vw`, '--flash-op': flash.intensity } as React.CSSProperties;
+  // A light hit stays a thin rim; a heavy one reaches a third of the way across
+  // the table. A share of the table, not of the viewport: the side panel is no
+  // longer part of the width this is measured against.
+  const reach = 18 + flash.intensity * 26;
+  const style = { width: `${reach}%`, '--flash-op': flash.intensity } as React.CSSProperties;
 
-  return createPortal(
+  return (
     // Keyed on the hit id so a fresh hit remounts and replays the animation.
-    <div key={flash.id} className="fixed inset-0 z-[290] pointer-events-none overflow-hidden" aria-hidden>
+    <div
+      key={flash.id}
+      className="absolute inset-0 z-[45] pointer-events-none overflow-hidden"
+      aria-hidden
+    >
       <div
         className="absolute inset-y-0 left-0 origin-left animate-damage-flash"
         style={{ ...style, background: BLOOM('right') }}
@@ -39,7 +52,6 @@ export function DamageFlashLayer() {
         className="absolute inset-y-0 right-0 origin-right animate-damage-flash"
         style={{ ...style, background: BLOOM('left') }}
       />
-    </div>,
-    document.body,
+    </div>
   );
 }

@@ -1,42 +1,42 @@
 {
   "goblin-aggro": {
-    "understood": 89,
-    "gaps": 3,
-    "cards": 27
+    "understood": 100,
+    "gaps": 0,
+    "cards": 26
   },
   "dimir-control": {
-    "understood": 91,
+    "understood": 93,
     "gaps": 3,
-    "cards": 32
+    "cards": 42
   },
   "selesnya-tokens": {
     "understood": 100,
     "gaps": 0,
-    "cards": 27
+    "cards": 44
   },
   "golgari-graveyard": {
-    "understood": 96,
+    "understood": 98,
     "gaps": 1,
-    "cards": 27
+    "cards": 44
   },
   "eternal-might": {
-    "understood": 90,
-    "gaps": 9,
-    "cards": 89
+    "understood": 100,
+    "gaps": 0,
+    "cards": 52
   },
   "sultai-arisen": {
-    "understood": 95,
-    "gaps": 4,
-    "cards": 88
+    "understood": 100,
+    "gaps": 0,
+    "cards": 51
   },
   "old-growth-stampede": {
     "understood": 97,
     "gaps": 1,
-    "cards": 34
+    "cards": 39
   },
   "mirror-break": {
     "understood": 100,
     "gaps": 0,
-    "cards": 35
+    "cards": 42
   }
 }

@@ -585,7 +585,7 @@ export type Pacing = 'aggressive-early' | 'fast-tempo' | 'balanced' | 'midrange'
 // Per-role breakdown of how the final target count was derived.
 // Used by the optimizer UI to show an "EDHREC-typical + archetype + pacing" tooltip.
 export interface RoleTargetBreakdown {
-  edhrecCount: number | null;   // null when no EDHREC data was passed in
+  edhrecCount: number | null;   // role's average per-deck count on the EDHREC page; null when no EDHREC data was passed in
   archetypeTarget: number;      // base × archetype multiplier (before blend, before pacing)
   pacingMultiplier: number;     // pacing multiplier applied after the blend
   blended: number;              // final target after blend + pacing + clamp

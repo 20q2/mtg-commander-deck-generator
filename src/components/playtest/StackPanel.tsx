@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, Hand as HandIcon, Heart, Layers, Skull, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useOpponentStore } from '@/store/opponentStore';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { StackTargeting } from '@/components/playtest/StackTargeting';
+import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import type { StackItem, StackKind } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
 
@@ -64,8 +65,8 @@ export function StackPanel() {
           onClick={() => setHold(!hold)}
           title={
             hold
-              ? 'Holding priority — spells wait for you to answer them'
-              : 'Auto-passing — spells show for a beat, then resolve themselves'
+              ? "Holding priority — a bot's turn pauses until you resolve or counter. Click to auto-pass."
+              : 'Auto-passing — spells show for a beat, then resolve themselves. Click to hold priority.'
           }
           className={`ml-auto text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors ${
             hold
@@ -78,8 +79,26 @@ export function StackPanel() {
       </div>
 
       {!busy ? (
-        <div className="px-3 py-2 text-[10px] text-muted-foreground/70 italic leading-snug">
-          Nothing waiting. Spells the bots aim at you stop here first.
+        // The idle panel is the only place the two modes can be explained,
+        // because it is the only time this panel is on screen and not urgent.
+        // Keyed on the mode rather than describing both: you are choosing
+        // whether a bot's turn STOPS for you, and the useful sentence is the
+        // one about the setting you are actually playing under.
+        <div className="px-3 py-2 text-[10px] text-muted-foreground/70 leading-snug space-y-1.5">
+          <p className="italic">Nothing waiting. Spells the bots aim at you stop here first.</p>
+          {hold ? (
+            <p>
+              <span className="font-semibold text-rose-200">Hold</span> — their turn
+              pauses here until you answer. Tap lands, cast what you need, then
+              Resolve it or Counter it yourself.
+            </p>
+          ) : (
+            <p>
+              <span className="font-semibold text-foreground/80">Auto</span> — each one
+              shows for a beat and then resolves itself. Their turn never stops, so
+              there is no window to counter anything.
+            </p>
+          )}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-2 py-2 space-y-2">
@@ -133,8 +152,14 @@ function StackCard({
       }`}
     >
       {/* The face. Art first, name over it — you should know what hit you
-          before you have read a word of it. */}
-      <div className="relative h-14 bg-black/60">
+          before you have read a word of it. Then hover it for the rules text,
+          because knowing what hit you is not the same as knowing what it
+          does, and that is the question this panel is asking. */}
+      <PreviewOnHover
+        card={item.card}
+        title={item.card ? `${item.card.name} — hover to read it` : undefined}
+        className="relative h-14 bg-black/60"
+      >
         {art && (
           <img src={art} alt="" className="w-full h-full object-cover" draggable={false} loading="lazy" />
         )}
@@ -147,7 +172,7 @@ function StackCard({
             {item.opponentName} {KIND_LABEL[item.kind]}
           </div>
         </div>
-      </div>
+      </PreviewOnHover>
 
       <div className="px-2 py-1.5 space-y-1.5">
         <div className={`text-[10px] leading-snug ${fizzles ? 'text-muted-foreground/70 line-through' : 'text-foreground/90'}`}>
@@ -159,17 +184,18 @@ function StackCard({
             {targets.map(t => {
               const tArt = artOf(t.card);
               return (
-                <div
+                <PreviewOnHover
                   key={t.instanceId}
+                  card={t.card}
+                  title={`${t.card.name} — yours, and what this is aimed at`}
                   className="w-9 h-7 rounded-[3px] overflow-hidden ring-1 ring-rose-400/60 bg-black/50 shrink-0"
-                  title={t.card.name}
                 >
                   {tArt ? (
                     <img src={tArt} alt="" className="w-full h-full object-cover" draggable={false} loading="lazy" />
                   ) : (
                     <span className="text-[7px] text-muted-foreground px-0.5 truncate block">{t.card.name}</span>
                   )}
-                </div>
+                </PreviewOnHover>
               );
             })}
           </div>
@@ -220,6 +246,44 @@ function StackCard({
       </div>
 
       {active && <StackTargeting item={item} anchor={anchor} />}
+    </div>
+  );
+}
+
+/**
+ * Anything in this panel that is an art crop rather than a card face, made
+ * hoverable: the spell's own face, and each of your permanents it is pointing
+ * at.
+ *
+ * Deliberately NOT behind the magnify setting, unlike every other preview in
+ * playtest. Elsewhere the thing you are pointing at is already a card — the
+ * preview only makes it bigger. Here it never is: a 56px art crop carries no
+ * rules text and a 36px target thumb carries no name, so "hold Ctrl" would
+ * leave the spell you are being asked to answer unreadable by default, and
+ * the bots' `off` setting would leave it unreadable full stop.
+ *
+ * `side="right"` because the panel is pinned to the right edge of the window:
+ * the preview finds no room there and flips to the left, clear of the tile it
+ * came from.
+ */
+function PreviewOnHover({ card, title, className, children }: {
+  card?: ScryfallCard;
+  title?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [hovered, setHovered] = useState(false);
+  return (
+    <div
+      ref={ref}
+      title={title}
+      className={`${className ?? ''}${card ? ' cursor-zoom-in' : ''}`}
+      onPointerEnter={(e) => { if (e.pointerType === 'mouse') setHovered(true); }}
+      onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHovered(false); }}
+    >
+      {children}
+      {card && hovered && <MagnifiedPreview card={card} anchorRef={ref} side="right" />}
     </div>
   );
 }

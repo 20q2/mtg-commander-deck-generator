@@ -63,6 +63,17 @@ export interface BattlefieldCard {
   arrivedTurn?: number;
 }
 
+/**
+ * A card's height divided by its width. Scryfall's images are 488×680 and a
+ * real card is 88mm × 63mm, which agree to within a pixel.
+ *
+ * Anywhere a card's width is chosen and its height has to be reserved — a
+ * rotated permanent's footprint, a preview box, a size that has to fit inside
+ * something — derive it from this rather than letting the image decide after
+ * layout has already happened.
+ */
+export const CARD_ASPECT = 1.396;
+
 export type LogCategory = 'move' | 'tap' | 'library' | 'counter' | 'life' | 'turn' | 'bot' | 'system';
 
 export const LOG_CATEGORIES: { key: LogCategory; label: string; chip: string }[] = [
@@ -141,6 +152,7 @@ export interface PlaytestSnapshot {
   battlefield: BattlefieldCard[];
   life: number;
   turn: number;
+  commanderTax: number;
   /**
    * Snapshots from stores registered with the undo bridge — currently the
    * opponents' boards and any open combat. Opaque here on purpose: this module
@@ -190,7 +202,7 @@ export type Modal =
   | { kind: 'create' }
   | { kind: 'newCardTrial' }
   | { kind: 'opponents' }
-  | { kind: 'opponentZone'; opponentId: string; zone: 'graveyard' | 'exile' }
+  | { kind: 'opponentZone'; opponentId: string; zone: 'graveyard' | 'exile' | 'hand' | 'library' }
   | { kind: 'mulligan'; mulliganCount: number }
   | { kind: 'handDiscard'; down_to: number }
   | { kind: 'editCreature'; target: EditTarget };
@@ -213,3 +225,7 @@ export interface MoveArgs {
   source: MoveSource;
   target: MoveTarget;
 }
+
+/** How the hand fan is ordered. The control lives in two places — a select
+ *  on desktop, the phone's Actions menu — so the type is shared. */
+export type SortMode = 'none' | 'cmc' | 'type';

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sparkles, BookOpen, Trash2, Crown, Shuffle } from 'lucide-react';
+import { Sparkles, BookOpen, Trash2, Crown, Shuffle, Minus, Plus } from 'lucide-react';
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
-import { useMagnifyKey } from '@/hooks/useMagnifyKey';
+import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import type { ZoneKey } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
 
@@ -29,6 +30,7 @@ export const PILES: PileSpec[] = [
 const DEAL_OUT_MS = 200;
 
 export function PlaytestPile({ spec }: { spec: PileSpec }) {
+  const isDesktop = useMediaQuery('(min-width: 768px)');
   const cards = usePlaytestStore(s => s.zones[spec.zone]);
   const openModal = usePlaytestStore(s => s.openModal);
   const closeModal = usePlaytestStore(s => s.closeModal);
@@ -109,8 +111,8 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
   const Icon = spec.Icon;
   const imgRef = useRef<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState(false);
-  const magnify = useMagnifyKey();
-  const showPreview = magnify && hovered && spec.faceUp && top && !drag.isDragging;
+  const magnified = useMagnifyHover(hovered);
+  const showPreview = magnified && spec.faceUp && top && !drag.isDragging;
 
   const onClickPile = () => {
     if (cards.length === 0) return;
@@ -135,11 +137,19 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
   };
 
   const interactive = cards.length > 0;
+  // There is no right-click on a phone, and no number to type either. The zone
+  // menus that clause pointed at are reachable from the Deck / Grave / Exile
+  // buttons in the hand toolbar below 768px, so the hint drops rather than
+  // sending touch users after a gesture their device doesn't have.
   const titleText = !interactive
     ? spec.label
     : spec.zone === 'library'
-      ? `Click to draw a card · type a number to draw that many · right-click to search ${spec.label.toLowerCase()}`
-      : `Click to play top card · type a number to take that many to hand · right-click to view ${spec.label.toLowerCase()}`;
+      ? isDesktop
+        ? `Click to draw a card · type a number to draw that many · right-click to search ${spec.label.toLowerCase()}`
+        : 'Tap to draw a card'
+      : isDesktop
+        ? `Click to play top card · type a number to take that many to hand · right-click to view ${spec.label.toLowerCase()}`
+        : 'Tap to play the top card';
 
   return (
     <div
@@ -228,7 +238,9 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
           size="icon"
           title="Shuffle library (S)"
           aria-label="Shuffle library"
-          className="absolute top-0.5 right-0.5 z-10 h-5 w-5 rounded-md bg-blue-950/70 hover:bg-blue-900/90 text-blue-100/80 hover:text-blue-50 border border-blue-400/30 shadow-none [&_svg]:size-3"
+          // 28px on phones: the pile under it is draggable, so a missed tap
+          // starts a drag instead of shuffling. Desktop keeps its 20px chip.
+          className="absolute top-0.5 right-0.5 z-10 h-7 w-7 md:h-5 md:w-5 rounded-md bg-blue-950/70 hover:bg-blue-900/90 text-blue-100/80 hover:text-blue-50 border border-blue-400/30 shadow-none [&_svg]:size-4 md:[&_svg]:size-3"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); shuffle(); }}
         >
@@ -236,10 +248,76 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
         </Button>
       )}
       {showPreview && top && <MagnifiedPreview card={top} anchorRef={imgRef} />}
-      <div className={`mt-1 text-[10px] flex items-center justify-between gap-1 px-0.5 ${cards.length === 0 ? 'opacity-60' : ''}`}>
-        <span className="truncate">{spec.label}</span>
-        <span className="font-bold tabular-nums">{cards.length}</span>
-      </div>
+      {spec.zone === 'command' ? (
+        <CommanderTax />
+      ) : (
+        <div className={`mt-1 text-[10px] flex items-center justify-between gap-1 px-0.5 ${cards.length === 0 ? 'opacity-60' : ''}`}>
+          <span className="truncate">{spec.label}</span>
+          <span className="font-bold tabular-nums">{cards.length}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The command pile's footer counts commander tax rather than cards. A count of
+ * "1" under a pile that shows your commander's face was the least useful number
+ * on the table; the +2 per cast is the one you actually have to hold in your
+ * head, and nothing else here was tracking it.
+ *
+ * Stepped by hand on purpose. The store can see a card leave the command zone
+ * but not whether that was a cast — putting it into play with Elesh Norn's
+ * ability, say, taxes nothing — so an automatic count would be wrong exactly
+ * when you were relying on it.
+ */
+function CommanderTax() {
+  const tax = usePlaytestStore(s => s.commanderTax);
+  const adjust = usePlaytestStore(s => s.adjustCommanderTax);
+  // The pile itself plays its top card on click and opens the zone on
+  // right-click. Neither should fire from the stepper.
+  const hit = (delta: number) => (e: React.MouseEvent) => { e.stopPropagation(); adjust(delta); };
+
+  return (
+    // The negative margin cancels the pile's own horizontal padding: the
+    // floating phone pile is 56px wide and a label, two buttons and the number
+    // do not fit inside it otherwise.
+    <div
+      className="mt-1 -mx-1 flex items-center gap-0 md:gap-0.5 text-[10px]"
+      onContextMenu={e => e.stopPropagation()}
+    >
+      {/* The word only fits on the hand-row pile; the floating phone pile is
+          56px wide and the stepper needs all of it. */}
+      <span className="hidden md:inline min-w-0 truncate text-muted-foreground">Tax</span>
+      <Button
+        variant="ghost"
+        size="icon"
+        title="Commander tax down 2"
+        aria-label="Commander tax down 2"
+        disabled={tax === 0}
+        className="ml-auto h-4 w-4 rounded shrink-0 text-purple-200/70 hover:text-purple-50 hover:bg-purple-500/25 disabled:opacity-30 [&_svg]:size-3"
+        onPointerDown={e => e.stopPropagation()}
+        onClick={hit(-2)}
+      >
+        <Minus />
+      </Button>
+      <span
+        className={`font-bold tabular-nums leading-none ${tax === 0 ? 'text-muted-foreground' : 'text-purple-100'}`}
+        title={`Commander tax: +${tax} to cast from the command zone`}
+      >
+        +{tax}
+      </span>
+      <Button
+        variant="ghost"
+        size="icon"
+        title="Commander tax up 2"
+        aria-label="Commander tax up 2"
+        className="h-4 w-4 rounded shrink-0 text-purple-200/70 hover:text-purple-50 hover:bg-purple-500/25 [&_svg]:size-3"
+        onPointerDown={e => e.stopPropagation()}
+        onClick={hit(2)}
+      >
+        <Plus />
+      </Button>
     </div>
   );
 }

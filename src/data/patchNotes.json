@@ -1,5 +1,16 @@
 [
   {
+    "version": "1.3.39",
+    "notes": [
+      "A new and large undertaking... Play a real game against bot opponents in the playtest! This feature is still rather early in development, so feedback would be much appreciated!",      
+      "Additional UI updates to the Playtest page",
+      "Combat phase introduced while bots are in play: drag a creature onto a seat to attack, draw arrows to declare your blocks, and confirm before damage happens",      
+      "Playtest counter improvements and a new addition in text stickers",            
+      "New Playtest Card Trial option — pin up to 3 cards into your opening hand or on top of your library to help see how they actually play",      
+      "Addressed a bug that was causing large ramp, removal and protection targets in sub 100 card decks"
+    ]
+  },
+  {
     "version": "1.3.38",
     "notes": [
       "A freshly built deck now tells you it isn't saved yet, and points you straight at the buttons to either save it or make a quick swap",

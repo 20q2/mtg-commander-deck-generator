@@ -4068,7 +4068,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return ids;
   }, [statsFilter, groupedCards, collectionNames, totalCollectionNames, binderEntriesTotal]);
 
-  // Build set of card IDs matching the search query (name or oracle text)
+  // Build set of card IDs matching the search query (name, type line, or oracle text)
   const searchMatchingIds = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return null;
@@ -4076,9 +4076,10 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     const ids = new Set<string>();
     for (const { card } of allGrouped) {
       const name = card.name?.toLowerCase() || '';
+      const typeLine = card.type_line?.toLowerCase() || '';
       const oracleText = card.oracle_text?.toLowerCase() || '';
-      const faceTexts = card.card_faces?.map(f => `${f.name?.toLowerCase() || ''} ${f.oracle_text?.toLowerCase() || ''}`).join(' ') || '';
-      if (name.includes(query) || oracleText.includes(query) || faceTexts.includes(query)) {
+      const faceTexts = card.card_faces?.map(f => `${f.name?.toLowerCase() || ''} ${f.type_line?.toLowerCase() || ''} ${f.oracle_text?.toLowerCase() || ''}`).join(' ') || '';
+      if (name.includes(query) || typeLine.includes(query) || oracleText.includes(query) || faceTexts.includes(query)) {
         ids.add(card.id);
       }
     }

@@ -27,9 +27,10 @@ import { readFileSync, writeFileSync } from 'node:fs';
 
 const STUBS = new URL('../src/data/opponentStubs.json', import.meta.url);
 /**
- * Written on every run. The seat picker badges each deck with how well the bot
- * knows it, and a hand-set label would drift the moment a registry entry lands
- * — so the badge reads this, and this is a measurement.
+ * Written on every run: the machine-readable form of the report below, so a
+ * run's numbers can be diffed against the last one. Nothing in the app reads
+ * it — the seat picker used to badge each deck with its readiness and no
+ * longer does.
  */
 const COVERAGE = new URL('../src/data/botDeckCoverage.json', import.meta.url);
 const FIXTURE = new URL(

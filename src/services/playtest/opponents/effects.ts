@@ -12,6 +12,7 @@
  */
 
 import type { CombatKeyword } from '@/services/playtest/combat';
+import type { DevotionColor } from '@/services/playtest/opponents/mana';
 
 export type BotEffectSpec =
   /** Destroy the best creature on the player's board. */
@@ -42,8 +43,13 @@ export type BotEffectSpec =
    * number of Zombies you control". A fixed number would make The Scarab God a
    * 5-mana Lava Spike on a board of twelve zombies, which is the opposite of
    * what that card is feared for.
+   *
+   * `perDevotion` scales it by the bot's devotion to that colour instead —
+   * Gray Merchant. Same reasoning: pinned at its floor of 2 it was a five-mana
+   * Shock, when the whole reason a mono-black deck plays it is that by the time
+   * it lands the board has made it a Lava Axe.
    */
-  | { kind: 'drain'; amount: number; perSubtype?: string }
+  | { kind: 'drain'; amount: number; perSubtype?: string; perDevotion?: DevotionColor }
   /** Discard at random from the player's hand. */
   | { kind: 'discard'; count: number };
 
@@ -118,7 +124,7 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   // ── Permanents that do something on arrival ──
   'Ravenous Chupacabra':   { spec: { kind: 'destroyCreature' }, etb: true },
   'Bone Shredder':         { spec: { kind: 'destroyCreature' }, etb: true },
-  'Gray Merchant of Asphodel': { spec: { kind: 'drain', amount: 2 }, etb: true },
+  'Gray Merchant of Asphodel': { spec: { kind: 'drain', amount: 1, perDevotion: 'B' }, etb: true },
   'Sheoldred, Whispering One':  { spec: { kind: 'edict' }, etb: true },
   'Goblin Trashmaster':    { spec: { kind: 'artifactSweep' }, etb: true },
   'Shriekmaw':             { spec: { kind: 'destroyCreature' }, etb: true },
@@ -217,7 +223,33 @@ export type BotSelfSpec =
    * few turns. Life from the Loam is the second and Teval is the first, and
    * collapsing them into one would have made one of the two cards a lie.
    */
-  | { kind: 'reclaimLands'; count: number; to: 'hand' | 'battlefield'; tapped?: boolean };
+  | { kind: 'reclaimLands'; count: number; to: 'hand' | 'battlefield'; tapped?: boolean }
+  /**
+   * "…gets +1/+1 and gains trample until end of turn." A pump that expires,
+   * which is the one thing none of the other stat machinery could express.
+   *
+   * The board already had three permanent ways to be bigger — counters,
+   * anthems and a `CardEdit` — and a commander whose whole trigger is a
+   * temporary buff could use none of them. An anthem is a static read off a
+   * permanent that is always there; a counter never goes away. So this writes
+   * a `tempBoost` onto each matching permanent and combat clears it.
+   *
+   * `minPower` is measured LIVE, against the power the creature has right now
+   * with its counters and anthems counted — Goreclaw's "power 4 or greater"
+   * is supposed to turn on for a 3/3 wearing a +1/+1 counter, and reading the
+   * printed number would have quietly excluded half the board it exists for.
+   */
+  | {
+      kind: 'pump';
+      power: number;
+      toughness: number;
+      /** Only creatures whose live power is at least this. */
+      minPower?: number;
+      /** Only creatures of this subtype — Temmet pumps Zombies, not the board. */
+      subtype?: string;
+      /** Keywords granted for the turn alongside the stats. */
+      keywords?: CombatKeyword[];
+    };
 
 export interface BotSelfEntry {
   /**
@@ -256,6 +288,31 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   'Krenko, Mob Boss':     { spec: { kind: 'makeTokens', tokens: [{ name: 'Goblin', count: 1, countPerSubtype: 'goblin' }] }, timing: 'combat', tapsSource: true },
   'Goblin Rabblemaster':  { spec: { kind: 'makeTokens', tokens: [{ name: 'Goblin', count: 1 }] }, timing: 'combat' },
   "Krenko's Command":     { spec: { kind: 'makeTokens', tokens: [{ name: 'Goblin', count: 2 }] } },
+  /*
+   * "Battalion — whenever this and at least two other creatures attack,
+   * creatures you control gain first strike and trample until end of turn."
+   *
+   * The battalion count is not checked. It fires only when Loyalist itself
+   * attacks, and a goblin deck swinging with Loyalist is essentially never
+   * swinging alone — so the condition is met in practice and testing it would
+   * buy nothing. First strike across a goblin swarm is the card: it turns
+   * every even trade into a free one.
+   */
+  'Legion Loyalist':      {
+    spec: { kind: 'pump', power: 0, toughness: 0, keywords: ['firstStrike', 'trample'] },
+    timing: 'attack',
+  },
+  /*
+   * "Kicker {R}. When this enters, if it was kicked, creatures you control get
+   * +1/+0 and gain haste until end of turn."
+   *
+   * Always cast kicked — the price is in BOT_COSTS, and nobody plays this card
+   * for the 1/1 body. The haste half is NOT modelled: haste is read off
+   * `card.keywords` and granted only by `grantsHaste` statics, so a temporary
+   * grant has nowhere to live. That makes this the anthem half only, which
+   * undersells the alpha strike but is honest about what the board will do.
+   */
+  'Goblin Bushwhacker':   { spec: { kind: 'pump', power: 1, toughness: 0 } },
   'Dragon Fodder':        { spec: { kind: 'makeTokens', tokens: [{ name: 'Goblin', count: 2 }] } },
   'Mogg War Marshal':     { spec: { kind: 'makeTokens', tokens: [{ name: 'Goblin', count: 1 }] } },
   'Goblin Instigator':    { spec: { kind: 'makeTokens', tokens: [{ name: 'Goblin', count: 1 }] } },
@@ -305,12 +362,28 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   // four is about what a hand looks like when a six-drop resolves.
   'Commence the Endgame': { spec: { kind: 'amass', count: 4 } },
 
-  // The commander. Vigilance means it attacks every turn without giving up its
-  // blocking, so the loot trigger is close to guaranteed once it lands — which
-  // is exactly why leaving the deck's own commander unauthored was the single
-  // worst gap in it. Modelled as the draw; the discard is what the hand limit
-  // already does at end of turn.
-  "Temmet, Naktamun's Will": { spec: { kind: 'draw', count: 1 }, timing: 'attack' },
+  /*
+   * The commander, and half of it was missing. Vigilance means it attacks every
+   * turn without giving up its blocking, so the loot trigger is close to
+   * guaranteed once it lands — but the card is TWO triggers, and only the first
+   * was here: "whenever you attack, draw a card, then discard a card" AND
+   * "whenever you draw a card, Zombies you control get +1/+1 until end of turn".
+   * Authored as the draw alone, the deck's commander was a 4/4 that cantripped,
+   * with no hint of why a zombie deck wants it.
+   *
+   * Both halves now, as one attack trigger. Two honest shortcuts: the discard is
+   * what the hand limit already does at end of turn, and the pump is fired off
+   * this draw rather than off every draw the deck makes. The second one
+   * undersells the card in a deck with this much card draw, but it fires on the
+   * turn it matters — the one where the zombies are swinging.
+   */
+  "Temmet, Naktamun's Will": {
+    spec: [
+      { kind: 'draw', count: 1 },
+      { kind: 'pump', power: 1, toughness: 1, subtype: 'zombie' },
+    ],
+    timing: 'attack',
+  },
   // "At the beginning of your second main phase, if a player was dealt combat
   // damage by a Zombie this turn, mill three, then return a creature card from
   // your graveyard to your hand." In a deck of zombies, attacking is that
@@ -411,6 +484,21 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   // Really one card per nontoken creature that arrives. Once a turn is the
   // honest average for a deck casting roughly a creature a turn.
   'Soul of the Harvest':  { spec: { kind: 'draw', count: 1 }, timing: 'combat' },
+
+  /*
+   * The commander's attack trigger: "each creature you control with power 4 or
+   * greater gets +1/+1 and gains trample until end of turn."
+   *
+   * Only its cost-reduction half was modelled, which made it a 4/3 that
+   * discounted things — and the discount is the boring half. This deck is
+   * nothing but creatures with power 4 or greater, so the trigger is a
+   * board-wide anthem plus trample on every turn Goreclaw swings, which is the
+   * difference between chump-blocking it and taking the whole attack.
+   */
+  'Goreclaw, Terror of Qal Sisma': {
+    spec: { kind: 'pump', power: 1, toughness: 1, minPower: 4, keywords: ['trample'] },
+    timing: 'attack',
+  },
 
   // ── Mirror Break (bracket 4) ──
   // Four tutors, because a two-card combo deck is only as fast as its ability
@@ -920,6 +1008,8 @@ export const BOT_TRIGGERS: Record<string, BotTriggerSpec> = {
  */
 export const BOT_COSTS: Record<string, number> = {
   'Secure the Wastes':       5,
+  // Always cast kicked, which is the only way this card is worth casting.
+  'Goblin Bushwhacker':      2,
   // X spells: the number here is what the bot pays, and the counts above match.
   'Dread Summons':           5,
   'Pull from Tomorrow':      5,

@@ -10,7 +10,7 @@ import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
-import { useMagnifyKey } from '@/hooks/useMagnifyKey';
+import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { getAllCardRoles, hasTaggerData, loadTaggerData, type RoleKey } from '@/services/tagger/client';
 import type { ScryfallCard } from '@/types';
@@ -46,10 +46,12 @@ interface ZoneCardTriggerProps extends React.ComponentPropsWithoutRef<'button'> 
   dragAttributes: DraggableAttributes;
   dragListeners: Record<string, unknown> | undefined;
   isDragging: boolean;
+  /** Marks the next card you would draw. Library only — see `ViewerCard`. */
+  top?: boolean;
 }
 
 const ZoneCardTrigger = forwardRef<HTMLButtonElement, ZoneCardTriggerProps>(
-  function ZoneCardTrigger({ card, dragAttributes, dragListeners, isDragging, className: extraClassName, ...props }, ref) {
+  function ZoneCardTrigger({ card, dragAttributes, dragListeners, isDragging, top, className: extraClassName, ...props }, ref) {
     const localRef = useRef<HTMLButtonElement | null>(null);
     const setRefs = (node: HTMLButtonElement | null) => {
       localRef.current = node;
@@ -57,7 +59,7 @@ const ZoneCardTrigger = forwardRef<HTMLButtonElement, ZoneCardTriggerProps>(
       else if (ref) (ref as React.MutableRefObject<HTMLButtonElement | null>).current = node;
     };
     const [hovered, setHovered] = useState(false);
-    const magnify = useMagnifyKey();
+    const magnified = useMagnifyHover(hovered);
     return (
       <button
         ref={setRefs}
@@ -66,15 +68,25 @@ const ZoneCardTrigger = forwardRef<HTMLButtonElement, ZoneCardTriggerProps>(
         {...props}
         onMouseEnter={(e) => { setHovered(true); props.onMouseEnter?.(e); }}
         onMouseLeave={(e) => { setHovered(false); props.onMouseLeave?.(e); }}
-        className={`rounded-[6px] hover:ring-2 hover:ring-primary transition-all touch-none select-none ${isDragging ? 'opacity-0' : ''} ${extraClassName ?? ''}`}
+        className={`relative rounded-[6px] hover:ring-2 hover:ring-primary transition-all touch-none select-none ${isDragging ? 'opacity-0' : ''} ${extraClassName ?? ''}`}
       >
         <img
           src={getCardImageUrl(card, 'small')}
           alt={card.name}
-          className="w-full rounded-[6px] shadow pointer-events-none"
+          className={`w-full rounded-[6px] shadow pointer-events-none ${top ? 'ring-1 ring-blue-400/70' : ''}`}
           draggable={false}
         />
-        {magnify && hovered && !isDragging && <MagnifiedPreview card={card} anchorRef={localRef} />}
+        {/* The same blue ribbon the opponent's library viewer uses, because it
+            answers the same question — which card comes off next. It replaces
+            the sentence that would otherwise have to say so: a label on the
+            card itself survives filtering and scrolling, where a line at the
+            top of the dialog scrolls away and has to be remembered. */}
+        {top && (
+          <span className="absolute top-0 inset-x-0 text-[9px] font-bold text-center bg-blue-500/80 text-white rounded-t-[6px] pointer-events-none">
+            TOP
+          </span>
+        )}
+        {magnified && !isDragging && <MagnifiedPreview card={card} anchorRef={localRef} />}
       </button>
     );
   },
@@ -306,6 +318,9 @@ interface ViewerCardProps {
 }
 
 function ViewerCard({ card, originalIndex, zone, onContextMenu, onTap }: ViewerCardProps) {
+  // zones.library[0] is literally what draw() takes off the top, so index 0 in
+  // the library view IS the next card — nothing else needs marking.
+  const isTop = zone === 'library' && originalIndex === 0;
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
     id: `viewer:${zone}:${originalIndex}:${card.id}`,
     data: { source: { kind: 'zone', zone, index: originalIndex } },
@@ -326,6 +341,7 @@ function ViewerCard({ card, originalIndex, zone, onContextMenu, onTap }: ViewerC
       dragAttributes={attributes}
       dragListeners={listeners}
       isDragging={isDragging}
+      top={isTop}
       title={onTap ? `${card.name} · tap to play · long-press for options` : `${card.name} · right-click for options · drag to reorder`}
       onClick={onTap}
       onContextMenu={onContextMenu}

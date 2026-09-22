@@ -1,9 +1,12 @@
 /**
  * Tiny, dependency-free "juice" for the brew's celebration toasts: a soft synthesized chime (Web
- * Audio — no asset files) plus a haptic buzz on devices that support it. Each earned beat (goal /
- * combo / streak) gets its own little motif. Gated by a persisted on/off preference; everything is
- * wrapped in try/catch and lazily created so it's inert in tests/SSR and never throws into the UI.
+ * Audio off the app's shared AudioContext — no asset files) plus a haptic buzz on devices that
+ * support it. Each earned beat (goal / combo / streak) gets its own little motif. Gated by a
+ * persisted on/off preference; everything is wrapped in try/catch and lazily created so it's inert
+ * in tests/SSR and never throws into the UI.
  */
+import { audioContext, noiseBuffer } from '@/services/audio/context';
+
 const PREF_KEY = 'mtg-brew-sound';
 
 let enabled = (() => {
@@ -27,19 +30,6 @@ const MOTIF: Record<'goal' | 'combo' | 'streak', number[]> = {
   streak: [493.88, 739.99],         // B4 F#5
 };
 
-let audioCtx: AudioContext | null = null;
-function ctx(): AudioContext | null {
-  try {
-    const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AC) return null;
-    audioCtx ??= new AC();
-    if (audioCtx.state === 'suspended') void audioCtx.resume();
-    return audioCtx;
-  } catch {
-    return null;
-  }
-}
-
 function tone(ac: AudioContext, freq: number, startAt: number, dur: number): void {
   const osc = ac.createOscillator();
   const gain = ac.createGain();
@@ -60,14 +50,12 @@ function tone(ac: AudioContext, freq: number, startAt: number, dur: number): voi
 export function playPackCrack(tearSec = 0.3): void {
   if (!enabled) return;
   try { navigator.vibrate?.([12, 30, 10]); } catch { /* ignore */ }
-  const ac = ctx();
+  const ac = audioContext();
   if (!ac) return;
   const now = ac.currentTime;
   const dur = tearSec;
   // The tear: a decaying white-noise burst through a bandpass sweeping down — ripping foil.
-  const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
-  const data = buf.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+  const buf = noiseBuffer(ac, dur, t => 1 - t);
   const src = ac.createBufferSource();
   src.buffer = buf;
   const bp = ac.createBiquadFilter();
@@ -89,7 +77,7 @@ export function playCelebration(kind: 'goal' | 'combo' | 'streak'): void {
   if (!enabled) return;
   // Haptic — meaningful on mobile, harmless (returns false) elsewhere. Goal gets a richer pattern.
   try { navigator.vibrate?.(kind === 'goal' ? [18, 40, 22] : 16); } catch { /* ignore */ }
-  const ac = ctx();
+  const ac = audioContext();
   if (!ac) return;
   const now = ac.currentTime;
   MOTIF[kind].forEach((f, i) => tone(ac, f, now + i * 0.085, 0.16));

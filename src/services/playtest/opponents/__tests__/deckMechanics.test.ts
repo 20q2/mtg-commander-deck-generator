@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { takeTurn } from '@/services/playtest/opponents/engine';
-import { botKeywords } from '@/services/playtest/opponents/stats';
+import { botKeywords, botPower, clearTempBoosts } from '@/services/playtest/opponents/stats';
 import { applyDeathTriggers } from '@/services/playtest/opponents/deaths';
 import type { PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import type { Opponent, OpponentPermanent, TurnFrame } from '@/components/playtest/opponentTypes';
@@ -84,6 +84,99 @@ describe('attack triggers', () => {
       }),
     );
     expect(logsOf(frames)).not.toContain('mills 3');
+  });
+});
+
+describe('until-end-of-turn pumps', () => {
+  const GORECLAW = () => card({
+    name: 'Goreclaw, Terror of Qal Sisma', cmc: 4, power: '4', toughness: '3',
+    type_line: 'Legendary Creature — Bear',
+  });
+  const BEAST = (power: string) => card({
+    name: `Beast ${power}`, cmc: 5, power, toughness: '4',
+    type_line: 'Creature — Beast',
+  });
+
+  it('pumps only the creatures big enough, and grants them trample', () => {
+    const goreclaw = perm(GORECLAW());
+    const big = perm(BEAST('5'));
+    const small = perm(BEAST('2'));
+    const { final, frames } = takeTurn(
+      {
+        ...bot({
+          battlefield: [goreclaw, big, small, ...lands(4)],
+          library: [card({ name: 'Filler' })],
+        }),
+        turnsTaken: 3,
+      },
+      board(),
+    );
+    expect(logsOf(frames)).toContain('trample');
+
+    const after = (id: string) => final.battlefield.find(p => p.instanceId === id)!;
+    // Goreclaw is a 4/3, so it clears its own bar and pumps itself.
+    expect(after(goreclaw.instanceId).tempBoost).toEqual({ power: 1, toughness: 1, keywords: ['trample'] });
+    expect(after(big.instanceId).tempBoost).toEqual({ power: 1, toughness: 1, keywords: ['trample'] });
+    // A 2/4 is under the bar and gets nothing — the "power 4 or greater" half.
+    expect(after(small.instanceId).tempBoost).toBeUndefined();
+
+    // The boost has to be in the number the combat maths and the seat both read,
+    // or it is a field nobody looks at.
+    expect(botPower(after(big.instanceId), final.battlefield, final.graveyard)).toBe(6);
+    expect(botKeywords(after(big.instanceId), final.battlefield, final.graveyard).has('trample')).toBe(true);
+  });
+
+  it('counts counters and anthems towards the power bar, not the printed number', () => {
+    // A printed 3/4 wearing a +1/+1 counter is a 4/5, so Goreclaw sees it.
+    const goreclaw = perm(GORECLAW());
+    const counted = perm(BEAST('3'), { counters: { '+1/+1': 1 } });
+    const { final } = takeTurn(
+      { ...bot({ battlefield: [goreclaw, counted, ...lands(4)], library: [card({ name: 'Filler' })] }), turnsTaken: 3 },
+      board(),
+    );
+    expect(final.battlefield.find(p => p.instanceId === counted.instanceId)!.tempBoost).toBeDefined();
+  });
+
+  it('ends the pump when combat resolves', () => {
+    const goreclaw = perm(GORECLAW(), { tempBoost: { power: 1, toughness: 1, keywords: ['trample'] } });
+    const cleared = clearTempBoosts(bot({ battlefield: [goreclaw] }));
+    expect(cleared.battlefield[0].tempBoost).toBeUndefined();
+    expect(botPower(cleared.battlefield[0], cleared.battlefield, [])).toBe(4);
+  });
+
+  it('carries no pump into the next turn even if combat never resolved', () => {
+    // The untap-step backstop. Without it a bot whose attack was abandoned —
+    // the tab closed on an unresolved block — keeps the buff for the rest of
+    // the game. A plain Beast, so nothing re-pumps it this turn and what is
+    // asserted is the clearing rather than the trigger.
+    const stale = perm(BEAST('5'), { tempBoost: { power: 9, toughness: 9, keywords: ['trample'] } });
+    const { final } = takeTurn(
+      { ...bot({ battlefield: [stale], library: [card({ name: 'Filler' })] }), turnsTaken: 3 },
+      board(),
+    );
+    expect(final.battlefield[0].tempBoost).toBeUndefined();
+    expect(botPower(final.battlefield[0], final.battlefield, [])).toBe(5);
+  });
+
+  it("pumps only Zombies off Temmet's trigger", () => {
+    const temmet = perm(card({
+      name: "Temmet, Naktamun's Will", cmc: 5, power: '4', toughness: '4',
+      type_line: 'Legendary Creature — Zombie Wizard', keywords: ['Vigilance', 'Menace'],
+    }));
+    const zombie = perm(card({ name: 'Zombie Body', power: '2', toughness: '2' }));
+    const bear = perm(card({ name: 'Plain Bear', power: '2', toughness: '2', type_line: 'Creature — Bear' }));
+    const { final, frames } = takeTurn(
+      {
+        ...bot({ battlefield: [temmet, zombie, bear, ...lands(5)], library: [card({ name: 'Filler' }), card({ name: 'Filler B' })] }),
+        turnsTaken: 4,
+      },
+      board(),
+    );
+    // Both halves of the card in one trigger: the loot AND the anthem it feeds.
+    expect(logsOf(frames)).toContain('draws 1');
+    const after = (id: string) => final.battlefield.find(p => p.instanceId === id)!;
+    expect(after(zombie.instanceId).tempBoost).toEqual({ power: 1, toughness: 1, keywords: [] });
+    expect(after(bear.instanceId).tempBoost).toBeUndefined();
   });
 });
 
@@ -187,6 +280,49 @@ describe('casting from the graveyard', () => {
       board(),
     );
     expect(logsOf(withoutZombie.frames)).not.toContain('returns Gravecrawler');
+  });
+});
+
+describe('devotion', () => {
+  const GARY = () => card({
+    name: 'Gray Merchant of Asphodel', cmc: 5, mana_cost: '{3}{B}{B}',
+    power: '2', toughness: '4', type_line: 'Creature — Zombie',
+  });
+  const drainFrom = (extra: OpponentPermanent[]) => {
+    const { frames } = takeTurn(
+      {
+        ...bot({
+          resistance: true,
+          battlefield: [...extra, ...lands(5)],
+          hand: [GARY()],
+          library: [card({ name: 'Filler' })],
+        }),
+        turnsTaken: 5,
+      },
+      board(),
+    );
+    return frames.flatMap(f => f.effects).reduce((n, e) => n + e.lifeLoss, 0);
+  };
+
+  // Gray Merchant is on the battlefield when its own trigger resolves, so the
+  // floor is the 2 its own {3}{B}{B} is worth — never 0, and never a flat 2
+  // once the rest of the board has pips of its own.
+  it('counts the Merchant itself when nothing else is black', () => {
+    expect(drainFrom([])).toBe(2);
+  });
+
+  it('counts black pips across the rest of the board', () => {
+    expect(drainFrom([
+      perm(card({ name: 'Two Pips', mana_cost: '{B}{B}' })),
+      perm(card({ name: 'One Pip', mana_cost: '{1}{B}' })),
+    ])).toBe(5);
+  });
+
+  it('ignores permanents with no black pips', () => {
+    expect(drainFrom([
+      perm(card({ name: 'Rock', type_line: 'Artifact', mana_cost: '{2}' })),
+      perm(card({ name: 'Elf', mana_cost: '{G}{G}' })),
+    ])).toBe(2);
   });
 });
 

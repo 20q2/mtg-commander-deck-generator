@@ -5,7 +5,10 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
 import { OpponentSeat } from '@/components/playtest/opponents/OpponentSeat';
+import { DealingSeat } from '@/components/playtest/opponents/DealingSeat';
+import { findStub } from '@/services/playtest/opponents/deckSources';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import type { OpponentStub } from '@/components/playtest/opponentTypes';
 
 /** Never let one seated opponent sprawl across the whole table. */
 const MAX_SEAT_WIDTH = 460;
@@ -88,12 +91,15 @@ const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n
  */
 export function OpponentSeats() {
   const opponents = useOpponentStore(s => s.opponents);
+  /** Seats whose decks are still on their way. They hold a place in the row so
+   *  the table doesn't reflow when the real one lands. */
+  const pending = useOpponentStore(s => s.pending);
   const runAllTurns = useOpponentStore(s => s.runAllTurns);
   const openModal = usePlaytestStore(s => s.openModal);
   const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
   const viewportWidth = useViewportWidth();
   const isDesktop = useMediaQuery('(min-width: 768px)');
-  const bandRef = useSeatBandMeasure(opponents.length);
+  const bandRef = useSeatBandMeasure(opponents.length + pending.length);
   const [positions, setPositions] = useState<SeatPositions>(loadPositions);
   const [sizes, setSizes] = useState<SeatSizes>(loadSizes);
   /**
@@ -117,9 +123,12 @@ export function OpponentSeats() {
     try { localStorage.setItem(SIZES_KEY, JSON.stringify(next)); } catch { /* private mode */ }
   }, []);
 
+  // Placeholders count towards the divisor, so a seat is dealt at the width it
+  // will keep — the row doesn't re-lay-out the moment the cards arrive.
+  const seatCount = opponents.length + pending.length;
   const autoWidth = Math.max(
     MIN_SEAT_WIDTH,
-    Math.min(MAX_SEAT_WIDTH, Math.round((viewportWidth * USABLE_FRACTION) / Math.max(1, opponents.length))),
+    Math.min(MAX_SEAT_WIDTH, Math.round((viewportWidth * USABLE_FRACTION) / Math.max(1, seatCount))),
   );
   const widthOf = (seatId: string) => sizes[seatId]?.w ?? autoWidth;
   const heightOf = (seatId: string) => sizes[seatId]?.h;
@@ -242,26 +251,41 @@ export function OpponentSeats() {
 
   // Empty table: one chip. This is the discovery moment the old collapsed rail
   // carried, and it has to survive the move.
-  if (opponents.length === 0) {
+  //
+  // Desktop only, like every other way of seating a bot: a seat needs drag,
+  // resize and a combat strip alongside your own board, so a phone is never
+  // offered the trip. Below md an empty table simply has nothing here.
+  if (seatCount === 0) {
+    if (!isDesktop) return null;
     return (
       <div className="flex absolute top-2 inset-x-0 z-30 justify-center pointer-events-none">
         <Button
           size="sm"
           variant="ghost"
           onClick={() => openModal({ kind: 'opponents' })}
-          className="pointer-events-auto h-7 px-3 rounded-full border border-dashed border-border/60 bg-background/70 backdrop-blur-sm text-[11px] text-muted-foreground/80 hover:text-foreground"
+          className="pointer-events-auto h-7 pl-3 pr-7 rounded-full border border-dashed border-border/60 bg-background/70 backdrop-blur-sm text-[11px] text-muted-foreground/80 hover:text-foreground"
         >
           <Bot className="w-3.5 h-3.5 mr-1.5 text-violet-300/80" />
-          Play against bots
+          {/* Superscript rather than a chip: this is the one entry point to the
+              feature, and it sits on an otherwise empty table where a second
+              pill would read as a second button. */}
+          <span className="relative inline-block">
+            Play against bots
+            <span className="absolute -top-1 -right-5 text-[7px] font-semibold tracking-wider text-amber-300/70 uppercase leading-none">
+              Beta
+            </span>
+          </span>
         </Button>
       </div>
     );
   }
 
   // Phones: one horizontally scrolling row of full-featured seats. No drag,
-  // no resize — the seat itself, its combat strip and the stack are what a
-  // phone needs, and until now none of it rendered under 768px, so a phone
-  // could seat a bot only to find the feature did not exist.
+  // no resize — the seat itself, its combat strip and the stack are all a
+  // phone can show. Bots can only be SEATED on desktop, and the store keeps
+  // none across a reload, so the only way to get here is to seat a table on a
+  // wide window and then narrow it; the row exists so that game stays playable
+  // rather than vanishing mid-turn.
   if (!isDesktop) {
     const w = Math.min(360, viewportWidth - 24);
     return (
@@ -274,20 +298,16 @@ export function OpponentSeats() {
             <OpponentSeat opponent={o} width={w} sized={{}} />
           </div>
         ))}
-        {opponents.length < MAX_OPPONENTS && (
-          <Button
-            size="sm" variant="ghost"
-            className="shrink-0 h-7 w-7 p-0 bg-background/70 backdrop-blur-sm"
-            onClick={() => openModal({ kind: 'opponents' })}
-            title="Seat another opponent"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </Button>
-        )}
+        {/* No ＋ here. Seats can only be added on desktop, so this row exists
+            purely to keep a table you seated there playable if you shrink the
+            window — the store holds no bots across a reload. */}
       </div>
     );
   }
 
+  const pendingSeats = pending
+    .map(p => ({ key: p.key, stub: findStub(p.stubId) }))
+    .filter((p): p is { key: string; stub: OpponentStub } => !!p.stub);
   const seated = opponents.map(o => ({ o, pos: positions[o.id] }));
   const inRow = seated.filter(s => !s.pos);
   const placed = seated.filter(s => s.pos);
@@ -322,6 +342,14 @@ export function OpponentSeats() {
               onResetSize={axis => resetSize(o.id, axis)}
               sized={sizes[o.id] ?? {}}
             />
+          </div>
+        ))}
+        {/* Last in the row, because a seat joins the end of the table when it
+            lands — a placeholder anywhere else would hand its spot to the new
+            arrival and shuffle everyone along. */}
+        {pendingSeats.map(({ key, stub }) => (
+          <div key={key} className="relative pointer-events-auto">
+            <DealingSeat stub={stub} width={autoWidth} />
           </div>
         ))}
       </div>

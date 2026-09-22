@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import {
-  BookOpen, Crown, GripHorizontal, Heart, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
+  BookOpen, Crown, Gavel, GripHorizontal, Heart, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
 } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
@@ -9,13 +9,17 @@ import { useOpponentStore } from '@/store/opponentStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { botPower, botToughness } from '@/services/playtest/opponents/stats';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
-import { useMagnifyKey } from '@/hooks/useMagnifyKey';
+import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
+import { boxOf, captureBox, useCardFlights } from '@/components/playtest/CardFlight';
 import { OpponentCardMenu, type OpponentMenuTarget } from '@/components/playtest/opponents/OpponentCardMenu';
+import { OpponentZoneMenu, type OpponentZoneMenuTarget, type OpponentMenuZone } from '@/components/playtest/opponents/OpponentZoneMenu';
+import { OpponentChoiceMenu, type OpponentChoiceMenuTarget } from '@/components/playtest/opponents/OpponentChoiceMenu';
 import { backgroundUrlForIdentity } from '@/services/spellchroma/colorBackground';
 import { CombatStrip } from '@/components/playtest/opponents/CombatStrip';
 import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 import type { ResizeAxis, SeatSize } from '@/components/playtest/opponents/OpponentSeats';
+import { CARD_ASPECT } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
 
 /**
@@ -25,9 +29,9 @@ import type { ScryfallCard } from '@/types';
  * that hid it made their turns read as nothing happening.
  *
  * The cost is vertical space, so the layout is dense rather than partial:
- * lands share their row with the hand fan and the zone piles, and card sizes
- * step down by row so the creature row — the one you actually scan — stays
- * the biggest thing here.
+ * lands get a line of their own that never wraps — they shrink to fit it
+ * instead — and card sizes step down by row so the creature row, the one you
+ * actually scan, stays the biggest thing here.
  *
  * The seat is an overlay, never a reflow: battlefield cards are stored at
  * absolute x/y and the canvas is overflow-hidden, so a canvas that shortened
@@ -59,12 +63,30 @@ export function OpponentSeat({
   height?: number;
 }) {
   const adjustLife = useOpponentStore(s => s.adjustLife);
+  const setLife = useOpponentStore(s => s.setLife);
   const remove = useOpponentStore(s => s.remove);
   const setResistance = useOpponentStore(s => s.setResistance);
   const setAggression = useOpponentStore(s => s.setAggression);
   const openModal = usePlaytestStore(s => s.openModal);
+
+  /**
+   * Which of this seat's zones has its menu open. One per seat rather than one
+   * per pile: only one can be open at a time, and the piles are siblings.
+   */
+  const [zoneMenu, setZoneMenu] = useState<OpponentZoneMenuTarget | null>(null);
+
+  /** Open while you are handing this seat a decision to make. */
+  const [choiceMenu, setChoiceMenu] = useState<OpponentChoiceMenuTarget | null>(null);
+  const openZoneMenu = (zone: OpponentMenuZone) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setZoneMenu({ opponentId: opponent.id, zone, x: e.clientX, y: e.clientY });
+  };
   const animations = usePlaytestSettings(s => s.animations);
-  const running = useOpponentStore(s => s.running);
+  const acting = useOpponentStore(s => s.actingId === opponent.id);
+  // The beat just played, for the card-out-of-hand flight. Only this seat's.
+  const beat = useOpponentStore(s => (s.lastBeat?.opponentId === opponent.id ? s.lastBeat : null));
+  const playedIds = beat?.played ?? [];
   const combat = useOpponentStore(s => s.combat);
   const playerCombat = useOpponentStore(s => s.playerCombat);
 
@@ -102,6 +124,9 @@ export function OpponentSeat({
   const scale = attackingYou ? COMBAT_SHRINK : 1;
   const zoneWidth = Math.round(Math.max(14, width * 0.10 * scale));
 
+  const landPiles = useMemo(() => pileUp(rows.lands), [rows.lands]);
+  const landWidth = landWidthFor(width, landPiles, scale);
+
   return (
     <div
       data-seat
@@ -112,7 +137,14 @@ export function OpponentSeat({
         isOver ? 'border-violet-400/70 bg-violet-500/10'
         : attackingYou ? 'border-rose-400/80'
         : inCombat ? 'border-violet-400/70'
-        : running ? 'border-violet-400/40'
+        // Its turn: the border lifts towards white. Below the two combat
+        // colours on purpose — a seat swinging at you is a question you have
+        // to answer, and it keeps its rose while it acts.
+        //
+        // This replaces a faint violet that was keyed on `running`, i.e. on
+        // "some bot is taking a turn", which lit all three seats at once and
+        // so told you nothing about where to look.
+        : acting ? 'border-white/70'
         : 'border-border/50'
       } ${
         // Out of the game, but still on the table: dimmed rather than removed,
@@ -164,9 +196,15 @@ export function OpponentSeat({
       <SeatHeader
         opponent={opponent}
         onAdjustLife={adjustLife}
+        onSetLife={setLife}
         onSetResistance={setResistance}
         onSetAggression={setAggression}
         onRemove={remove}
+        onOpenChoices={e => setChoiceMenu({
+          opponentId: opponent.id,
+          x: e.currentTarget.getBoundingClientRect().left,
+          y: e.currentTarget.getBoundingClientRect().bottom + 4,
+        })}
         onGrab={onGrab}
         onResetPosition={onResetPosition}
         placed={placed}
@@ -176,21 +214,43 @@ export function OpponentSeat({
 
       {/* Creatures and other permanents. Both always shown — a bot casting a
           Signet is a bot doing something, and hiding it made their turns read
-          as nothing happening. */}
-      {/* Height is capped and scrolls past the cap. Piling identical tokens
-          keeps almost every board under it, but a genuinely wide board of
-          distinct cards must not be allowed to grow down over the player's own
-          battlefield — which is exactly what a 64-permanent goblin board did. */}
-      {/* Creatures and other permanents. With an explicit height they take
-          whatever is left over and scroll inside it; without one they keep the
-          viewport-relative cap that stops a huge board swallowing the screen.
+          as nothing happening.
+
+          With an explicit height the board takes whatever is left over and
+          scrolls inside it. Without one the seat is as tall as its board wants
+          to be, so a developed board reads at a glance instead of hiding its
+          back rows behind a scrollbar.
+
+          The vh ceiling is a backstop for a pathological board — a goblin deck
+          can hold sixty-eight permanents — not a working limit. It used to be
+          38vh, which ordinary boards hit routinely. Three things make the room
+          affordable: identical cards pile into one counted card, BOARD_ZOOM
+          draws the wrapping rows smaller, and `setSeatBandHeight` walks any of
+          the player's own cards that the grown band covers down to a free slot
+          — so growing downwards no longer buries their battlefield.
+
           Either way the header, lands, zones and combat strip stay pinned —
           shortening a seat should cost you the least useful rows, not the life
           total or the fight. */}
+      {/* Padded, then pulled back out by the same amount on every side.
+
+          This element has to clip — it is the cap that stops a 64-permanent
+          board growing down over your own battlefield — but three things are
+          drawn deliberately OUTSIDE their card's box: the ×N pile badge at the
+          top left, the destroy skull at the top right, and the edited/pumped
+          P/T at the bottom right. All three hang 4px past the corner, so on the
+          first row, the last card of a row, and the last row they were being
+          sliced in half.
+
+          Clipping happens at the padding box, so the fix is room INSIDE it: 6px
+          of padding gives the overhang somewhere to live. The matching negative
+          margins put the cards themselves back exactly where they were, which
+          matters because the land row below has no padding and the two rows
+          have to start on the same left edge. */}
       <div
         ref={setNodeRef}
-        className={`relative z-10 mt-1 space-y-1 overflow-y-auto overflow-x-hidden ${
-          height ? 'flex-1 min-h-0' : 'max-h-[38vh]'
+        className={`relative z-10 -mt-0.5 -mx-1.5 -mb-1.5 p-1.5 space-y-1 overflow-y-auto overflow-x-hidden ${
+          height ? 'flex-1 min-h-0' : 'max-h-[70vh]'
         }`}
       >
         {opponent.battlefield.length === 0 ? (
@@ -206,7 +266,10 @@ export function OpponentSeat({
             const cards = rows[row.key];
             if (cards.length === 0) return null;
             return (
-              <div key={row.key} className="flex items-end gap-1 flex-wrap" title={row.label}>
+              // aria-label, not title: this element wraps the cards, and a
+              // title on it pops a tooltip over whichever card you are
+              // pointing at.
+              <div key={row.key} className="flex items-end gap-1 flex-wrap" aria-label={row.label}>
                 {pileUp(cards).map(pile => (
                   <OpponentPermanentCard
                     key={pile.key}
@@ -215,6 +278,8 @@ export function OpponentSeat({
                     count={pile.count}
                     comboPiece={armedPieces.has(pile.top.card.name)}
                     width={rowWidth(width, row.scale * scale)}
+                    playedFromHand={pile.ids.some(id => playedIds.includes(id))}
+                    beatTick={beat?.tick ?? 0}
                   />
                 ))}
               </div>
@@ -223,23 +288,39 @@ export function OpponentSeat({
         )}
       </div>
 
-      {/* Bottom row: lands on the left, then hand and the zone piles grouped
-          right. Sharing one row keeps the seat short enough to live over the
-          canvas while still showing every land they've played. Mirrors your
-          own hand row, with Exile half-width and hanging from the top. */}
-      <div className="relative z-10 mt-1 flex items-end gap-1 shrink-0">
-        <div className="flex items-end gap-1 flex-wrap min-w-0" title="Lands">
-          {pileUp(rows.lands).map(pile => (
+      {/* Lands, on a line of their own that never wraps.
+          They used to share the bottom row with the hand fan and the zone
+          piles, which left them a sliver of the seat to wrap inside: tap four
+          of them and each one — turned ninety degrees, so wider than it is
+          tall — took a line to itself and the mana was taller than the board
+          it paid for. Given the full width and shrunk to fit it, a land row
+          costs one line however many lands are on it. */}
+      {landPiles.length > 0 && (
+        <div
+          // No overflow rule on purpose: an `overflow-x` scroller would clip
+          // the y axis too, and the ×N pile badge and the destroy button both
+          // hang a few pixels off the top of their card.
+          className="relative z-10 mt-1 flex items-end gap-1 shrink-0"
+          aria-label="Lands"
+        >
+          {landPiles.map(pile => (
             <OpponentPermanentCard
               key={pile.key}
               opponentId={opponent.id}
               permanent={pile.top}
               count={pile.count}
               comboPiece={armedPieces.has(pile.top.card.name)}
-              width={rowWidth(width, LAND_SCALE * scale)}
+              width={landWidth}
+              playedFromHand={pile.ids.some(id => playedIds.includes(id))}
+              beatTick={beat?.tick ?? 0}
             />
           ))}
         </div>
+      )}
+
+      {/* Bottom row: the hand fan and the zone piles, grouped right. Mirrors
+          your own hand row, with Exile half-width and hanging from the top. */}
+      <div className="relative z-10 mt-1 flex items-end gap-1 shrink-0">
         <div className="ml-auto flex items-end gap-1 shrink-0">
           {/* Their commander, face up. Who you are playing against is the single
               most useful fact about a seat, and it was the one zone the seat
@@ -250,18 +331,24 @@ export function OpponentSeat({
             hint={opponent.command.length > 0 ? 'Their commander' : 'Commander is on the battlefield'}
             Icon={Crown} tint="bg-purple-500/10 border-purple-400/30"
           />
-          <HandFan count={opponent.hand.length} width={zoneWidth} />
+          <HandFan
+            opponentId={opponent.id} count={opponent.hand.length} width={zoneWidth}
+            onContextMenu={openZoneMenu('hand')}
+          />
           <ZonePile
             label="Library" count={opponent.library.length} width={zoneWidth}
-            hint={opponent.decked ? 'Library is empty' : 'Cards left in library'}
+            anchorId={`library:${opponent.id}`}
+            hint={opponent.decked ? 'Library is empty' : 'Right-click to mill or shuffle'}
+            onContextMenu={openZoneMenu('library')}
             warn={opponent.decked}
             Icon={BookOpen} tint="bg-blue-500/10 border-blue-400/30"
           />
           <ZonePile
             label="Graveyard" count={opponent.graveyard.length} width={zoneWidth}
             top={opponent.graveyard[opponent.graveyard.length - 1]}
-            hint="Click to view their graveyard"
+            hint="Click to view · right-click for more"
             onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'graveyard' })}
+            onContextMenu={openZoneMenu('graveyard')}
             Icon={Trash2} tint="bg-zinc-500/15 border-zinc-400/30"
           />
           <div className="self-start">
@@ -271,15 +358,21 @@ export function OpponentSeat({
               top={opponent.exile[opponent.exile.length - 1]}
               hint="Click to view their exile"
               onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'exile' })}
+              onContextMenu={openZoneMenu('exile')}
               Icon={Sparkles} tint="bg-amber-500/10 border-amber-400/30"
             />
           </div>
         </div>
       </div>
 
-      <div className="relative z-10">
-        <CombatStrip opponentId={opponent.id} seatWidth={width} />
+      {/* shrink-0 because the fight is the one row that must not be squashed:
+          the board above it takes flex-1 and scrolls instead. */}
+      <div className="relative z-10 shrink-0">
+        <CombatStrip opponentId={opponent.id} seatWidth={width} seatHeight={height} />
       </div>
+
+      <OpponentZoneMenu target={zoneMenu} onClose={() => setZoneMenu(null)} />
+      <OpponentChoiceMenu target={choiceMenu} onClose={() => setChoiceMenu(null)} />
 
       {/* Three handles, because the axes do different jobs. Width is the zoom
           — every card in the seat is a fraction of it. Height decides how much
@@ -319,25 +412,126 @@ export function OpponentSeat({
 }
 
 /**
- * Who they are, their life, whether they fight back, and the way out — all on
- * one row. The data-float-id on the life pill is load-bearing: floatDelta
- * targets it by that exact id.
+ * Their life, worked the same way yours is: − / + step by one, right-clicking
+ * either one steps by five, and clicking the number itself types a total in.
+ *
+ * A seat header has no room for the player toolbar's five-button cluster, so
+ * the bigger step hides behind the right-click that the board already uses for
+ * "same button, other direction" on loyalty and counters.
+ *
+ * The data-float-id lives on the wrapper rather than the pill because the pill
+ * is swapped out for an input while you're typing, and floatDelta looks its
+ * target up at the moment the damage lands.
  */
-function SeatHeader({
-  opponent, onAdjustLife, onSetResistance, onSetAggression, onRemove, onGrab, onResetPosition, placed,
+function SeatLife({
+  opponent, onAdjustLife, onSetLife, tiny,
 }: {
   opponent: Opponent;
   onAdjustLife: (id: string, delta: number) => void;
+  onSetLife: (id: string, life: number) => void;
+  tiny: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(String(opponent.life));
+
+  // Right-click reaches here as a contextmenu event on the same handler; both
+  // paths have to swallow it, or the seat's own menu opens underneath.
+  const step = (sign: 1 | -1) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onAdjustLife(opponent.id, sign * (e.type === 'contextmenu' ? 5 : 1));
+  };
+
+  const dead = opponent.life <= 0;
+
+  return (
+    <>
+      <button
+        onClick={step(-1)}
+        onContextMenu={step(-1)}
+        className={tiny}
+        title="−1 life · right-click for −5"
+      >
+        −
+      </button>
+
+      <span
+        data-float-id={`opp-life-${opponent.id}`}
+        className="inline-flex items-center"
+      >
+        {editing ? (
+          <input
+            autoFocus
+            type="number"
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={() => {
+              setEditing(false);
+              const n = parseInt(draft, 10);
+              if (!isNaN(n)) onSetLife(opponent.id, n);
+            }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            onPointerDown={e => e.stopPropagation()}
+            className="w-12 h-7 md:h-4 bg-rose-500/15 border border-rose-400/40 rounded px-1 text-rose-200 font-bold text-center text-[11px] leading-4 tabular-nums outline-none select-text"
+          />
+        ) : (
+          <button
+            onClick={() => { setDraft(String(opponent.life)); setEditing(true); }}
+            className={`inline-flex items-center gap-0.5 h-7 px-1.5 md:h-auto md:px-1 rounded border font-bold text-[11px] leading-4 tabular-nums transition-colors ${
+              dead
+                ? 'bg-muted/40 border-border/60 text-muted-foreground line-through'
+                : 'bg-rose-500/15 border-rose-400/40 text-rose-300 hover:bg-rose-500/25'
+            }`}
+            title={
+              dead
+                ? `${opponent.name} is defeated · click to set their life`
+                : `${opponent.name}'s life · click to set it`
+            }
+          >
+            <Heart className="w-2.5 h-2.5 fill-rose-400/40" />
+            {opponent.life}
+          </button>
+        )}
+      </span>
+
+      <button
+        onClick={step(1)}
+        onContextMenu={step(1)}
+        className={tiny}
+        title="+1 life · right-click for +5"
+      >
+        +
+      </button>
+    </>
+  );
+}
+
+/**
+ * Who they are, their life, whether they fight back, and the way out — all on
+ * one row.
+ */
+function SeatHeader({
+  opponent, onAdjustLife, onSetLife, onSetResistance, onSetAggression, onRemove, onOpenChoices,
+  onGrab, onResetPosition, placed,
+}: {
+  opponent: Opponent;
+  onAdjustLife: (id: string, delta: number) => void;
+  onSetLife: (id: string, life: number) => void;
   onSetResistance: (id: string, resistance: boolean) => void;
   onSetAggression: (id: string, aggression: number) => void;
   onRemove: (id: string) => void;
+  /** Opens the decision menu, anchored under the button that was clicked. */
+  onOpenChoices: (e: React.MouseEvent<HTMLButtonElement>) => void;
   onGrab?: (e: React.PointerEvent<HTMLElement>) => void;
   onResetPosition?: () => void;
   placed?: boolean;
 }) {
-  const tiny = 'px-1 rounded bg-accent/40 hover:bg-accent text-[10px] font-medium leading-4';
+  // Phones get a 28px tap target on every control in this row; md: pins each
+  // one back to the exact box it has on desktop, which is as small as it is
+  // because a seat header there is competing with the board underneath it.
+  const tiny = 'inline-flex items-center justify-center h-7 min-w-[28px] px-1 rounded bg-accent/40 hover:bg-accent text-[10px] font-medium leading-4 md:h-4 md:min-w-0';
   return (
-    <div className="relative z-10 flex items-center gap-1 shrink-0">
+    <div className="relative z-10 flex flex-wrap md:flex-nowrap items-center gap-1 shrink-0">
       {/* The name doubles as the seat's move handle. Everything else in this
           row is a button, so the drag can't steal a click that mattered.
 
@@ -362,20 +556,12 @@ function SeatHeader({
 
       <ArmedComboBadge ids={opponent.armedCombos ?? []} />
 
-      <button onClick={() => onAdjustLife(opponent.id, -1)} className={tiny} title="−1 life">−</button>
-      <span
-        data-float-id={`opp-life-${opponent.id}`}
-        className={`inline-flex items-center gap-0.5 px-1 rounded border font-bold text-[11px] leading-4 tabular-nums ${
-          opponent.life <= 0
-            ? 'bg-muted/40 border-border/60 text-muted-foreground line-through'
-            : 'bg-rose-500/15 border-rose-400/40 text-rose-300'
-        }`}
-        title={opponent.life <= 0 ? `${opponent.name} is defeated` : `${opponent.name}'s life`}
-      >
-        <Heart className="w-2.5 h-2.5 fill-rose-400/40" />
-        {opponent.life}
-      </span>
-      <button onClick={() => onAdjustLife(opponent.id, 1)} className={tiny} title="+1 life">+</button>
+      <SeatLife
+        opponent={opponent}
+        onAdjustLife={onAdjustLife}
+        onSetLife={onSetLife}
+        tiny={tiny}
+      />
 
       {/* Icon-only: the colour already carries the state. */}
       <button
@@ -387,13 +573,13 @@ function SeatHeader({
         }
         aria-label={opponent.resistance ? 'Resisting' : 'Passive'}
         aria-pressed={opponent.resistance}
-        className={`shrink-0 inline-flex items-center justify-center w-5 h-4 rounded border transition-colors ${
+        className={`shrink-0 inline-flex items-center justify-center w-7 h-7 md:w-5 md:h-4 rounded border transition-colors ${
           opponent.resistance
             ? 'border-violet-400/50 bg-violet-500/15 text-violet-200'
             : 'border-border/50 bg-transparent text-muted-foreground/50'
         }`}
       >
-        <Swords className="w-2.5 h-2.5" />
+        <Swords className="w-3.5 h-3.5 md:w-2.5 md:h-2.5" />
       </button>
 
       <AggressionDial
@@ -401,12 +587,24 @@ function SeatHeader({
         onChange={next => onSetAggression(opponent.id, next)}
       />
 
+      {/* The one control in this row that asks the bot something rather than
+          setting what it is. Everything you cast that says "each player
+          sacrifices" or "each opponent discards" is resolved from here. */}
+      <button
+        onClick={onOpenChoices}
+        title={`Make ${opponent.name} choose — sacrifice, bounce or discard`}
+        aria-label={`Hand ${opponent.name} a decision`}
+        className="shrink-0 inline-flex items-center justify-center w-7 h-7 md:w-5 md:h-4 rounded border border-border/50 text-muted-foreground/70 hover:border-violet-400/50 hover:text-violet-200 transition-colors"
+      >
+        <Gavel className="w-3.5 h-3.5 md:w-2.5 md:h-2.5" />
+      </button>
+
       <button
         onClick={() => onRemove(opponent.id)}
-        className="shrink-0 text-muted-foreground/70 hover:text-red-400 transition-colors"
+        className="shrink-0 inline-flex items-center justify-center w-7 h-7 md:w-auto md:h-auto text-muted-foreground/70 hover:text-red-400 transition-colors"
         title={`Remove ${opponent.name}`}
       >
-        <X className="w-3 h-3" />
+        <X className="w-4 h-4 md:w-3 md:h-3" />
       </button>
     </div>
   );
@@ -470,6 +668,9 @@ const AGGRESSION_STEPS: { value: number; label: string; hint: string }[] = [
   { value: 0.85, label: 'Reckless', hint: 'Sends nearly everything and trades freely.' },
 ];
 
+/** Phone height / desktop height for each of the dial's three bars. */
+const BAR_HEIGHTS = ['h-[6px] md:h-[3px]', 'h-[12px] md:h-[6px]', 'h-[18px] md:h-[9px]'];
+
 /**
  * Three bars, filled to the current setting. Deliberately not an icon: the
  * ones that would fit are all spoken for elsewhere in the app, and a filling
@@ -496,17 +697,18 @@ function AggressionDial({
       onClick={() => onChange(next.value)}
       title={`${step.label} — ${step.hint} Click for ${next.label}.`}
       aria-label={`Aggression: ${step.label}`}
-      className="shrink-0 inline-flex items-end justify-center gap-px w-5 h-4 rounded border border-border/50 px-0.5 pb-0.5 hover:border-violet-400/50 transition-colors"
+      className="shrink-0 inline-flex items-end justify-center gap-px w-7 h-7 px-1 pb-1 md:w-5 md:h-4 md:px-0.5 md:pb-0.5 rounded border border-border/50 hover:border-violet-400/50 transition-colors"
     >
       {AGGRESSION_STEPS.map((s, i) => (
         <span
           key={s.value}
-          className={`w-1 rounded-sm transition-colors ${
+          // Bars double on phones so the dial still reads as a meter inside a
+          // tap-sized box; md: puts them back at the desktop 3/6/9.
+          className={`w-1 rounded-sm transition-colors ${BAR_HEIGHTS[i]} ${
             i <= index
               ? index === 0 ? 'bg-sky-300' : index === 1 ? 'bg-violet-300' : 'bg-rose-300'
               : 'bg-border/60'
           }`}
-          style={{ height: 3 + i * 3 }}
         />
       ))}
     </button>
@@ -516,14 +718,72 @@ function AggressionDial({
 const HAND_FAN_MAX = 6;
 
 /**
+ * How long a card takes to get out of a bot's hand and onto its board.
+ *
+ * Beats are 260ms apart and compress to 90ms on a busy turn, so this outlasts
+ * its own beat on purpose: a card still turning over while the next one starts
+ * is what a sequence of plays looks like, and shortening it to fit inside one
+ * beat left no time for the flip to read.
+ */
+const PLAY_FLIGHT_MS = 460;
+
+/** A draw is a shorter hop — library to hand is about a card's width. */
+const DRAW_FLIGHT_MS = 300;
+
+/**
  * Their hand, drawn the way yours is — overlapping cards in a row — except face
  * down. A fan reads as "a hand" at a glance where a single pile reads as another
  * zone, and the width tracks how many they're actually holding.
+ *
+ * Also the landing pad for their draws: `data-bot-hand` is what the draw hop
+ * and the play flight measure, so both stay correct through a seat being
+ * dragged, resized, or folded into the phone row.
  */
-function HandFan({ count, width }: { count: number; width: number }) {
+function HandFan({ opponentId, count, width, onContextMenu }: {
+  opponentId: string;
+  count: number;
+  width: number;
+  onContextMenu?: (e: React.MouseEvent) => void;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const animations = usePlaytestSettings(s => s.animations);
+  // Only this seat's beats, so the other seats' draws don't re-run the effect.
+  const beat = useOpponentStore(s => (s.lastBeat?.opponentId === opponentId ? s.lastBeat : null));
+
+  /**
+   * The draw: a card back hops off their library into the fan.
+   *
+   * Keyed on the beat's tick rather than on the count, because the count also
+   * changes when they discard or cast, and a hand shrinking is not a draw.
+   */
+  useEffect(() => {
+    if (!animations || !beat || beat.drew === 0) return;
+    const to = boxOf(ref.current);
+    const from = captureBox(`[data-bot-zone="library:${opponentId}"]`);
+    if (!to || !from) return;
+    useCardFlights.getState().launch(
+      // Capped: a bot that draws seven wants a flurry, not seven of them.
+      // No card is passed — what they drew is hidden information, and the
+      // flight renders a back.
+      Array.from({ length: Math.min(beat.drew, 4) }, (_, i) => ({
+        from,
+        to,
+        delay: i * 70,
+        faceDown: true,
+        duration: DRAW_FLIGHT_MS,
+        peakWidth: Math.max(30, Math.round(to.width * 1.7)),
+        bow: 16,
+      })),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [beat?.tick]);
+
   if (count === 0) {
     return (
       <div
+        ref={ref}
+        data-bot-hand={opponentId}
+        onContextMenu={onContextMenu}
         title="Hand · empty"
         className="shrink-0 rounded-[3px] border border-dashed border-border/40 opacity-50"
         style={{ width, aspectRatio: '5 / 7' }}
@@ -536,8 +796,11 @@ function HandFan({ count, width }: { count: number; width: number }) {
   const step = Math.max(4, Math.round(width * 0.34));
   return (
     <div
+      ref={ref}
+      data-bot-hand={opponentId}
+      onContextMenu={onContextMenu}
       className="shrink-0 flex items-end"
-      title={`Hand · ${count} card${count === 1 ? '' : 's'}, hidden as they would be`}
+      title={`Hand · ${count} card${count === 1 ? '' : 's'}, hidden as they would be · right-click to make them discard`}
     >
       <div className="relative flex items-end">
         {Array.from({ length: shown }).map((_, i) => (
@@ -564,14 +827,22 @@ function HandFan({ count, width }: { count: number; width: number }) {
  * see what just died without opening anything.
  */
 function ZonePile({
-  label, count, width, hint, top, onClick, warn, Icon, tint,
+  label, count, width, hint, top, onClick, onContextMenu, warn, Icon, tint, anchorId,
 }: {
   label: string;
   count: number;
   width: number;
   hint: string;
+  /**
+   * Marks this pile as a flight endpoint, as `data-bot-zone`. Only the library
+   * needs one so far — it is where a draw comes from.
+   */
+  anchorId?: string;
   top?: ScryfallCard;
   onClick?: () => void;
+  /** Right-click opens the zone menu. Unlike the click, it works when empty —
+      milling an empty library is a no-op, but "shuffle" still isn't. */
+  onContextMenu?: (e: React.MouseEvent) => void;
   warn?: boolean;
   Icon: LucideIcon;
   /** Border and background tint, matching our own pile for the same zone. */
@@ -581,18 +852,15 @@ function ZonePile({
   const Tag = onClick && !empty ? 'button' : 'div';
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState(false);
-  const ctrlHeld = useMagnifyKey();
-  const previewMode = usePlaytestSettings(s => s.opponentPreview);
   // A pile is ~38px wide; the face-up ones are unreadable at that size. Same
-  // magnify rules as a card on their board, so Ctrl-hover works everywhere.
-  const showPreview = !!top && (
-    previewMode === 'off'   ? false
-  : previewMode === 'hover' ? hovered
-  :                           ctrlHeld && hovered
-  );
+  // magnify rules as a card on their board, so the gesture works everywhere.
+  const magnified = useMagnifyHover(hovered, 'opponent');
+  const showPreview = !!top && magnified;
   return (
     <div
       ref={boxRef}
+      data-bot-zone={anchorId}
+      onContextMenu={onContextMenu}
       className="relative shrink-0"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -652,9 +920,23 @@ type RowKey = 'creatures' | 'others' | 'lands';
  * by row: a pile of basics shouldn't dominate the seat, and the row you
  * actually scan — what can attack me — should read largest.
  */
+/**
+ * How much smaller the wrapping rows are drawn than the sizes below.
+ *
+ * Height is what this buys. A smaller card both takes fewer pixels of row and
+ * fits more cards per line, so the rows it governs shrink faster than the
+ * number suggests — which is what pays for the seat being allowed to grow to
+ * its board instead of scrolling inside a cap.
+ *
+ * Only the wrapping rows are zoomed. The land row is already clamped to a
+ * single line by `landWidthFor`, so shrinking it buys no height and only costs
+ * legibility on the row that is hardest to read already.
+ */
+const BOARD_ZOOM = 0.75;
+
 const UPPER_ROWS: { key: Exclude<RowKey, 'lands'>; label: string; scale: number }[] = [
-  { key: 'creatures', label: 'Creatures',        scale: 0.19 },
-  { key: 'others',    label: 'Other permanents', scale: 0.14 },
+  { key: 'creatures', label: 'Creatures',        scale: 0.19 * BOARD_ZOOM },
+  { key: 'others',    label: 'Other permanents', scale: 0.14 * BOARD_ZOOM },
 ];
 
 /**
@@ -663,8 +945,12 @@ const UPPER_ROWS: { key: Exclude<RowKey, 'lands'>; label: string; scale: number 
  */
 const SEAT_ART_OPACITY = 0.16;
 
-/** Lands are smallest — they share a row with the hand fan and the zone piles. */
+/** Lands are smallest — a land row is there to be counted, not read. */
 const LAND_SCALE = 0.10;
+
+/** The seat's own padding (`p-1.5`), and the gap between cards in a row (`gap-1`). */
+const SEAT_PADDING = 12;
+const ROW_GAP = 4;
 
 /**
  * How far the board shrinks while this seat is in combat. The strip's cards
@@ -686,6 +972,26 @@ function rowWidth(seatWidth: number, scale: number): number {
 }
 
 /**
+ * Land width that keeps every land on one line.
+ *
+ * The normal row width, until that would overflow the seat — then as wide as
+ * the lands can be and still fit side by side. Wrapping is the thing being
+ * bought out of here: a land row that wraps grows the seat downwards over the
+ * player's own battlefield, and it does it precisely when the bot is doing the
+ * least interesting thing it can do.
+ *
+ * A tapped land is turned ninety degrees, so it spends its own height on
+ * width — `CARD_ASPECT` units of the row instead of one.
+ */
+function landWidthFor(seatWidth: number, piles: PermanentPile[], scale: number): number {
+  const max = rowWidth(seatWidth, LAND_SCALE * scale);
+  if (piles.length === 0) return max;
+  const units = piles.reduce((n, p) => n + (p.top.tapped ? CARD_ASPECT : 1), 0);
+  const avail = seatWidth - SEAT_PADDING - ROW_GAP * (piles.length - 1);
+  return Math.round(Math.max(14, Math.min(max, avail / units)));
+}
+
+/**
  * Below this a group renders as separate cards. Two identical signets read
  * better as two cards than as a pile of two; forty-four goblins do not.
  */
@@ -697,6 +1003,12 @@ export interface PermanentPile {
   /** The one that gets drawn, and the one a click acts on. */
   top: OpponentPermanent;
   count: number;
+  /**
+   * Every permanent in the pile. The seat needs it to answer "did any card in
+   * this pile just come out of their hand" — a pile is one element for three
+   * or more identical cards, so the one that just arrived may not be `top`.
+   */
+  ids: string[];
 }
 
 /**
@@ -730,10 +1042,10 @@ function pileUp(cards: OpponentPermanent[]): PermanentPile[] {
     // A small group stays as individual cards, so an ordinary board is
     // untouched by any of this.
     if (members.length < PILE_AT) {
-      for (const p of members) out.push({ key: p.instanceId, top: p, count: 1 });
+      for (const p of members) out.push({ key: p.instanceId, top: p, count: 1, ids: [p.instanceId] });
       continue;
     }
-    out.push({ key, top: members[0], count: members.length });
+    out.push({ key, top: members[0], count: members.length, ids: members.map(p => p.instanceId) });
   }
   return out;
 }
@@ -755,6 +1067,7 @@ function splitRows(battlefield: OpponentPermanent[]): Record<RowKey, OpponentPer
 
 function OpponentPermanentCard({
   opponentId, permanent, width, count = 1, comboPiece = false,
+  playedFromHand = false, beatTick = 0,
 }: {
   opponentId: string;
   permanent: OpponentPermanent;
@@ -767,6 +1080,14 @@ function OpponentPermanentCard({
    * to the one on top.
    */
   count?: number;
+  /**
+   * This card (or, for a pile, one of the cards in it) was just cast out of
+   * the seat's hand — so it flies in from the hand fan instead of dealing in
+   * from the top.
+   */
+  playedFromHand?: boolean;
+  /** The beat that `playedFromHand` belongs to, so the flight fires once. */
+  beatTick?: number;
 }) {
   const togglePermanentTap = useOpponentStore(s => s.togglePermanentTap);
   const permanentToZone = useOpponentStore(s => s.permanentToZone);
@@ -786,23 +1107,31 @@ function OpponentPermanentCard({
   const [hovered, setHovered] = useState(false);
   const [menu, setMenu] = useState<OpponentMenuTarget | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
-  const ctrlHeld = useMagnifyKey();
-  const previewMode = usePlaytestSettings(s => s.opponentPreview);
+  const showPreview = useMagnifyHover(hovered, 'opponent');
   const animations = usePlaytestSettings(s => s.animations);
-  const showPreview =
-    previewMode === 'off'   ? false
-  : previewMode === 'hover' ? hovered
-  :                           ctrlHeld && hovered;
   const counters = Object.entries(permanent.counters).filter(([, v]) => v > 0);
-  // Only edited permanents get a P/T pill, and only then is it worth computing:
-  // read through botPower/botToughness so counters and anthems are in the number,
-  // not just the edit's own values. A string keeps the selector's equality cheap.
-  const editedPT = useOpponentStore(s => {
-    if (!permanent.edit) return null;
+  // A P/T pill appears for the two things that make a creature's size something
+  // other than what is printed on it: a rewrite, and an until-end-of-turn pump.
+  // Worth computing only then — read through botPower/botToughness so counters
+  // and anthems are in the number too, not just the edit's or the pump's own
+  // values. A string keeps the selector's equality cheap.
+  const restatedPT = useOpponentStore(s => {
+    if (!permanent.edit && !permanent.tempBoost) return null;
     const opp = s.opponents.find(o => o.id === opponentId);
     if (!opp) return null;
     return `${botPower(permanent, opp.battlefield, opp.graveyard)}/${botToughness(permanent, opp.battlefield, opp.graveyard)}`;
   });
+  /*
+   * Which of the two it is, when a creature is both. The edit wins the colour,
+   * matching `resolvePT` on your own side of the table: being Frogified is the
+   * louder fact about a creature than being a point bigger this turn.
+   *
+   * Amber for a rewrite, emerald for a pump — emerald because that is already
+   * what a +1/+1 counter wears below, and "temporarily bigger" and
+   * "permanently bigger" should not read as unrelated ideas.
+   */
+  const boostOnly = !permanent.edit && !!permanent.tempBoost;
+  const pumpKeywords = permanent.tempBoost?.keywords ?? [];
 
   // Theft: drag this down onto your battlefield to take it.
   const drag = useDraggable({
@@ -821,18 +1150,97 @@ function OpponentPermanentCard({
     }
   }, [drag.isDragging]);
 
+  /**
+   * A tapped card is turned ninety degrees, so the space it needs is its own
+   * dimensions swapped. The box reserves that, and the image is centred inside
+   * it — otherwise the rotation overhangs a box still shaped like an upright
+   * card, and the row either clipped the overhang against the seat's edge or
+   * let it paint over the card beside it.
+   */
+  const cardHeight = Math.round(width * CARD_ASPECT);
+  const boxWidth = permanent.tapped ? cardHeight : width;
+  const boxHeight = permanent.tapped ? width : cardHeight;
+
+  /**
+   * Cast out of their hand: the card leaves the hand fan, swings out over the
+   * table getting bigger, turns face up, and lands in this slot.
+   *
+   * It replaces the deal-in keyframe for this one card rather than joining it.
+   * Two arrival animations on one card show it twice — and the keyframe would
+   * win the fight over the inline `opacity: 0` that hides the real card while
+   * its copy is in the air, because a running animation outranks an inline
+   * style.
+   *
+   * A layout effect, so the hide lands in the same paint as the launch. On a
+   * useEffect the card is visible in its slot for a frame before the flight
+   * has even started, which reads as the card arriving twice.
+   *
+   * Only a lone card hides. A pile stands for three or more copies, so hiding
+   * it would take the other two off the board to animate the third.
+   *
+   * `visibility` rather than opacity, because this element transitions opacity
+   * over 300ms — the real card would fade out underneath its own flight and
+   * then fade back in after it landed. Visibility is not in that transition
+   * list, so it switches on the frame it is asked to.
+   */
+  const flown = useRef(0);
+  const [flying, setFlying] = useState(false);
+  useLayoutEffect(() => {
+    if (!playedFromHand || !animations) return;
+    if (flown.current === beatTick) return;
+    flown.current = beatTick;
+    const to = boxOf(boxRef.current);
+    const from = captureBox(`[data-bot-hand="${opponentId}"]`);
+    if (!to || !from) return;
+    useCardFlights.getState().launch([{
+      card: permanent.card,
+      from,
+      to,
+      delay: 0,
+      reveal: true,
+      duration: PLAY_FLIGHT_MS,
+      // Big enough in the middle to actually read the card as it turns over —
+      // that is the whole point of the flourish.
+      peakWidth: Math.max(92, Math.round(to.width * 2.6)),
+      bow: 44,
+    }]);
+    if (count > 1) return;
+    setFlying(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [beatTick, playedFromHand]);
+
+  /**
+   * Give the card back when its flight lands.
+   *
+   * Its own effect, keyed on the hide rather than on the beat, and this is not
+   * a style preference — it is the whole bug. With the timer living in the
+   * launch effect above, its cleanup ran on the next dependency change, and
+   * the next beat is 260ms away while the flight is 460ms long. So React
+   * cleared the timer, re-ran the effect, found `playedFromHand` false for
+   * this card by then, returned early — and the card stayed hidden for the
+   * rest of the game. Everything a bot played was invisible except the last
+   * card of each turn, which had no following beat to cancel it.
+   */
+  useEffect(() => {
+    if (!flying) return;
+    const t = setTimeout(() => setFlying(false), PLAY_FLIGHT_MS);
+    return () => clearTimeout(t);
+  }, [flying]);
+
   return (
     <div
       ref={boxRef}
       data-float-id={permanent.instanceId}
       // Keyed by instanceId upstream, so this runs once when the card arrives —
       // it drops onto their board rather than blinking into existence.
-      className={`relative shrink-0 transition-opacity duration-300 ${
+      className={`relative shrink-0 transition-[opacity,width,height] duration-300 ${
         drag.isDragging ? 'opacity-30' : attacking ? 'opacity-25' : ''
       } ${
-        animations ? 'animate-deal-in-from-top' : ''
+        // The flight is this card's arrival animation when it came from hand;
+        // everything else still drops in from the top.
+        animations && !playedFromHand ? 'animate-deal-in-from-top' : ''
       } ${comboPiece ? 'ring-2 ring-rose-400 rounded-[3px] animate-pulse' : ''}`}
-      style={{ width }}
+      style={{ width: boxWidth, height: boxHeight, visibility: flying ? 'hidden' : undefined }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onContextMenu={(e) => {
@@ -847,10 +1255,12 @@ function OpponentPermanentCard({
         {...drag.listeners}
         src={getCardImageUrl(permanent.card, 'small')}
         alt={permanent.card.name}
-        title={`${count > 1 ? `${count}× ` : ''}${permanent.card.name}${permanent.tapped ? ' (tapped)' : ''}${count > 1 ? ' · actions apply to the top one' : ''} · click to tap · right-click for options · hold Ctrl to magnify · drag onto your battlefield to steal`}
         onClick={() => { if (!dragMoved.current) togglePermanentTap(opponentId, permanent.instanceId); }}
         draggable={false}
-        className={`w-full rounded-[3px] shadow cursor-grab touch-none transition-transform duration-200 ${
+        // Centred on the box rather than filling it: the box is the rotated
+        // footprint, the image is always the upright card that spins inside it.
+        style={{ width, height: cardHeight }}
+        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-[3px] shadow cursor-grab touch-none transition-transform duration-200 ${
           permanent.tapped ? 'rotate-90' : ''
         } ${permanent.summoningSick ? 'ring-1 ring-amber-300/50' : ''}`}
       />
@@ -864,12 +1274,18 @@ function OpponentPermanentCard({
         </span>
       )}
 
-      {editedPT && (
+      {restatedPT && (
         <span
-          className="absolute -bottom-1 -right-1 px-1 rounded-[3px] bg-amber-600 text-white text-[9px] font-bold leading-4 tabular-nums shadow ring-1 ring-black/50 pointer-events-none"
-          title={`Edited${permanent.edit?.loseAbilities ? ' · loses all abilities' : ''}`}
+          className={`absolute -bottom-1 -right-1 px-1 rounded-[3px] text-white text-[9px] font-bold leading-4 tabular-nums shadow ring-1 ring-black/50 pointer-events-none ${
+            boostOnly ? 'bg-emerald-600' : 'bg-amber-600'
+          }`}
+          title={
+            boostOnly
+              ? `Until end of turn${pumpKeywords.length > 0 ? ` · gains ${pumpKeywords.join(', ')}` : ''}`
+              : `Edited${permanent.edit?.loseAbilities ? ' · loses all abilities' : ''}`
+          }
         >
-          {editedPT}{permanent.edit?.loseAbilities ? ' ⊘' : ''}
+          {restatedPT}{!boostOnly && permanent.edit?.loseAbilities ? ' ⊘' : ''}
         </span>
       )}
 

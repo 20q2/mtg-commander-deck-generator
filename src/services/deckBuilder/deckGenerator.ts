@@ -1264,7 +1264,14 @@ const DEFAULT_MULTI_COPY_COUNT = 15; // Fallback when EDHREC average deck is una
 // Land-flex boosts live in cutRanking so the analyzer can share them without
 // an analyzer→generator import cycle. Re-exported to keep existing importers stable.
 export { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST } from './cutRanking';
-import { CHANNEL_LAND_BOOST, MDFC_LAND_BOOST } from './cutRanking';
+import {
+  CHANNEL_LAND_BOOST,
+  MDFC_LAND_BOOST,
+  OMNIPRESENCE_LANDS,
+  omnipresenceColor,
+  omnipresenceBoost,
+  estimateConvertibleLands,
+} from './cutRanking';
 
 const TAPLAND_PENALTIES: Record<Pacing, number> = {
   'aggressive-early': -30,
@@ -1471,6 +1478,101 @@ export function countColorPips(cards: ScryfallCard[]): Record<string, number> {
   return pips;
 }
 
+// ── Maze's End special rule ──────────────────────────────────────────────────
+const MAZES_END = "Maze's End";
+/** Maze's End tutors a Gate straight out of the library on every activation, so its win
+ *  condition needs ten differently-named Gate CARDS in the 99 — not ten *drawn* Gates.
+ *  Ten is therefore the exact floor, not a hopeful buffer. */
+const MAZE_GATE_TARGET = 10;
+
+/** Gates are identified by SUBTYPE, so "Gate of the Black Dragon" (Land — Swamp Gate) counts
+ *  and a land merely named like one doesn't. Maze's End itself is not a Gate. */
+export function isGateLand(card: ScryfallCard): boolean {
+  const subtypes = getFrontFaceTypeLine(card).split('—')[1];
+  return !!subtypes && /\bGate\b/i.test(subtypes);
+}
+
+/**
+ * Special rule: if Maze's End lands in the deck on its own, make the deck able to actually win
+ * with it. Tops the mana base up to ten differently-named Gates, or to every Gate the color
+ * identity and the user's filters allow when ten aren't reachable (mono-color identities cap out
+ * at nine, so those decks get as close as legal permits and keep Maze's End as a utility land).
+ *
+ * Gate slots come out of the basics first — Gates tap for colored mana, so the swap is a fixing
+ * upgrade — and only then displace the weakest non-basics. This deliberately overrides the user's
+ * non-basic land count preference; a Maze's End that can't win is a dead card.
+ *
+ * Mutates `lands` in place.
+ */
+async function topUpGatesForMazesEnd(opts: {
+  /** Lands generateLands has picked so far. Mutated. */
+  lands: ScryfallCard[];
+  /** Must-include lands held outside this list — they count toward the Gate total. */
+  committedLands: ScryfallCard[];
+  /** Total land slots this call may fill (basics included). */
+  landTarget: number;
+  colorIdentity: string[];
+  usedNames: Set<string>;
+  bannedCards: Set<string>;
+  maxCardPrice: number | null;
+  allowedRarities: Rarity[] | null;
+  maxCmc: number | null;
+  budgetTracker: BudgetTracker | null;
+  collectionNames?: Set<string>;
+  collectionStrategy: CollectionStrategy;
+  ignoreOwnedBudget: boolean;
+  ignoreOwnedRarity: boolean;
+  currency: 'USD' | 'EUR';
+  arenaOnly: boolean;
+  scryfallQuery: string;
+}): Promise<void> {
+  const { lands, committedLands, landTarget, usedNames } = opts;
+
+  const inDeck = [...committedLands, ...lands];
+  if (!inDeck.some(c => c.name === MAZES_END)) return;
+
+  const distinctGates = new Set(inDeck.filter(isGateLand).map(c => c.name));
+  const need = MAZE_GATE_TARGET - distinctGates.size;
+  if (need <= 0) return;
+
+  // `t:gate` is the land subtype, and searchCards applies `f:commander` (which drops the
+  // Arena-only Gates) plus `id<=` — but only when the identity is non-empty, so a colorless
+  // commander needs `id:c` spelled out or colored Guildgates would slip in illegally.
+  const identityFilter = opts.colorIdentity.length > 0 ? '' : ' id:c';
+  const gates = await fillWithScryfall(
+    `t:gate t:land${identityFilter}`, opts.colorIdentity, need, usedNames, opts.bannedCards, opts.maxCardPrice,
+    opts.allowedRarities, opts.maxCmc, opts.budgetTracker, opts.collectionNames, opts.currency,
+    opts.arenaOnly, opts.scryfallQuery, opts.collectionStrategy, opts.ignoreOwnedBudget,
+    opts.ignoreOwnedRarity,
+  );
+
+  if (gates.length === 0) {
+    console.log(`[DeckGen] Maze's End: no additional Gates available in this color identity/filters`);
+    return;
+  }
+  lands.push(...gates);
+
+  // Basics are appended after this runs, so the Gates have already eaten those slots by shrinking
+  // the remaining basic count. Only a mana base that was ALREADY at its land target overflows —
+  // trim the weakest non-basics (tail-first) to make room, sparing the Gates themselves.
+  let overflow = lands.length - landTarget;
+  for (let i = lands.length - 1; i >= 0 && overflow > 0; i--) {
+    const card = lands[i];
+    if (isGateLand(card) || card.name === MAZES_END || card.name === 'Command Tower') continue;
+    // Left in usedNames on purpose: reclaiming the name risks a duplicate in a singleton format,
+    // which is far worse than a swap pool that's one card short.
+    lands.splice(i, 1);
+    overflow--;
+  }
+
+  const total = distinctGates.size + gates.length;
+  console.log(
+    `[DeckGen] Maze's End special rule: ${distinctGates.size} → ${total} distinct Gates`
+    + (total >= MAZE_GATE_TARGET ? ' (win condition live)' : ` (only ${total} reachable — cannot reach ${MAZE_GATE_TARGET})`),
+    gates.map(g => g.name),
+  );
+}
+
 // Generate lands from EDHREC data + basics
 async function generateLands(
   edhrecLands: EDHRECCard[],
@@ -1500,6 +1602,9 @@ async function generateLands(
   manaMix?: ManaMix,
   landSwapPool?: ScryfallCard[],
   collectionCards?: OwnedCardMeta[],
+  /** Must-include lands the caller prepends to the result. Only read by the Maze's End rule,
+   *  which has to see the whole mana base to count Gates. */
+  committedLands: ScryfallCard[] = [],
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -1539,6 +1644,18 @@ async function generateLands(
       }
     }
 
+    // Same for Urborg / Yavimaya. Both have an empty color identity, so they're legal
+    // everywhere and EDHREC lists them inconsistently — but in a deck leaning hard on
+    // their color they're the best fixer in the pool. Fetch them whenever the color is
+    // in identity; the pip-share gate below decides whether they actually get a boost.
+    for (const [name, color] of Object.entries(OMNIPRESENCE_LANDS)) {
+      if (!colorIdentity.includes(color) || usedNames.has(name) || bannedCards.has(name)) continue;
+      if (!landNamesToFetch.includes(name)) landNamesToFetch.push(name);
+      if (!edhrecLandNames.has(name)) {
+        nonBasicEdhrecLands.push({ name, sanitized: name, primary_type: 'Land', inclusion: 0, num_decks: 0 });
+      }
+    }
+
     const landCardMap = await getCardsByNames(landNamesToFetch, undefined, preferredSet, { currency });
     // Keep lands printed in ANY set the query lists, not just the first (preferredSet).
     const preferredSets = parseSetsFromQuery(scryfallQuery);
@@ -1566,6 +1683,23 @@ async function generateLands(
       } else if (isMdfcLand(card)) {
         landPenalties.set(name, (landPenalties.get(name) ?? 0) + MDFC_LAND_BOOST);
       }
+    }
+
+    // Omnipresence boost: a land that turns the whole base into a source of the deck's
+    // dominant color. Scaled by how much of the base it would actually convert, so it
+    // fires in a green-pip-heavy Golgari deck and stays quiet in mono-green (where the
+    // Forests already do the job) or in a deck that only wants a splash of the color.
+    const omniPips = countColorPips(nonLandCards);
+    const omniPipTotal = Object.values(omniPips).reduce((sum, n) => sum + n, 0);
+    for (const name of landCardMap.keys()) {
+      const granted = omnipresenceColor(name);
+      if (!granted || !colorIdentity.includes(granted)) continue;
+      const pipShare = omniPipTotal > 0 ? (omniPips[granted] || 0) / omniPipTotal : 0;
+      const convertible = estimateConvertibleLands(count, basicCount, pipShare);
+      const boost = omnipresenceBoost(pipShare, convertible);
+      if (boost === 0) continue;
+      landPenalties.set(name, (landPenalties.get(name) ?? 0) + boost);
+      console.log(`[DeckGen] ${name}: +${boost} (${Math.round(pipShare * 100)}% ${granted} pips, ~${Math.round(convertible)} lands converted)`);
     }
 
     // Tapland penalties based on deck pacing
@@ -1679,6 +1813,13 @@ async function generateLands(
       // Ignore if not found
     }
   }
+
+  // Runs before the basics fill so Gates consume basic slots first (see topUpGatesForMazesEnd).
+  await topUpGatesForMazesEnd({
+    lands, committedLands, landTarget: count, colorIdentity, usedNames, bannedCards,
+    maxCardPrice, allowedRarities, maxCmc, budgetTracker, collectionNames, collectionStrategy,
+    ignoreOwnedBudget, ignoreOwnedRarity, currency, arenaOnly, scryfallQuery,
+  });
 
   // Fill remaining with basic lands (use cached cards for efficiency)
   const basicsNeeded = Math.max(0, count - lands.length);
@@ -3001,7 +3142,6 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         edhrecData?.stats,
         edhrecData,
         customization.advancedTargets?.edhrecBlendWeight ?? null,
-        customization.advancedTargets?.edhrecInclusionThreshold ?? null,
       );
       roleTargets = dynamic.targets;
       detectedArchetype = dynamic.archetype;
@@ -3375,6 +3515,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         resolveManaMix(customization),
         landSwapPool,
         context.collectionCards,
+        mustIncludeLands,
       ),
     ];
 
@@ -3659,6 +3800,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         resolveManaMix(customization),
         undefined,
         context.collectionCards,
+        fallbackMustIncludeLands,
       ),
     ];
   }

@@ -126,3 +126,12 @@ function openingHand(pool: ScryfallCard[]): { library: ScryfallCard[]; hand: Scr
   }
   return best ?? { library: pool.slice(7), hand: pool.slice(0, 7) };
 }
+
+/**
+ * How many cards the deck actually sits down with: the 99 (or however many we
+ * wrote) plus the commander. Mirrors `buildOpponentFromStub`'s split, so a
+ * commander that also appears in the list is still counted once.
+ */
+export function stubDeckSize(stub: OpponentStub): number {
+  return expandEntries(stub.cards).filter(n => n !== stub.commander).length + 1;
+}

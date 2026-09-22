@@ -1,7 +1,7 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDroppable } from '@dnd-kit/core';
-import { HeartCrack, ShieldCheck, Sword, X } from 'lucide-react';
+import { ArrowBigUp, HeartCrack, ShieldCheck, Sword, X } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore } from '@/store/opponentStore';
@@ -9,8 +9,8 @@ import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { incomingDamage, readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
 import { isCreatureCard } from '@/services/playtest/opponents/stats';
-import { useMagnifyKey } from '@/hooks/useMagnifyKey';
-import type { BattlefieldCard } from '@/components/playtest/types';
+import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
+import { CARD_ASPECT, type BattlefieldCard } from '@/components/playtest/types';
 import type { Attacker } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
 
@@ -32,6 +32,50 @@ const MIN_CARD = 18;
 const cardW = (seatWidth: number, scale: number) => Math.round(Math.max(MIN_CARD, seatWidth * scale));
 
 /**
+ * The box an attacker needs.
+ *
+ * An attacker is drawn turned sideways, and a card turned ninety degrees needs
+ * its own dimensions swapped. Without that the row reserves an upright card's
+ * box, the rotation hangs out of both sides of it, and the attackers overlap
+ * each other while leaving a card's worth of empty space above and below.
+ */
+const turnedBox = (width: number) => ({
+  width: Math.round(width * CARD_ASPECT),
+  height: width,
+});
+
+/** The upright card that spins inside that box, centred on it. */
+const TURNED_CARD = 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rotate-90';
+
+/**
+ * How much of a seat the fight may take before its cards have to shrink, and
+ * what sits under the attacker inside that share — the blocker slot and the
+ * Resolve button, both fixed-height.
+ */
+const STRIP_HEIGHT_SHARE = 0.62;
+const STRIP_CHROME = 78;
+
+/**
+ * The width the strip sizes its cards against.
+ *
+ * Normally the seat's own width, because the seat is the zoom control. But the
+ * combat card is the largest thing in a seat by some margin, and it is sized
+ * off the width alone — so a seat dragged wide and short grew a fight taller
+ * than the box it lives in and painted it down over the player's battlefield.
+ * A hand-set height is an instruction about how much table this opponent may
+ * occupy, so it caps the fight too.
+ */
+function stripWidth(seatWidth: number, seatHeight?: number): number {
+  if (!seatHeight) return seatWidth;
+  const budget = seatHeight * STRIP_HEIGHT_SHARE - STRIP_CHROME;
+  // Tallest attacker that fits the budget, back-solved into the seat width
+  // that would have produced it. cardW's own floor handles a seat too short
+  // to fit anything.
+  const fits = budget / CARD_ASPECT / COMBAT_SCALE;
+  return Math.min(seatWidth, Math.max(0, fits));
+}
+
+/**
  * The contested space between you and one opponent. Used in both directions:
  * your attackers slide up into it, theirs slide down into it, and blockers are
  * always dragged into the same strip to meet them.
@@ -39,7 +83,12 @@ const cardW = (seatWidth: number, scale: number) => Math.round(Math.max(MIN_CARD
  * Four states. Idle is a hairline so a seat with nothing happening costs
  * nothing. Armed is a drop target. Declared and resolving both show cards.
  */
-export function CombatStrip({ opponentId, seatWidth }: { opponentId: string; seatWidth: number }) {
+export function CombatStrip({ opponentId, seatWidth, seatHeight }: {
+  opponentId: string;
+  seatWidth: number;
+  /** The seat's hand-set height, if it has one, so the fight fits inside it. */
+  seatHeight?: number;
+}) {
   const animations   = usePlaytestSettings(s => s.animations);
   const declaration  = useOpponentStore(s => s.declaration);
   const playerCombat = useOpponentStore(s => s.playerCombat);
@@ -60,6 +109,13 @@ export function CombatStrip({ opponentId, seatWidth }: { opponentId: string; sea
   // three attack zones appear.
   const armed = combatPhase && !mine;
   const busy  = declared.length > 0 || !!mine || !!theirs;
+  // Dashed only while the zone is still empty: once your attackers are sitting
+  // in it, a dashed border around real cards reads as a placeholder.
+  const empty = armed && declared.length === 0;
+
+  // One number for the whole strip: every card in it is a fraction of this, so
+  // capping it once keeps the attackers, blockers and slots in proportion.
+  const zoom = stripWidth(seatWidth, seatHeight);
 
   if (!armed && !busy) return <div ref={setNodeRef} className="h-1" />;
 
@@ -72,17 +128,42 @@ export function CombatStrip({ opponentId, seatWidth }: { opponentId: string; sea
       className={`relative mt-1 rounded-md border p-1 min-h-[38px] flex items-center gap-1 flex-wrap transition-colors ${
         theirs && animations ? 'animate-combat-open' : ''
       } ${
-        isOver   ? 'border-violet-300 bg-violet-500/25'
+        /*
+         * Red is the attack zone, and it stays red for your whole combat phase
+         * — the strip is the one thing on the table you are being asked to aim
+         * at, and a violet dashed hairline read as decoration.
+         *
+         * It does double duty with the incoming-attack red below, which is the
+         * one thing here worth knowing: they never appear together. `armed`
+         * needs `combatPhase`, and `enterCombat` refuses while a bot's attack
+         * is open, so a red strip means "drop here" on your turn and "they are
+         * swinging at you" on theirs, and never both at once.
+         *
+         * `isOver` splits on the same fact: hovering an ATTACKER over your own
+         * armed zone brightens the red, but hovering a BLOCKER into their
+         * attack has to stay violet, or dropping a blocker would look like
+         * dropping an attacker.
+         */
+        isOver && armed ? 'border-rose-300 bg-rose-500/25'
+        : isOver ? 'border-violet-300 bg-violet-500/25'
         : theirs ? 'border-rose-400/60 bg-rose-500/15 shadow-[0_0_20px_rgba(244,63,94,0.25)]'
+        : armed  ? `${empty ? 'border-dashed ' : ''}border-rose-400/70 bg-rose-500/10`
         : busy   ? 'border-violet-400/60 bg-violet-500/12'
         :          'border-dashed border-violet-400/60 bg-violet-500/10'
       }`}
     >
-      {theirs                 ? <IncomingAttack opponentId={opponentId} seatWidth={seatWidth} />
-      : mine                  ? <OutgoingResolve opponentId={opponentId} seatWidth={seatWidth} />
-      : declared.length > 0   ? <Declared instanceIds={declared} seatWidth={seatWidth} />
+      {theirs                 ? <IncomingAttack opponentId={opponentId} seatWidth={zoom} />
+      : mine                  ? <OutgoingResolve opponentId={opponentId} seatWidth={zoom} />
+      : declared.length > 0   ? <Declared instanceIds={declared} seatWidth={zoom} />
       : (
-        <span className="w-full text-center text-[8px] uppercase tracking-wider text-violet-300/80 select-none">
+        <span className="w-full flex items-center justify-center gap-1 text-[8px] uppercase tracking-wider text-rose-200/90 select-none">
+          {/*
+           * Points UP, the direction an attack travels on this table: your
+           * board is the floor, their seats are the ceiling, and the strip is
+           * the doorway between. `ArrowBigUp` rather than `ArrowUpToLine`,
+           * which already means "move to the top of your library".
+           */}
+          <ArrowBigUp className="w-3 h-3 fill-rose-400/70 text-rose-300" />
           Drop to attack
         </span>
       )}
@@ -105,13 +186,14 @@ function Declared({ instanceIds, seatWidth }: { instanceIds: string[]; seatWidth
             onClick={() => undeclare(id)}
             title={`${card.card.name} is attacking · click to pull it back`}
             className="relative shrink-0 group"
-            style={{ width: cardW(seatWidth, ATTACKER_SCALE) }}
+            style={turnedBox(cardW(seatWidth, ATTACKER_SCALE))}
           >
             <img
               src={getCardImageUrl(card.card, 'small')}
               alt={card.card.name}
               draggable={false}
-              className="w-full rounded-[2px] rotate-90 shadow"
+              style={{ width: cardW(seatWidth, ATTACKER_SCALE) }}
+              className={`${TURNED_CARD} rounded-[2px] shadow`}
             />
             <span className="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/60 rounded-[2px]">
               <X className="w-3 h-3 text-red-300" />
@@ -140,16 +222,18 @@ function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWi
         const blockerIds = side.blocks[id] ?? [];
         return (
           <div key={id} className="shrink-0 flex flex-col items-center gap-0.5">
-            <img
-              src={getCardImageUrl(card.card, 'small')}
-              alt={card.card.name}
-              title={card.card.name}
-              draggable={false}
-              className={`rounded-[2px] rotate-90 shadow ${
-                blockerIds.length === 0 ? 'ring-1 ring-emerald-400/70' : ''
-              }`}
-              style={{ width: cardW(seatWidth, COMBAT_SCALE) }}
-            />
+            <div className="relative" style={turnedBox(cardW(seatWidth, COMBAT_SCALE))}>
+              <img
+                src={getCardImageUrl(card.card, 'small')}
+                alt={card.card.name}
+                title={card.card.name}
+                draggable={false}
+                className={`${TURNED_CARD} rounded-[2px] shadow ${
+                  blockerIds.length === 0 ? 'ring-1 ring-emerald-400/70' : ''
+                }`}
+                style={{ width: cardW(seatWidth, COMBAT_SCALE) }}
+              />
+            </div>
             <div className="flex gap-0.5 min-h-[26px] items-start">
               {blockerIds.length === 0 ? (
                 <span className="text-[7px] text-emerald-300 uppercase tracking-wide">through</span>
@@ -365,17 +449,14 @@ function AttackerSlot({
   /** Position in the attack, for the stagger. */
   flyOrder?: number;
 }) {
-  const previewMode = usePlaytestSettings(s => s.opponentPreview);
-  const ctrlHeld = useMagnifyKey();
   const [hovered, setHovered] = useState(false);
+  const showPreview = useMagnifyHover(hovered, 'opponent');
   const ref = useRef<HTMLDivElement | null>(null);
   const [aim, setAim] = useState<{ from: Point; to: Point } | null>(null);
   const { setNodeRef, isOver } = useDroppable({
     id: `combat:${attackerId}`,
     data: { kind: 'combatAttacker', attackerId },
   });
-  const showPreview =
-    previewMode === 'off' ? false : previewMode === 'hover' ? hovered : ctrlHeld && hovered;
 
   /**
    * Fly the card down out of the bot's board and into the fight.
@@ -400,10 +481,14 @@ function AttackerSlot({
     if (a.width === 0 || b.width === 0) return;
     const dx = a.left + a.width / 2 - (b.left + b.width / 2);
     const dy = a.top + a.height / 2 - (b.top + b.height / 2);
+    // The source box is the permanent's footprint on the bot's board, which is
+    // its card turned sideways while it is tapped. Compare card widths, or a
+    // tapped attacker takes off a full aspect-ratio too large.
+    const srcWidth = flyRotated ? a.width / CARD_ASPECT : a.width;
     node.animate(
       [
         {
-          transform: `translate(${dx}px, ${dy}px) scale(${a.width / b.width}) rotate(${flyRotated ? 90 : 0}deg)`,
+          transform: `translate(${dx}px, ${dy}px) scale(${srcWidth / b.width}) rotate(${flyRotated ? 90 : 0}deg)`,
           opacity: 0.9,
         },
         { transform: 'translate(0, 0) scale(1) rotate(0deg)', opacity: 1 },
@@ -475,7 +560,6 @@ function AttackerSlot({
         <img
           src={getCardImageUrl(card, 'small')}
           alt={card.name}
-          title={`${card.name} · ${label}`}
           draggable={false}
           className="rounded-[2px] shadow"
           style={{ width: cardW(seatWidth, COMBAT_SCALE) }}

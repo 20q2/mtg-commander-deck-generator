@@ -7,7 +7,7 @@ import { getCardImageUrl, getCardBackFaceUrl, isDoubleFacedCard } from '@/servic
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { CardOverlays, badgeFloatAnchor } from '@/components/playtest/CardOverlays';
-import { useMagnifyKey } from '@/hooks/useMagnifyKey';
+import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import type { BattlefieldCard as BfCard } from '@/components/playtest/types';
 
 export function BattlefieldCard({ card }: { card: BfCard }) {
@@ -161,8 +161,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
   // at the same z as its neighbours, so the cards below it aren't painted over.
   const stackedDrag = usePlaytestStore(s => s.stackedDrag);
   const [hovered, setHoveredLocal] = useState(false);
-  const magnify = useMagnifyKey();
-  const showPreview = magnify && hovered && !isDragging;
+  const showPreview = useMagnifyHover(hovered) && !isDragging;
   const loyaltyValue = card.counters['loyalty'] ?? 0;
   const isPlaneswalker = card.card.type_line.toLowerCase().includes('planeswalker');
   const tx = transform?.x ?? 0;

@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { LOG_CATEGORIES, type LogCategory } from '@/components/playtest/types';
+import { LogCardText, useCardIndex, type CardIndex } from '@/components/playtest/LogCardText';
 import type { DetectedCombo, ScryfallCard } from '@/types';
 
 type Tab = 'log' | 'combos';
@@ -20,6 +21,7 @@ export function GameLog({ onCollapse }: { onCollapse?: () => void }) {
   const enabled = usePlaytestSettings(s => s.logFilter);
   const setLogFilter = usePlaytestSettings(s => s.setLogFilter);
   const toggleLogCategory = usePlaytestSettings(s => s.toggleLogCategory);
+  const cardIndex = useCardIndex();
   const [tab, setTab] = useState<Tab>('log');
   const [showFilters, setShowFilters] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -115,14 +117,19 @@ export function GameLog({ onCollapse }: { onCollapse?: () => void }) {
       )}
 
       {/* Tab body */}
+      {/* The log is the one part of the playtest surface that reads as text you
+          might want to take away with you, so it opts out of the board's
+          `select-none`. */}
       {tab === 'log' && (
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-1 text-[11px] leading-snug">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-1 text-[11px] leading-snug select-text">
           {log.length === 0 ? (
             <div className="text-muted-foreground italic">Nothing yet.</div>
           ) : filtered.length === 0 ? (
             <div className="text-muted-foreground italic">No entries match the filters.</div>
           ) : (
-            filtered.map(e => <LogLine key={e.id} text={e.text} category={e.category} undone={e.undone} />)
+            filtered.map(e => (
+              <LogLine key={e.id} text={e.text} category={e.category} undone={e.undone} cardIndex={cardIndex} />
+            ))
           )}
         </div>
       )}
@@ -147,7 +154,12 @@ function TabButton({ active, onClick, children }: { active: boolean; onClick: ()
   );
 }
 
-function LogLine({ text, category, undone }: { text: string; category: LogCategory; undone?: boolean }) {
+function LogLine({ text, category, undone, cardIndex }: {
+  text: string;
+  category: LogCategory;
+  undone?: boolean;
+  cardIndex: CardIndex;
+}) {
   const cat = LOG_CATEGORIES.find(c => c.key === category);
   return (
     <div className={`flex gap-1.5 ${undone ? 'text-muted-foreground/40 line-through' : 'text-muted-foreground/90'}`}>
@@ -155,7 +167,14 @@ function LogLine({ text, category, undone }: { text: string; category: LogCatego
         className={`shrink-0 w-1 self-stretch rounded-full ${cat?.chip.split(' ').find(c => c.startsWith('bg-')) ?? 'bg-zinc-500/40'} ${undone ? 'opacity-40' : ''}`}
         aria-hidden
       />
-      <span className="flex-1">{text}</span>
+      <span className="flex-1">
+        <LogCardText
+          text={text}
+          index={cardIndex}
+          scope={category === 'bot' ? 'opponent' : 'own'}
+          dim={undone}
+        />
+      </span>
     </div>
   );
 }

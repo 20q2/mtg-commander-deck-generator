@@ -5,14 +5,13 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getCardBackFaceUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
-import { PlaytestActionsBar, NextTurnButton, CombatButton, ZoneActions, HandActionsButton } from '@/components/playtest/PlaytestActionsBar';
+import { PlaytestActionsBar, ZoneActions, HandActionsButton } from '@/components/playtest/PlaytestActionsBar';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
-import { useMagnifyKey } from '@/hooks/useMagnifyKey';
+import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import type { SortMode } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
-
-type SortMode = 'none' | 'cmc' | 'type';
 
 export function Hand() {
   const hand = usePlaytestStore(s => s.zones.hand);
@@ -91,35 +90,38 @@ export function Hand() {
             className="pointer-events-none absolute inset-x-0 -bottom-px h-px bg-primary shadow-[0_0_8px_1px_hsl(var(--primary)/0.75)]"
           />
         )}
+        {/* On a phone the label is all this column keeps: the sort select and
+            the Hand actions button both fold into the toolbar's one Actions
+            menu, which is the only control the phone row has room for. */}
         <div className="shrink-0 flex items-center gap-2">
           <span className="text-[10px] uppercase opacity-60 shrink-0">Hand · {hand.length}</span>
-          <select
-            value={sort}
-            onChange={e => setSort(e.target.value as SortMode)}
-            className="hidden sm:inline-block text-[10px] uppercase opacity-60 bg-transparent border border-border/50 rounded-none px-1 py-0.5 shrink-0 min-w-0"
-            title="Sort hand"
-          >
-            <option value="none">None</option>
-            <option value="cmc">CMC</option>
-            <option value="type">Type</option>
-          </select>
-          <HandActionsButton />
+          {isDesktop && (
+            <>
+              <select
+                value={sort}
+                onChange={e => setSort(e.target.value as SortMode)}
+                className="text-[10px] uppercase opacity-60 bg-transparent border border-border/50 rounded-none px-1 py-0.5 shrink-0 min-w-0"
+                title="Sort hand"
+              >
+                <option value="none">None</option>
+                <option value="cmc">CMC</option>
+                <option value="type">Type</option>
+              </select>
+              <HandActionsButton />
+            </>
+          )}
         </div>
         <div className="flex-1 flex justify-center min-w-0">
-          <PlaytestActionsBar />
+          <PlaytestActionsBar sort={sort} onSortChange={setSort} />
         </div>
-        {/* Right column: spacers + Combat / Next Turn on desktop. The top
-            toolbar owns the pair on mobile, and it renders them rather than
-            hiding them, so only one copy of each is ever mounted. The two
-            buttons sit flush as one segmented control — they're the pair that
-            moves the game forward a beat. */}
+        {/* Right column: pure spacer, sized to the pile columns below so the
+            actions bar in the middle stays centred on the table rather than
+            on the row. Combat and Next Turn used to live here; they're chips
+            on the table now (<TurnChips />), beside Untap. */}
         {isDesktop && (
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="shrink-0" style={{ width: 'clamp(80px, 11vw, 130px)' }} aria-hidden />
-            <div className="shrink-0 flex justify-end [&>*+*]:-ml-px" style={{ width: 'clamp(190px, 25vw, 300px)' }}>
-              <CombatButton />
-              <NextTurnButton />
-            </div>
+          <div className="flex items-center gap-2 shrink-0" aria-hidden>
+            <div className="shrink-0" style={{ width: 'clamp(80px, 11vw, 130px)' }} />
+            <div className="shrink-0" style={{ width: 'clamp(190px, 25vw, 300px)' }} />
           </div>
         )}
       </div>
@@ -439,8 +441,7 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flipp
     localRef.current = node;
   };
   const [hovered, setHovered] = useState(false);
-  const magnify = useMagnifyKey();
-  const showPreview = magnify && hovered && !isDragging;
+  const showPreview = useMagnifyHover(hovered) && !isDragging;
   // Where a dragged card would land, if one is over the hand right now.
   const dropFanPos = usePlaytestStore(s => s.handDropFanPos);
 
@@ -451,12 +452,22 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flipp
   const animations = usePlaytestSettings(s => s.animations);
   const [drawRangeAtMount] = useState(() => usePlaytestStore.getState().lastDrawRange);
   const [returnRangeAtMount] = useState(() => usePlaytestStore.getState().lastReturnRange);
+  // A card you dragged into the hand already has a copy flying into this slot
+  // (see useHandMotion), and the real card is supposed to wait hidden under it.
+  // It cannot also deal in: a keyframe's opacity outranks the inline
+  // `opacity: 0` doing the hiding, so the card would be visible twice — once
+  // dropping in from above, once flying from where you let go. The flight
+  // wins; it starts from the cursor rather than from nowhere in particular.
+  const [landingAtMount] = useState(() => usePlaytestStore.getState().handLanding);
+  const flyingIn = landingAtMount?.index === indexInHand;
   const isFreshlyDrawn =
     animations &&
+    !flyingIn &&
     indexInHand >= drawRangeAtMount.start &&
     indexInHand < drawRangeAtMount.end;
   const isFreshlyReturned =
     animations &&
+    !flyingIn &&
     indexInHand >= returnRangeAtMount.start &&
     indexInHand < returnRangeAtMount.end;
   // Stagger: when multiple cards arrive in the same draw/return, offset each

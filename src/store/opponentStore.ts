@@ -2,14 +2,19 @@ import { create } from 'zustand';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
+import { playCue, BOT_GAIN } from '@/services/playtest/playtestSound';
+import { slashCard } from '@/store/cardSlashStore';
 import { takeTurn } from '@/services/playtest/opponents/engine';
 import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/deckSources';
 import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT, describeEdit } from '@/services/playtest/powerToughness';
 import { canBlock, keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
-import { botKeywords, botPower, botToughness, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
+import { botKeywords, botPower, botToughness, clearTempBoosts, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
 import { buryPermanents } from '@/services/playtest/opponents/deaths';
+import {
+  pickCardsToDiscard, pickPermanentsToGiveUp, type BotDecision,
+} from '@/services/playtest/opponents/choices';
 import { registerUndoParticipant } from '@/store/undoBridge';
 import { chooseBlocks, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
@@ -45,6 +50,17 @@ const MIN_STEP_MS = 90;
 function stepFor(beats: number): number {
   if (beats <= COMFORTABLE_BEATS) return STEP_MS;
   return Math.max(MIN_STEP_MS, Math.round((STEP_MS * COMFORTABLE_BEATS) / beats));
+}
+
+/**
+ * Card names for a log line, capped. A mill for twenty otherwise writes a
+ * paragraph into the log and pushes everything that mattered off the top; the
+ * first few names are what you actually read, and the rest is a count.
+ */
+function namesOf(cards: ScryfallCard[], cap = 4): string {
+  const shown = cards.slice(0, cap).map(c => c.name).join(', ');
+  const rest = cards.length - cap;
+  return rest > 0 ? `${shown} and ${rest} more` : shown;
 }
 
 /**
@@ -134,18 +150,74 @@ function sendToGraveyard(o: Opponent, instanceIds: string[]): Opponent {
 }
 
 /** What these deaths cost YOU, and what to say about them. */
+/**
+ * How long a seat stays in its dealing state at minimum.
+ *
+ * The cards usually come out of the card cache, so without a floor the whole
+ * arrival is one frame: the playmat appears already full and you never see the
+ * deck sit down. Long enough to read as shuffling up, short enough that seating
+ * three bots is not a chore.
+ */
+const MIN_DEAL_MS = 900;
+
+/** Hold until the placeholder has had its moment. Instant when the player has
+ *  turned animations off — they asked for less ceremony, not more waiting. */
+function settleDeal(startedAt: number): Promise<void> {
+  if (!usePlaytestSettings.getState().animations) return Promise.resolve();
+  const rest = MIN_DEAL_MS - (Date.now() - startedAt);
+  return rest > 0 ? new Promise(r => setTimeout(r, rest)) : Promise.resolve();
+}
+
 function deathToll(o: Opponent, instanceIds: string[]): { lifeLoss: number; logs: string[] } {
   const { lifeLoss, logs } = buryPermanents(o, instanceIds);
   return { lifeLoss, logs };
 }
 
+/**
+ * A seat that has been claimed but whose cards are still coming.
+ *
+ * Keyed rather than tracked by stub id, because two copies of the same deck can
+ * be dealing at once and "remove the entry for this stub" would clear both the
+ * moment the first one landed.
+ */
+export interface PendingSeat {
+  key: string;
+  stubId: string;
+}
+
 interface OpponentState {
   opponents: Opponent[];
-  /** Stub ids currently being fetched, so the picker can show per-deck spinners. */
-  loadingStubIds: string[];
+  /** Seats being dealt right now — the picker's spinners and the table's
+   *  placeholder playmats both read this. */
+  pending: PendingSeat[];
   error: string | null;
   /** True while turns are animating, so a double-click can't interleave them. */
   running: boolean;
+  /**
+   * Which seat is taking its turn right now, or null between cycles.
+   *
+   * `running` only says the table is moving; with three seats up it does not
+   * say which one you should be watching. This does, and it is set per seat
+   * rather than per frame so the highlight covers a whole turn instead of
+   * flickering between beats.
+   */
+  actingId: string | null;
+  /**
+   * The motion in the beat just applied, for the seat to animate: how many
+   * cards the seat drew, and which permanents arrived out of its hand.
+   *
+   * Derived by diffing the seat before and after the frame rather than
+   * declared by the engine. The engine describes a turn in terms of what it
+   * decided; the animation needs to know what visibly CHANGED, and the two
+   * stopped agreeing the moment anything could kill a creature mid-turn. A
+   * diff also covers every path for free — land drops, casts, and the tokens
+   * that came from neither.
+   *
+   * `tick` rather than identity, because two beats in a row can move the same
+   * cards — a second copy of the same land — and the seat has to be able to
+   * tell "again" from "still".
+   */
+  lastBeat: { opponentId: string; drew: number; played: string[]; tick: number } | null;
   /** Set while a bot is attacking and waiting on your blocks. */
   combat: CombatState | null;
   /**
@@ -219,6 +291,57 @@ interface OpponentActions {
   /** Move one of their permanents off the board into one of their zones. */
   permanentToZone: (opponentId: string, instanceId: string, zone: OpponentZone) => void;
   adjustPermanentCounter: (opponentId: string, instanceId: string, type: string, delta: number) => void;
+  /**
+   * The hidden zones, operated from outside — what a Duress or a Traumatize
+   * does to them. The bot has no say in any of these: it is the resolution of
+   * something you cast, and the card that caused it is on your side of the
+   * table.
+   *
+   * All of them clamp to what is actually there and no-op on an empty zone, so
+   * "mill 20" against a nine-card library is a legal nine rather than an error.
+   */
+  discardRandom: (opponentId: string, n: number) => void;
+  /**
+   * The other half of that: the things a bot DOES have a say in.
+   *
+   * "Each player sacrifices a creature" is your card but their choice, and
+   * before this the player made it for them — three times, once per seat, with
+   * a thumb on the scale they had no reason to keep off. `choices.ts` decides
+   * which permanent or card each seat gives up; this moves it and says so.
+   *
+   * Takes a list of seats rather than one, because the cards that ask are
+   * mostly symmetric: one checkpoint covers the whole table, so an edict that
+   * swept three boards is one Ctrl+Z rather than three. Seats with nothing to
+   * give are skipped, and if that is all of them nothing happens at all —
+   * including the checkpoint.
+   */
+  botGiveUp: (decision: BotDecision, opponentIds: string[], count?: number) => void;
+  /** One named card out of their hand — the choose-a-card half of a discard. */
+  discardFromHand: (opponentId: string, index: number, zone: 'graveyard' | 'exile') => void;
+  millLibrary: (opponentId: string, n: number, zone: 'graveyard' | 'exile') => void;
+  /**
+   * Pull one card out of any of their hidden or public zones and hand it back —
+   * Praetor's Grasp and Bribery out of a library, Reanimate and Sepulchral
+   * Primordial out of a graveyard, Sen Triplets out of a hand. Returns the card
+   * rather than placing it, because where it lands is your side's business:
+   * your hand, your battlefield.
+   *
+   * This was `takeFromLibrary`, and the library was never the special case it
+   * was written as — taking a creature out of an opponent's graveyard is one of
+   * the most ordinary things black does in Commander.
+   *
+   * Does not shuffle. Searching a library is supposed to be followed by a
+   * shuffle, but the viewer offers one, and doing it here would silently
+   * reorder a library you might have been deliberately stacking.
+   */
+  takeFromZone: (opponentId: string, zone: OpponentZone, index: number) => ScryfallCard | null;
+  /** One card out of their library into one of their own zones. */
+  libraryCardToZone: (opponentId: string, index: number, zone: 'graveyard' | 'exile') => void;
+  shuffleLibrary: (opponentId: string) => void;
+  /** Bojuka Bog. Their graveyard, wholesale, into exile. */
+  exileGraveyard: (opponentId: string) => void;
+  /** The other direction — shuffle what's in the bin back into the deck. */
+  graveyardToLibrary: (opponentId: string) => void;
   /**
    * Rewrite one of a bot's creatures — Lignify and friends. `null` clears it.
    * The bot reads its own board through botPower/botToughness/keywordsOf, so an
@@ -345,6 +468,9 @@ function applyEffect(effect: AppliedEffect) {
   const commanders = new Set(playtest.source?.commanderNames ?? []);
   for (const instanceId of effect.destroy) {
     const hit = playtest.battlefield.find(b => b.instanceId === instanceId);
+    // Cut it in half on its way out. Exile is not a kill — nothing is left to
+    // cut — so a Swords to Plowshares takes the card without the blade.
+    if (hit && effect.destination !== 'exile') slashCard(instanceId);
     // Your commander dying or being exiled goes back to the command zone. It
     // is the choice every player makes every single time, so it is not worth
     // a prompt — and the graveyard path stranded Krenko with no way back.
@@ -395,9 +521,11 @@ function popStack(id: string) {
 
 const initial: OpponentState = {
   opponents: [],
-  loadingStubIds: [],
+  pending: [],
   error: null,
   running: false,
+  actingId: null,
+  lastBeat: null,
   combat: null,
   combatPhase: false,
   declaration: null,
@@ -419,20 +547,24 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
   ...initial,
 
   addFromStub: async (stubId) => {
-    if (get().opponents.length >= MAX_OPPONENTS) return;
+    if (get().opponents.length + get().pending.length >= MAX_OPPONENTS) return;
     const stub = findStub(stubId);
     if (!stub) { set({ error: `Unknown opponent deck "${stubId}"` }); return; }
 
-    set(s => ({ loadingStubIds: [...s.loadingStubIds, stubId], error: null }));
+    const key = makeInstanceId();
+    const clearPending = () => set(s => ({ pending: s.pending.filter(p => p.key !== key) }));
+    set(s => ({ pending: [...s.pending, { key, stubId }], error: null }));
+    const dealtAt = Date.now();
     try {
       const { opponent, missing } = await buildOpponentFromStub(
         stub,
         STARTING_LIFE,
         usePlaytestSettings.getState().opponentResistanceDefault,
       );
+      await settleDeal(dealtAt);
       set(s => ({
         opponents: s.opponents.length >= MAX_OPPONENTS ? s.opponents : [...s.opponents, opponent],
-        loadingStubIds: s.loadingStubIds.filter(id => id !== stubId),
+        pending: s.pending.filter(p => p.key !== key),
       }));
       const playtest = usePlaytestStore.getState();
       playtest.appendLog(`${stub.name} sat down across from you`, 'bot');
@@ -450,10 +582,12 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
-      set(s => ({
-        loadingStubIds: s.loadingStubIds.filter(id => id !== stubId),
-        error: `Could not load ${stub.name}: ${msg}`,
-      }));
+      // Let the placeholder finish its entrance before it vanishes: a seat that
+      // springs in and disappears in the same frame reads as a broken click
+      // rather than as a deck that failed to arrive.
+      await settleDeal(dealtAt);
+      clearPending();
+      set({ error: `Could not load ${stub.name}: ${msg}` });
       // Also outside the picker: you can dismiss the modal and never learn the
       // seat failed to arrive.
       usePlaytestStore.getState().showToast(`Could not seat ${stub.name}`);
@@ -465,7 +599,16 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
   remove: (id) => set(s => {
     const gone = s.opponents.find(o => o.id === id);
     if (gone) usePlaytestStore.getState().appendLog(`${gone.name} left the table`, 'bot');
-    return { opponents: s.opponents.filter(o => o.id !== id) };
+    // A seat takes its unresolved spells with it. Left behind they were items
+    // cast by a bot no longer at the table — and if one of them was holding a
+    // turn parked, the only way to release it was to answer a spell from a
+    // seat that had already gone.
+    const stack = s.stack.filter(x => x.opponentId !== id);
+    if (s.stack.length > 0 && stack.length === 0) {
+      stackResolver?.();
+      stackResolver = null;
+    }
+    return { opponents: s.opponents.filter(o => o.id !== id), stack };
   }),
 
   clearAll: () => {
@@ -473,8 +616,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     cancelTurns();
     set({
       opponents: [], error: null, combat: null, combatPhase: false,
-      declaration: null, playerCombat: null, running: false, combatDone: false,
-      stack: [],
+      declaration: null, playerCombat: null, running: false, actingId: null,
+      lastBeat: null, combatDone: false, stack: [],
     });
   },
 
@@ -553,7 +696,10 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     // the turn is still parked on this promise.
     if (attackers.length === 0) {
       playtest.appendLog(`${combat.opponentName}'s attack came to nothing`, 'bot');
-      set({ combat: null });
+      set(s => ({
+        combat: null,
+        opponents: s.opponents.map(o => (o.id === combat.opponentId ? clearTempBoosts(o) : o)),
+      }));
       combatResolver?.();
       combatResolver = null;
       return;
@@ -564,6 +710,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
     for (const id of deadBlockers) {
       float('Dies', 'damage', id);
+      slashCard(id);
       const killer = combat.attackers.find(a =>
         (combat.blocks[a.instanceId] ?? []).includes(id),
       );
@@ -574,6 +721,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     }
     for (const id of deadAttackers) {
       float('Dies', 'damage', id);
+      slashCard(id);
       const attacker = attackers.find(a => a.instanceId === id);
       playtest.appendLog(`${attacker?.name ?? 'An attacker'} died in combat`, 'bot');
     }
@@ -605,7 +753,12 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       playtest.appendLog(`${combat.opponentName}'s attack dealt no damage`, 'bot');
     }
 
-    set({ combat: null });
+    // Combat is over, so any until-end-of-turn pump on the attacking seat ends
+    // with it — the survivors shrink back to their printed size.
+    set(s => ({
+      combat: null,
+      opponents: s.opponents.map(o => (o.id === combat.opponentId ? clearTempBoosts(o) : o)),
+    }));
     combatResolver?.();
     combatResolver = null;
   },
@@ -807,12 +960,14 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
       for (const id of outcome.deadAttackers) {
         float('Dies', 'damage', id);
+        slashCard(id);
         const c = attackers.find(a => a.instanceId === id);
         playtest.appendLog(`${c?.name ?? 'A creature'} died attacking ${opponent.name}`, 'bot');
         myDead.push(id);
       }
       for (const id of outcome.deadBlockers) {
         float('Dies', 'damage', id);
+        slashCard(id);
         const p = opponent.battlefield.find(b => b.instanceId === id);
         playtest.appendLog(`${opponent.name}'s ${p?.card.name ?? 'creature'} died blocking`, 'bot');
       }
@@ -892,39 +1047,44 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     ),
   })),
 
-  permanentToZone: (opponentId, instanceId, zone) => set(s => ({
-    opponents: s.opponents.map(o => {
-      if (o.id !== opponentId) return o;
-      const hit = o.battlefield.find(p => p.instanceId === instanceId);
-      if (!hit) return o;
-      const label =
-        zone === 'graveyard' ? 'graveyard'
-      : zone === 'exile'     ? 'exile'
-      : zone === 'hand'      ? 'hand'
-      :                        'top of library';
-      usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} → ${label}`, 'bot');
+  permanentToZone: (opponentId, instanceId, zone) => {
+    // Outside the updater: reading the card's box off the DOM is not something
+    // a reducer may do, and by the time it has run there is nothing to read.
+    if (zone === 'graveyard') slashCard(instanceId);
+    return set(s => ({
+      opponents: s.opponents.map(o => {
+        if (o.id !== opponentId) return o;
+        const hit = o.battlefield.find(p => p.instanceId === instanceId);
+        if (!hit) return o;
+        const label =
+          zone === 'graveyard' ? 'graveyard'
+        : zone === 'exile'     ? 'exile'
+        : zone === 'hand'      ? 'hand'
+        :                        'top of library';
+        usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} → ${label}`, 'bot');
 
-      // Killing it is a death like any other, so it goes through the one helper
-      // that knows a commander belongs in the command zone and a token belongs
-      // nowhere. Sending it here by hand put a bot's commander in its graveyard
-      // permanently — it could never be recast — and left token cards lying in
-      // the graveyard as if they were real.
-      if (zone === 'graveyard') return sendToGraveyard(o, [instanceId]);
+        // Killing it is a death like any other, so it goes through the one helper
+        // that knows a commander belongs in the command zone and a token belongs
+        // nowhere. Sending it here by hand put a bot's commander in its graveyard
+        // permanently — it could never be recast — and left token cards lying in
+        // the graveyard as if they were real.
+        if (zone === 'graveyard') return sendToGraveyard(o, [instanceId]);
 
-      // A token that leaves the battlefield any other way also ceases to exist.
-      if (isTokenCard(hit.card)) {
-        return { ...o, battlefield: o.battlefield.filter(p => p.instanceId !== instanceId) };
-      }
+        // A token that leaves the battlefield any other way also ceases to exist.
+        if (isTokenCard(hit.card)) {
+          return { ...o, battlefield: o.battlefield.filter(p => p.instanceId !== instanceId) };
+        }
 
-      return {
-        ...o,
-        battlefield: o.battlefield.filter(p => p.instanceId !== instanceId),
-        exile:     zone === 'exile'   ? [...o.exile, hit.card]   : o.exile,
-        hand:      zone === 'hand'    ? [...o.hand, hit.card]    : o.hand,
-        library:   zone === 'library' ? [hit.card, ...o.library] : o.library,
-      };
-    }),
-  })),
+        return {
+          ...o,
+          battlefield: o.battlefield.filter(p => p.instanceId !== instanceId),
+          exile:     zone === 'exile'   ? [...o.exile, hit.card]   : o.exile,
+          hand:      zone === 'hand'    ? [...o.hand, hit.card]    : o.hand,
+          library:   zone === 'library' ? [hit.card, ...o.library] : o.library,
+        };
+      }),
+    }));
+  },
 
   adjustPermanentCounter: (opponentId, instanceId, type, delta) => {
     useFloatingText.getState().float(
@@ -983,6 +1143,256 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       return sendToGraveyard(o, [instanceId]);
     }),
   })),
+
+  discardRandom: (opponentId, n) => {
+    const opp = get().opponents.find(o => o.id === opponentId);
+    if (!opp || opp.hand.length === 0 || n <= 0) return;
+    // Shuffle the *indices*, not the hand: their hand order is what the fan and
+    // the engine's own picks run off, and reordering it here would quietly
+    // reshuffle a zone the discard had no business touching.
+    const taken = new Set(fisherYates(opp.hand.map((_, i) => i)).slice(0, Math.min(n, opp.hand.length)));
+    const discarded = opp.hand.filter((_, i) => taken.has(i));
+
+    usePlaytestStore.getState().pushCheckpoint();
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId
+          ? {
+              ...o,
+              hand: o.hand.filter((_, i) => !taken.has(i)),
+              graveyard: [...o.graveyard, ...discarded],
+            }
+          : o,
+      ),
+    }));
+    usePlaytestStore.getState().appendLog(
+      `${opp.name} discards ${namesOf(discarded)}`, 'bot',
+    );
+  },
+
+  discardFromHand: (opponentId, index, zone) => {
+    const opp = get().opponents.find(o => o.id === opponentId);
+    const card = opp?.hand[index];
+    if (!opp || !card) return;
+
+    usePlaytestStore.getState().pushCheckpoint();
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId
+          ? {
+              ...o,
+              hand: o.hand.filter((_, i) => i !== index),
+              graveyard: zone === 'graveyard' ? [...o.graveyard, card] : o.graveyard,
+              exile:     zone === 'exile'     ? [...o.exile, card]     : o.exile,
+            }
+          : o,
+      ),
+    }));
+    usePlaytestStore.getState().appendLog(
+      zone === 'exile'
+        ? `${opp.name} exiles ${card.name} from their hand`
+        : `${opp.name} discards ${card.name}`,
+      'bot',
+    );
+  },
+
+  botGiveUp: (decision, opponentIds, count = 1) => {
+    const playtest = usePlaytestStore.getState();
+    const float = useFloatingText.getState().float;
+    // A seat at zero is out of the game, not a player who still has to choose.
+    // Their board stays on the table for you to pick over; it stops answering
+    // questions.
+    const seats = get().opponents.filter(o => opponentIds.includes(o.id) && o.life > 0);
+
+    // Every seat's answer is read off the board as it stands, before any of it
+    // is applied. Seats don't touch each other today, but resolving half the
+    // table against a board the other half has already changed is the kind of
+    // thing that only breaks once someone adds the card that makes it matter.
+    const answers = seats
+      .map(o => ({
+        o,
+        ids: decision.kind === 'discard'
+          ? []
+          : pickPermanentsToGiveUp(o, decision.of, count, decision.kind),
+        hand: decision.kind === 'discard' ? pickCardsToDiscard(o, count) : [],
+      }))
+      .filter(a => a.ids.length > 0 || a.hand.length > 0);
+
+    // Nothing to give is not an event. No checkpoint, no log, no undo step that
+    // undoes nothing.
+    if (answers.length === 0) return;
+    playtest.pushCheckpoint();
+
+    for (const { o, ids, hand } of answers) {
+      if (decision.kind === 'discard') {
+        const taken = new Set(hand);
+        const cards = hand.map(i => o.hand[i]);
+        set(s => ({
+          opponents: s.opponents.map(x =>
+            x.id === o.id
+              ? {
+                  ...x,
+                  hand: x.hand.filter((_, i) => !taken.has(i)),
+                  graveyard: [...x.graveyard, ...cards],
+                }
+              : x,
+          ),
+        }));
+        playtest.appendLog(`${o.name} discards ${namesOf(cards)}`, 'bot');
+        continue;
+      }
+
+      const gone = ids
+        .map(id => o.battlefield.find(p => p.instanceId === id))
+        .filter((p): p is OpponentPermanent => !!p);
+      if (decision.kind === 'bounce') {
+        const taken = new Set(ids);
+        // A token that leaves the battlefield any way at all ceases to exist —
+        // it does not bounce back to a hand, and saying it did would be a lie
+        // about a card the player can count.
+        const returned = gone.filter(p => !isTokenCard(p.card));
+        const vanished = gone.filter(p => isTokenCard(p.card));
+        set(s => ({
+          opponents: s.opponents.map(x =>
+            x.id === o.id
+              ? {
+                  ...x,
+                  battlefield: x.battlefield.filter(p => !taken.has(p.instanceId)),
+                  hand: [...x.hand, ...returned.map(p => p.card)],
+                }
+              : x,
+          ),
+        }));
+        if (returned.length > 0) {
+          playtest.appendLog(`${o.name} returns ${namesOf(returned.map(p => p.card))} to hand`, 'bot');
+        }
+        if (vanished.length > 0) {
+          playtest.appendLog(`${o.name}'s ${namesOf(vanished.map(p => p.card))} ceases to exist`, 'bot');
+        }
+        continue;
+      }
+
+      // A sacrifice is a death: it gets the blade and the floating word that
+      // every other death on this table gets, and it runs through the shared
+      // bury path so Midnight Reaper draws and a commander goes to the command
+      // zone rather than being stranded in a graveyard.
+      ids.forEach(id => { float('Dies', 'damage', id); slashCard(id); });
+      const toll = deathToll(o, ids);
+      set(s => ({ opponents: s.opponents.map(x => (x.id === o.id ? sendToGraveyard(x, ids) : x)) }));
+      playtest.appendLog(`${o.name} sacrifices ${namesOf(gone.map(p => p.card))}`, 'bot');
+      toll.logs.forEach(line => playtest.appendLog(line, 'bot'));
+      if (toll.lifeLoss > 0) playtest.adjustLife(-toll.lifeLoss);
+    }
+  },
+
+  millLibrary: (opponentId, n, zone) => {
+    const opp = get().opponents.find(o => o.id === opponentId);
+    if (!opp || opp.library.length === 0 || n <= 0) return;
+    const moved = opp.library.slice(0, Math.min(n, opp.library.length));
+
+    usePlaytestStore.getState().pushCheckpoint();
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId
+          ? {
+              ...o,
+              library: o.library.slice(moved.length),
+              graveyard: zone === 'graveyard' ? [...o.graveyard, ...moved] : o.graveyard,
+              exile:     zone === 'exile'     ? [...o.exile, ...moved]     : o.exile,
+            }
+          : o,
+      ),
+    }));
+    usePlaytestStore.getState().appendLog(
+      `${opp.name} ${zone === 'exile' ? 'exiles' : 'mills'} ${moved.length} card${moved.length === 1 ? '' : 's'}: ${namesOf(moved)}`,
+      'bot',
+    );
+    // Not `decked`: that flag means "tried to draw and couldn't", and it is set
+    // where the draw happens. An empty library is only a loss on the next draw.
+  },
+
+  takeFromZone: (opponentId, zone, index) => {
+    const opp = get().opponents.find(o => o.id === opponentId);
+    const card = opp?.[zone][index];
+    if (!opp || !card) return null;
+    usePlaytestStore.getState().pushCheckpoint();
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId ? { ...o, [zone]: o[zone].filter((_, i) => i !== index) } : o,
+      ),
+    }));
+    // The log line is the caller's: only your side knows whether this became a
+    // card in your hand, a permanent on your board, or something you exiled.
+    return card;
+  },
+
+  libraryCardToZone: (opponentId, index, zone) => {
+    const opp = get().opponents.find(o => o.id === opponentId);
+    const card = opp?.library[index];
+    if (!opp || !card) return;
+    usePlaytestStore.getState().pushCheckpoint();
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId
+          ? {
+              ...o,
+              library: o.library.filter((_, i) => i !== index),
+              graveyard: zone === 'graveyard' ? [...o.graveyard, card] : o.graveyard,
+              exile:     zone === 'exile'     ? [...o.exile, card]     : o.exile,
+            }
+          : o,
+      ),
+    }));
+    usePlaytestStore.getState().appendLog(
+      `${opp.name}'s ${card.name} → ${zone === 'exile' ? 'exile' : 'graveyard'} from their library`,
+      'bot',
+    );
+  },
+
+  shuffleLibrary: (opponentId) => {
+    const opp = get().opponents.find(o => o.id === opponentId);
+    if (!opp || opp.library.length < 2) return;
+    usePlaytestStore.getState().pushCheckpoint();
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId ? { ...o, library: fisherYates(o.library) } : o,
+      ),
+    }));
+    usePlaytestStore.getState().appendLog(`${opp.name} shuffles their library`, 'bot');
+  },
+
+  exileGraveyard: (opponentId) => {
+    const opp = get().opponents.find(o => o.id === opponentId);
+    if (!opp || opp.graveyard.length === 0) return;
+    const count = opp.graveyard.length;
+    usePlaytestStore.getState().pushCheckpoint();
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId ? { ...o, graveyard: [], exile: [...o.exile, ...o.graveyard] } : o,
+      ),
+    }));
+    usePlaytestStore.getState().appendLog(
+      `${opp.name}'s graveyard is exiled (${count} card${count === 1 ? '' : 's'})`, 'bot',
+    );
+  },
+
+  graveyardToLibrary: (opponentId) => {
+    const opp = get().opponents.find(o => o.id === opponentId);
+    if (!opp || opp.graveyard.length === 0) return;
+    const count = opp.graveyard.length;
+    usePlaytestStore.getState().pushCheckpoint();
+    set(s => ({
+      opponents: s.opponents.map(o =>
+        o.id === opponentId
+          ? { ...o, graveyard: [], library: fisherYates([...o.library, ...o.graveyard]) }
+          : o,
+      ),
+    }));
+    usePlaytestStore.getState().appendLog(
+      `${opp.name} shuffles ${count} card${count === 1 ? '' : 's'} from their graveyard into their library`,
+      'bot',
+    );
+  },
 
   runAllTurns: async () => {
     if (get().running || get().opponents.length === 0) return false;
@@ -1046,15 +1456,18 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       for (const id of outcome.deadAttackers) {
         const c = attackers.find(a => a.instanceId === id);
         playtest.appendLog(`${attacker.name}'s ${c?.name ?? 'creature'} died attacking ${defender.name}`, 'bot');
+        slashCard(id);
       }
       for (const id of outcome.deadBlockers) {
         const c = pool.find(b => b.instanceId === id);
         playtest.appendLog(`${defender.name}'s ${c?.name ?? 'creature'} died blocking`, 'bot');
+        slashCard(id);
       }
 
       set(s => ({
         opponents: s.opponents.map(o => {
-          if (o.id === attacker.id) return sendToGraveyard(o, outcome.deadAttackers);
+          // Bot-on-bot combat resolves in one go, so the pump ends here too.
+          if (o.id === attacker.id) return clearTempBoosts(sendToGraveyard(o, outcome.deadAttackers));
           if (o.id === defenderId)  return sendToGraveyard(o, outcome.deadBlockers);
           return o;
         }),
@@ -1085,6 +1498,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       if (!rival) return;
       const ids = e.destroy.filter(id => rival.battlefield.some(p => p.instanceId === id));
       if (ids.length > 0) {
+        if (e.destination !== 'exile') ids.forEach(id => slashCard(id));
         if (e.destination === 'exile') {
           set(s => ({
             opponents: s.opponents.map(o => o.id === seatId
@@ -1148,6 +1562,45 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     };
 
     try {
+      /**
+       * What changed on a seat across one beat: cards drawn, and the permanents that arrived.
+       * Shared by the flight animation below and the bot sound cues, which have different
+       * appetites — the flights are suppressed when animations are off, the sounds are not.
+       */
+      const beatDiff = (before: Opponent, after: Opponent) => ({
+        drew: Math.max(0, after.hand.length - before.hand.length),
+        played: after.hand.length < before.hand.length
+          ? after.battlefield
+              .filter(p => !before.battlefield.some(q => q.instanceId === p.instanceId))
+              .map(p => p.instanceId)
+          : [],
+      });
+
+      /**
+       * Hand the seat the two things worth animating: a draw, and a card
+       * played out of hand.
+       *
+       * A new permanent only counts as played from hand when the hand also
+       * got smaller — otherwise a token is indistinguishable from a cast, and
+       * a token has no hand to fly out of.
+       *
+       * Only called when animations are on. With them off the whole turn
+       * lands at once, and a queue of flights for beats that already happened
+       * is worse than none.
+       */
+      const publishBeat = (before: Opponent, after: Opponent) => {
+        const { drew, played } = beatDiff(before, after);
+        if (drew === 0 && played.length === 0) return;
+        set(st => ({
+          lastBeat: {
+            opponentId: after.id,
+            drew,
+            played,
+            tick: (st.lastBeat?.tick ?? 0) + 1,
+          },
+        }));
+      };
+
       // By id, re-read at the top of every turn. The array captured when the
       // loop started is a photograph: seat A's attack this cycle kills seat
       // B's blockers in the live store, and a turn planned from the photograph
@@ -1160,6 +1613,10 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         // Left the table mid-cycle, or out of the game. A dead seat stays on
         // the table so you can see what beat them, but it takes no turn.
         if (!opponent || opponent.life <= 0) continue;
+        // Whose turn it is, for the seat highlight. Set here rather than per
+        // frame so it reads as "this bot is taking its turn", not as a flicker
+        // that follows each individual play.
+        set({ actingId: seatId });
         // Re-read the board for every bot: the one before it may have blown up
         // half of it, and targeting a creature that's already dead reads broken.
         // The rivals are read fresh for the same reason.
@@ -1215,9 +1672,25 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
         for (const f of frames) {
           if (!mine()) return false;
+          // What the seat looked like before this beat, so its motion can be
+          // read off the difference. `correct` is pulled out here for the same
+          // reason: the diff has to be against what actually lands, not what
+          // the engine planned.
+          const before = get().opponents.find(o => o.id === f.opponent.id);
+          const after = correct(f.opponent);
           set(s => ({
-            opponents: s.opponents.map(o => (o.id === f.opponent.id ? correct(f.opponent) : o)),
+            opponents: s.opponents.map(o => (o.id === f.opponent.id ? after : o)),
           }));
+          if (before && animate) publishBeat(before, after);
+          // The seat's own quiet cues, at half gain — enough to know a bot did something without
+          // it competing with your hands. Deliberately outside the `animate` gate: turning off
+          // card flights asks for less motion, not for the table to go silent, and the blurb
+          // below plays either way.
+          if (before) {
+            const { drew, played } = beatDiff(before, after);
+            if (drew > 0) playCue('draw', BOT_GAIN);
+            if (played.length > 0) playCue('land', BOT_GAIN);
+          }
           f.logs.forEach(line => usePlaytestStore.getState().appendLog(line, 'bot'));
           // Narrate the play off the bot's lane, so you can follow the turn
           // without reading the log.
@@ -1286,7 +1759,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       }
       return mine();
     } finally {
-      set({ running: false });
+      set({ running: false, actingId: null });
     }
   },
 
@@ -1354,6 +1827,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       combatDone: false,
       combat: null,
       running: false,
+      actingId: null,
+      lastBeat: null,
       stack: [],
       opponents: s.opponents.map(o => {
         // Gather every real card back. Tokens have no printing to return to,

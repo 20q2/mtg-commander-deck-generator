@@ -296,6 +296,12 @@ export interface ResistanceContext {
    * discounted creatures and nothing else.
    */
   costFor?: (card: ScryfallCard) => number;
+  /**
+   * The multiplier on a scaled effect — Gray Merchant's devotion, The Scarab
+   * God's zombies. Supplied by the engine because only it can see the bot's own
+   * board, and it takes the card so a source can count itself.
+   */
+  scaleFor?: (spec: BotEffectSpec, card: ScryfallCard) => number;
   board: PlayerBoardRead;
   botPower: number;
   turn: number;
@@ -337,8 +343,9 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
     const entry = lookupEffect(card.name);
     if (!entry) return;
     if (priceOf(card) > mana) return;
+    const scale = ctx.scaleFor?.(entry.spec, card) ?? 1;
     const hits = isSweep(entry.spec) ? resolveEverywhere(entry.spec, boards) : [];
-    const resolved = isSweep(entry.spec) ? hits[0] : pickTarget(entry.spec, boards);
+    const resolved = isSweep(entry.spec) ? hits[0] : pickTarget(entry.spec, boards, scale);
     if (!resolved) return;
     const extra = hits.slice(1).map(h => h.effect);
 
@@ -360,7 +367,9 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
       case 'artifactSweep':   rank = resolved.effect.destroy.length >= 2 ? 55 : 20; break;
       case 'edict':           rank = 40; break;
       case 'damage':          rank = resolved.effect.destroy.length > 0 ? 50 : 15; break;
-      case 'drain':           rank = 20; break;
+      // Scaled, so the rank has to be too: a Gray Merchant landing for 8 is a
+      // bigger play than one landing for 2, and a flat 20 said they were equal.
+      case 'drain':           rank = 20 + resolved.effect.lifeLoss; break;
       case 'discard':         rank = 18; break;
     }
     // Rank 0 means the play is actively bad — a wrath that costs the bot more

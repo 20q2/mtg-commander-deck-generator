@@ -1,6 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { isLand, makeInstanceId } from '@/components/playtest/utils';
+import { isLand } from '@/components/playtest/utils';
 import { chooseResistancePlay, describeEffect, hasLiveTarget, pickTarget, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import {
   BOT_CYCLING,
@@ -16,9 +16,11 @@ import {
   specsOf,
 } from '@/services/playtest/opponents/effects';
 import type { BotEffectSpec, BotSelfSpec, TokenSpec } from '@/services/playtest/opponents/effects';
-import { arrivesDead, botKeywords, botPower as livePower, botToughness as liveToughness, effectiveCost, hasHaste, isCreatureCard, isTokenCard, tokenMultiplier } from '@/services/playtest/opponents/stats';
+import { arrivesDead, botKeywords, botPower as livePower, botToughness as liveToughness, effectiveCost, hasHaste, isCreatureCard, isTokenCard, toPermanent, tokenMultiplier, typeLineOf } from '@/services/playtest/opponents/stats';
+import { applyTaps, devotionTo, genericCost, manaFrom, planPayment, requirementFor } from '@/services/playtest/opponents/mana';
 import { chooseAttackTarget, chooseAttackers, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { BOT_COMBOS, comboPiecesWanted, liveCombos } from '@/services/playtest/opponents/botCombos';
+import { pickSacrificeFodder } from '@/services/playtest/opponents/choices';
 import { buryPermanents } from '@/services/playtest/opponents/deaths';
 import { keywordsOf } from '@/services/playtest/combat';
 import type { AttackTarget, Opponent, OpponentPermanent, StackSource, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
@@ -29,9 +31,10 @@ import type { AttackTarget, Opponent, OpponentPermanent, StackSource, TurnFrame,
  * apply. Nothing here touches a store, which is what keeps the decision logic
  * testable and the coupling one-directional.
  *
- * Mana is deliberately approximated as "lands on the battlefield" with no colour
- * checking. Real coloured-mana correctness turns this into a rules engine, which
- * is explicitly out of scope — the bot is a goldfish opponent, not a referee.
+ * Mana lives in `mana.ts`: what a source can make, what a spell demands, and
+ * which permanents get tapped to bridge the two. Colours are checked for
+ * anything cast from hand or the command zone; registry costs (cycling,
+ * recursion, activated abilities) are plain numbers and are paid as generic.
  */
 
 /** A do-nothing effect, for combo outcomes to fill in one field of. */
@@ -84,66 +87,14 @@ function isPermanent(card: ScryfallCard): boolean {
 }
 
 /**
- * Net mana from a tap ability. "{T}: Add {C}{C}" is 2; "{1}, {T}: Add {U}{B}"
- * produces two but costs one, so it's 1; "{T}: Add one mana of any color" has
- * no symbols to count and is 1.
- *
- * No tap ability at all means no mana. That is the point of the rewrite: the
- * old version returned 1 for anything with a `produced_mana` field, so Skirk
- * Prospector — which has to sacrifice a goblin — was a free mana dork.
- */
-function netManaFromText(text: string): number {
-  const m = text.match(/([^\n:]*?)\{t\}[^:]*:\s*add\s+([^.\n]*)/i);
-  if (!m) return 0;
-  // `|| 1` covers "add one mana of any color", which writes no mana symbols.
-  const produced = (m[2].match(/\{[^}]+\}/g) ?? []).length || 1;
-  const genericCost = (m[1] ?? '').match(/\{(\d+)\}/);
-  const spent = genericCost ? parseInt(genericCost[1], 10) : 0;
-  return Math.max(0, produced - spent);
-}
-
-/** How much mana this permanent can make right now. */
-function manaFrom(p: OpponentPermanent): number {
-  if (p.tapped) return 0;
-  if (isLand(p.card)) return 1;
-  if ((p.card.produced_mana?.length ?? 0) === 0) return 0;
-  // A mana creature can't tap the turn it arrives.
-  if (isCreatureCard(p.card) && p.summoningSick) return 0;
-  return netManaFromText(p.card.oracle_text ?? '');
-}
-
-/**
- * Tap sources to pay `amount`. Lands go first, then rocks, then creatures —
- * tapping a creature costs an attacker, so it's the last resort.
+ * Tap sources to pay a bare number, for the registry costs that are one — a
+ * cycling cost, a recursion cost, an activated ability. Colourless in both
+ * senses: nothing here knows what colour the ability wanted, so it spends the
+ * least flexible sources first and leaves the duals up for the spells that do.
  */
 function tapForMana(battlefield: OpponentPermanent[], amount: number): OpponentPermanent[] {
   if (amount <= 0) return battlefield;
-  const priority = (p: OpponentPermanent) =>
-    isLand(p.card) ? 0 : isCreatureCard(p.card) ? 2 : 1;
-  const order = battlefield
-    .map((p, i) => ({ p, i }))
-    .filter(({ p }) => manaFrom(p) > 0)
-    .sort((a, b) => priority(a.p) - priority(b.p));
-
-  const tapped = new Set<number>();
-  let remaining = amount;
-  for (const { p, i } of order) {
-    if (remaining <= 0) break;
-    remaining -= manaFrom(p);
-    tapped.add(i);
-  }
-  return battlefield.map((p, i) => (tapped.has(i) ? { ...p, tapped: true } : p));
-}
-
-function toPermanent(card: ScryfallCard): OpponentPermanent {
-  return {
-    instanceId: makeInstanceId(),
-    card,
-    tapped: false,
-    // Only creatures care, but tracking it uniformly keeps the attack step simple.
-    summoningSick: true,
-    counters: {},
-  };
+  return applyTaps(battlefield, planPayment(battlefield, genericCost(amount)).taps);
 }
 
 /**
@@ -405,6 +356,44 @@ export function takeTurn(
           : `returns ${describeNames(names)} from the graveyard`;
       }
 
+      case 'pump': {
+        /*
+         * Written as a fresh `tempBoost` object on every permanent it touches,
+         * never mutated in place: `frame` shallow-copies each permanent into
+         * its snapshot, so a boost edited in place would retroactively change
+         * the numbers in frames the player has already watched.
+         *
+         * Stacks rather than replaces, so two Goreclaws are two attack
+         * triggers and the board ends up +2/+2 — and so Goreclaw and Temmet on
+         * the same swing both get paid.
+         */
+        let pumped = 0;
+        opp.battlefield = opp.battlefield.map(p => {
+          if (!isCreatureCard(p.card)) return p;
+          if (spec.subtype && !typeLineOf(p).toLowerCase().includes(spec.subtype.toLowerCase())) return p;
+          // Live power, counters and anthems included — see the spec's comment.
+          if (spec.minPower !== undefined && livePower(p, opp.battlefield, opp.graveyard) < spec.minPower) return p;
+          pumped++;
+          const prior = p.tempBoost;
+          return {
+            ...p,
+            tempBoost: {
+              power: (prior?.power ?? 0) + spec.power,
+              toughness: (prior?.toughness ?? 0) + spec.toughness,
+              keywords: [...new Set([...(prior?.keywords ?? []), ...(spec.keywords ?? [])])],
+            },
+          };
+        });
+        if (pumped === 0) return null;
+        // A pump can be all keywords and no stats — Legion Loyalist hands out
+        // first strike and trample and changes nobody's size. Announcing that
+        // as "+0/+0 and firstStrike" reads as a bug in the log.
+        const body = spec.power === 0 && spec.toughness === 0
+          ? (spec.keywords ?? []).join(', ')
+          : `+${spec.power}/+${spec.toughness}${spec.keywords?.length ? ` and ${spec.keywords.join(', ')}` : ''}`;
+        return `gives ${pumped} creature${pumped === 1 ? '' : 's'} ${body}`;
+      }
+
       case 'draw': {
         let drawn = 0;
         for (let i = 0; i < spec.count; i++) {
@@ -622,6 +611,13 @@ export function takeTurn(
       });
       case 'makeTokens':   return opp.battlefield.length < MAX_BOARD;
       case 'reclaimLands': return opp.graveyard.some(isLand);
+      // Worth it only if something on the board actually qualifies — a Goreclaw
+      // swinging into an empty board should not read as a trigger that fired.
+      case 'pump':         return opp.battlefield.some(p =>
+        isCreatureCard(p.card)
+        && (!spec.subtype || typeLineOf(p).toLowerCase().includes(spec.subtype.toLowerCase()))
+        && (spec.minPower === undefined || livePower(p, opp.battlefield, opp.graveyard) >= spec.minPower),
+      );
     }
   };
 
@@ -644,8 +640,17 @@ export function takeTurn(
    * number of Zombies you control". Only the bot's own board can answer that,
    * which is why `resolveEffect` takes it rather than working it out.
    */
-  const effectScale = (spec: BotEffectSpec): number => {
-    if (spec.kind !== 'drain' || !spec.perSubtype) return 1;
+  const effectScale = (spec: BotEffectSpec, incoming?: ScryfallCard): number => {
+    if (spec.kind !== 'drain') return 1;
+    if (spec.perDevotion) {
+      // `incoming` is the card being cast, still in hand while the cast is
+      // being chosen but on the battlefield by the time the trigger resolves.
+      // Without it a Gray Merchant on an empty board drained for nothing
+      // instead of the 2 its own {3}{B}{B} is worth.
+      const cards = opp.battlefield.map(p => p.card);
+      return devotionTo(incoming ? [...cards, incoming] : cards, spec.perDevotion);
+    }
+    if (!spec.perSubtype) return 1;
     const want = spec.perSubtype.toLowerCase();
     return opp.battlefield.filter(p =>
       getFrontFaceTypeLine(p.card).toLowerCase().includes(want),
@@ -659,7 +664,13 @@ export function takeTurn(
   };
 
   // ── Untap + draw ──
-  opp.battlefield = opp.battlefield.map(p => ({ ...p, tapped: false, summoningSick: false }));
+  // `tempBoost` is cleared here as a backstop. Combat resolution is what
+  // normally ends an until-end-of-turn pump — see `clearTempBoosts` in the
+  // store — and this catches the case where it never resolved, so no bot can
+  // carry a pump into a second turn.
+  opp.battlefield = opp.battlefield.map(p => ({
+    ...p, tapped: false, summoningSick: false, tempBoost: undefined,
+  }));
   const drawLogs: string[] = [];
   let drewForTurn = false;
   if (opp.library.length > 0) {
@@ -727,10 +738,20 @@ export function takeTurn(
     }
   }
 
-  // Lands, rocks and unsick mana creatures. Colours are still ignored — that's
-  // the standing approximation — but ramp now actually ramps.
+  // Lands, rocks and unsick mana creatures.
   /** Untapped mana right now — recomputed after every spell, since paying taps. */
   const availableMana = () => opp.battlefield.reduce((sum, p) => sum + manaFrom(p), 0);
+  /**
+   * How the bot would pay for `card`, with `extra` generic on top for commander
+   * tax. Plan before you mutate: the taps are battlefield indices, so a spell
+   * that pushes a permanent first would be shown paying with itself.
+   */
+  const payFor = (card: ScryfallCard, extra = 0) => planPayment(
+    opp.battlefield,
+    requirementFor(card, effectiveCost(card, opp.battlefield) + extra),
+  );
+  /** Can the bot make the colours? The develop loop still checks the total first. */
+  const canPay = (card: ScryfallCard, extra = 0) => payFor(card, extra).paid;
   /**
    * The bot's own power on board, right now. A function rather than a constant
    * because the commander lands between here and the interaction step, and a
@@ -748,10 +769,10 @@ export function takeTurn(
   if (opp.command.length > 0) {
     const commander = opp.command[0];
     const tax = 2 * opp.commanderCasts;
-    const price = effectiveCost(commander, opp.battlefield) + tax;
-    if (price <= availableMana()) {
+    const plan = payFor(commander, tax);
+    if (plan.paid) {
       opp.command = opp.command.slice(1);
-      opp.battlefield = tapForMana(opp.battlefield, price);
+      opp.battlefield = applyTaps(opp.battlefield, plan.taps);
       opp.battlefield.push(toPermanent(commander));
       arrive(commander);
       opp.commanderCasts += 1;
@@ -778,7 +799,7 @@ export function takeTurn(
       // Only pieces still needed on the BATTLEFIELD — a finisher that stays in
       // hand is cast by the combo step itself, not by developing.
       BOT_COMBOS.some(combo => combo.onBattlefield.includes(c.name) && !wanted.has(c.name))
-      && effectiveCost(c, opp.battlefield) <= availableMana(),
+      && canPay(c),
     );
   };
 
@@ -787,7 +808,13 @@ export function takeTurn(
       const play = chooseResistancePlay({
         hand: opp.hand,
         mana: availableMana(),
-        costFor: card => effectiveCost(card, opp.battlefield),
+        // Infinity for a spell whose colours the bot can't make, which is how a
+        // numeric chooser says "uncastable" without learning about pips.
+        costFor: card => (canPay(card) ? effectiveCost(card, opp.battlefield) : Infinity),
+        // Scaled drains are counted off the bot's own board, which only the
+        // engine can see. Without this the cast path silently used a scale of
+        // 1 while the upkeep and ability paths scaled properly.
+        scaleFor: effectScale,
         board,
         botPower: botPower(),
         turn: input.turnsTaken + 1,
@@ -799,14 +826,15 @@ export function takeTurn(
       });
       if (!play) break;
       opp.hand.splice(play.handIndex, 1);
+      // Tap what it cost, so their board shows the spend — before the spell
+      // lands, so a mana rock can't help pay for itself.
+      opp.battlefield = applyTaps(opp.battlefield, payFor(play.card).taps);
       if (play.staysOnBattlefield) {
         opp.battlefield.push(toPermanent(play.card));
         arrive(play.card);
       } else {
         opp.graveyard.push(play.card);
       }
-      // Tap what it cost, so their board shows the spend.
-      opp.battlefield = tapForMana(opp.battlefield, effectiveCost(play.card, opp.battlefield));
 
       // A wrath is symmetrical. The bot's own creatures die too, through the
       // same path as any other death, so a Solemn caught in it still draws.
@@ -925,7 +953,7 @@ export function takeTurn(
       // in hand forever reads as a bot that has stopped playing.
       if (opp.resistance && hasLiveTarget(card.name, boards())) return;
       const cost = effectiveCost(card, opp.battlefield);
-      if (cost > mana) return;
+      if (cost > mana || !canPay(card)) return;
       // Cast the most expensive thing affordable — a rough proxy for "best
       // play" — except that a combo piece jumps the queue. The interaction
       // step already stands aside when the bot is holding a piece it can pay
@@ -940,17 +968,16 @@ export function takeTurn(
     });
     if (bestIdx < 0) break;
     const spell = opp.hand.splice(bestIdx, 1)[0];
-    opp.battlefield = tapForMana(opp.battlefield, effectiveCost(spell, opp.battlefield));
+    opp.battlefield = applyTaps(opp.battlefield, payFor(spell).taps);
 
     // Pay any additional cost first, through the shared death path so the
     // sacrifice fires death triggers like any other death.
     const entry = lookupSelfEffect(spell.name);
     const sacLogs: string[] = [];
     if (entry?.sacrifice === 'creature') {
-      const fodder = [...opp.battlefield]
-        .filter(p => isCreatureCard(p.card) && p.card.name !== opp.commanderName)
-        .sort((a, b) => livePower(a, opp.battlefield) - livePower(b, opp.battlefield))[0]
-        ?? opp.battlefield.find(p => isCreatureCard(p.card));
+      // The same picker that answers your edicts, so a bot values its own
+      // board one way whoever is asking.
+      const fodder = pickSacrificeFodder(opp);
       if (fodder) sacLogs.push(`${opp.name} sacrifices ${fodder.card.name}`, ...bury([fodder.instanceId]));
     }
 

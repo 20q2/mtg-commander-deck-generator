@@ -5,6 +5,12 @@ docs/superpowers/
 .mcp.json
 .worktrees/
 
+# Impeccable (agent tooling, not project CI)
+.impeccable/
+.github/agents/
+.github/hooks/
+.github/skills/
+
 # Dependencies
 node_modules
 .pnp

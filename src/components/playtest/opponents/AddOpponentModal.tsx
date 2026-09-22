@@ -2,29 +2,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Plus, Trash2, X } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
-import { OPPONENT_STUBS } from '@/services/playtest/opponents/deckSources';
+import { OPPONENT_STUBS, stubDeckSize } from '@/services/playtest/opponents/deckSources';
 import { getCardsByNames } from '@/services/scryfall/client';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
 import { BRACKET_LABELS, type Bracket, type OpponentStub } from '@/components/playtest/opponentTypes';
-import { deckReadiness, type ReadinessLevel } from '@/services/playtest/opponents/deckReadiness';
 
 /**
- * Deliberately not the bracket palette: a bracket says what kind of game this
- * is, readiness says whether the bot has learned the deck yet. They sit inches
- * apart, so they must not read as the same axis. Unfinished is grey rather than
- * red — it isn't broken, just not taught.
- *
- * Tints are heavier than a normal chip's because these ride on top of card art
- * rather than on the dialog's own surface.
+ * Cool at the bottom of the range, hot at the top. Tints are heavier than a
+ * normal chip's because this one rides on top of card art rather than on the
+ * dialog's own surface.
  */
-const READINESS_TINT: Record<ReadinessLevel, string> = {
-  ready: 'bg-emerald-500/25 text-emerald-200 border-emerald-400/50',
-  playable: 'bg-amber-500/25 text-amber-200 border-amber-400/50',
-  rough: 'bg-zinc-900/70 text-zinc-300 border-zinc-400/40',
-  unmeasured: 'bg-zinc-900/70 text-zinc-300 border-zinc-400/40',
-};
-
-/** Cool at the bottom of the range, hot at the top. */
 const BRACKET_TINT: Record<Bracket, string> = {
   1: 'bg-sky-500/25 text-sky-200 border-sky-400/50',
   2: 'bg-emerald-500/25 text-emerald-200 border-emerald-400/50',
@@ -86,7 +73,7 @@ function useCommanderArt(stubs: OpponentStub[]): Map<string, string> {
 export function AddOpponentModal() {
   const closeModal = usePlaytestStore(s => s.closeModal);
   const opponents = useOpponentStore(s => s.opponents);
-  const loadingStubIds = useOpponentStore(s => s.loadingStubIds);
+  const pending = useOpponentStore(s => s.pending);
   const error = useOpponentStore(s => s.error);
   const addFromStub = useOpponentStore(s => s.addFromStub);
   const remove = useOpponentStore(s => s.remove);
@@ -97,7 +84,9 @@ export function AddOpponentModal() {
   useEffect(() => clearError, [clearError]);
 
   const art = useCommanderArt(OPPONENT_STUBS);
-  const full = opponents.length >= MAX_OPPONENTS;
+  // Seats being dealt are already claimed: counting only the ones that have
+  // landed would let you fill the last chair twice while the first is in flight.
+  const full = opponents.length + pending.length >= MAX_OPPONENTS;
 
   /**
    * Grouped by bracket, ascending.
@@ -130,15 +119,26 @@ export function AddOpponentModal() {
       storageKey="playtest-opponents-pos"
       sizeStorageKey="playtest-opponents-size"
       headerExtra={
-        <span
-          className={`shrink-0 ml-1 px-2 py-0.5 rounded-full border text-[10px] font-medium tabular-nums ${
-            full
-              ? 'border-violet-400/50 bg-violet-500/15 text-violet-200'
-              : 'border-border/60 bg-muted/40 text-muted-foreground'
-          }`}
-        >
-          {opponents.length} / {MAX_OPPONENTS} seated
-        </span>
+        <>
+          {/* Amber rather than the seated chip's violet: the two sit side by
+              side, and a beta badge that matches the chip next to it stops
+              being a warning and becomes decoration. */}
+          <span
+            className="shrink-0 ml-1 px-1.5 py-0.5 rounded-full border border-amber-400/40 bg-amber-500/10 text-[9px] font-semibold uppercase tracking-wider text-amber-200/90"
+            title="Bots are new. They play a real game, but expect rough edges."
+          >
+            Beta
+          </span>
+          <span
+            className={`shrink-0 px-2 py-0.5 rounded-full border text-[10px] font-medium tabular-nums ${
+              full
+                ? 'border-violet-400/50 bg-violet-500/15 text-violet-200'
+                : 'border-border/60 bg-muted/40 text-muted-foreground'
+            }`}
+          >
+            {opponents.length} / {MAX_OPPONENTS} seated
+          </span>
+        </>
       }
     >
       {/* Three bands, so a roster taller than the dialog scrolls on its own
@@ -148,7 +148,18 @@ export function AddOpponentModal() {
       <div className="px-4 pt-3 pb-1 shrink-0 space-y-2">
         <p className="text-xs text-muted-foreground">
           Pick a deck to sit across from you. Bots play lands, cast what they can afford, block,
-          and attack whoever looks softest.
+          and attack whoever looks softest. Still in beta, so please{' '}
+          {/* The playtest table has no site footer, so the one place the
+              feedback form is reachable from is not reachable from here. */}
+          <a
+            href="https://forms.gle/H3eKtDh52muFm7d56"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-violet-300 hover:text-violet-200 underline underline-offset-2"
+          >
+            report bugs
+          </a>{' '}
+          as you see them.
         </p>
 
         {error && (
@@ -193,7 +204,7 @@ export function AddOpponentModal() {
                       key={stub.id}
                       stub={stub}
                       artUrl={art.get(stub.commander)}
-                      loading={loadingStubIds.includes(stub.id)}
+                      loading={pending.some(p => p.stubId === stub.id)}
                       seatedIds={opponents.filter(o => o.stubId === stub.id).map(o => o.id)}
                       full={full}
                       onSeat={() => addFromStub(stub.id)}
@@ -242,9 +253,9 @@ interface TileProps {
  * it belongs to without becoming the tile's own action.
  */
 function DeckTile({ stub, artUrl, loading, seatedIds, full, onSeat, onUnseat }: TileProps) {
-  const readiness = deckReadiness(stub.id);
   const seated = seatedIds.length > 0;
   const blocked = (full && !seated) || loading;
+  const deckSize = useMemo(() => stubDeckSize(stub), [stub]);
 
   const activate = () => { if (!blocked) onSeat(); };
 
@@ -293,15 +304,13 @@ function DeckTile({ stub, artUrl, loading, seatedIds, full, onSeat, onUnseat }: 
           {stub.bracket}
         </span>
 
-        {/* Whether the bot has been taught this deck — the one thing worth
-            knowing before you sit down, so it rides on the art rather than
-            waiting at the bottom as a footnote. */}
+        {/* Deck size. These lists are hand-written and not all 100, so "how big
+            is it" is a real question the tile can answer before you sit down. */}
         <span
-          title={readiness.detail}
-          className={`absolute top-1.5 right-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[9px] font-medium backdrop-blur-sm ${READINESS_TINT[readiness.level]}`}
+          className="absolute top-1.5 right-1.5 inline-flex items-center h-4 px-1.5 rounded-full border border-white/25 bg-black/55 text-[10px] font-medium tabular-nums text-white/85 backdrop-blur-sm"
+          title={`${deckSize} cards, commander included`}
         >
-          <span className="w-1 h-1 rounded-full bg-current" aria-hidden />
-          {readiness.label}
+          {deckSize} cards
         </span>
 
         <div className="absolute inset-x-0 bottom-0 p-2 flex items-end gap-2">
@@ -319,13 +328,23 @@ function DeckTile({ stub, artUrl, loading, seatedIds, full, onSeat, onUnseat }: 
         </div>
       </div>
 
-      {/* Info band. */}
-      <div className="flex-1 flex flex-col gap-1.5 p-2.5 bg-card/60">
-        <p className="text-[11px] text-muted-foreground leading-snug line-clamp-2">{stub.blurb}</p>
+      {/* Info band. Darker than the dialog's own surface (`bg-card/95`) so the
+          tile reads as a panel sitting on it rather than dissolving into it. */}
+      <div className="flex-1 flex flex-col gap-1.5 p-2.5 bg-black/40">
+        {/* No clamp. A blurb is one or two short sentences we wrote ourselves,
+            and cutting the bracket 4 deck off at "tutors for the half it is
+            miss…" hid the half of the sentence that says what it does to you.
+            Grid rows stretch to the tallest tile and the footer below is
+            `mt-auto`, so a three-line blurb costs a few px of row height and
+            nothing else. */}
+        <p className="text-[11px] text-muted-foreground leading-snug">{stub.blurb}</p>
 
         <div className="mt-auto flex items-center gap-2">
+          {/* Only when the list came from a real product: "this is the actual
+              precon" is worth saying, "we wrote this one" is not. The spacer
+              keeps the seat chip on the right either way. */}
           <span className="text-[10px] text-muted-foreground/60 truncate flex-1 min-w-0">
-            {stub.source ?? 'Hand-built'}
+            {stub.source}
           </span>
 
           {seatedIds.map((id, i) => (

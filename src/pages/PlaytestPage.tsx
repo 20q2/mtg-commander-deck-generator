@@ -6,7 +6,7 @@ import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { usePlaytestStore } from '@/store/playtestStore';
+import { usePlaytestStore, checkpoint } from '@/store/playtestStore';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import type { BattlefieldCard as BfCard, CounterColor, DieSides, MoveSource } from '@/components/playtest/types';
 import { COUNTER_COLORS } from '@/components/playtest/types';
@@ -27,16 +27,17 @@ import { CreateModal } from '@/components/playtest/modals/CreateModal';
 import { NewCardTrialModal } from '@/components/playtest/modals/NewCardTrialModal';
 import { HandDiscardModal } from '@/components/playtest/modals/HandDiscardModal';
 import { useOpponentStore } from '@/store/opponentStore';
-import { captureAll } from '@/store/undoBridge';
+import type { OpponentZone } from '@/components/playtest/opponentTypes';
 import { AddOpponentModal } from '@/components/playtest/opponents/AddOpponentModal';
 import { OpponentZoneModal } from '@/components/playtest/opponents/OpponentZoneModal';
 import { PlaytestToast } from '@/components/playtest/PlaytestToast';
 import { GameOutcomeBanner } from '@/components/playtest/GameOutcomeBanner';
 import { FloatingTextLayer } from '@/components/playtest/FloatingTextLayer';
-import { DamageFlashLayer } from '@/components/playtest/DamageFlashLayer';
 import { CardFlightLayer } from '@/components/playtest/CardFlight';
+import { CardSlashLayer } from '@/components/playtest/CardSlashLayer';
 import { trackEvent } from '@/services/analytics';
 import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
+import { useTableSounds } from '@/components/playtest/hooks/useTableSounds';
 
 // For drags originating in the Create dialog: the active draggable is a large
 // (~72px) tile, but the rendered overlay preview (chip/die) is much smaller.
@@ -94,6 +95,7 @@ export interface PastedPlaytestDeck {
 
 export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }) {
   usePlaytestHotkeys();
+  useTableSounds();
   const isDesktop = useMediaQuery('(min-width: 768px)');
   const navigate = useNavigate();
   const params = useParams<{ listId: string }>();
@@ -121,6 +123,14 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
   const stackedDrag = usePlaytestStore(s => s.stackedDrag);
   const spawnToken = usePlaytestStore(s => s.spawnToken);
   const cardSize = usePlaytestSettings(s => s.cardSize);
+
+  // Marks the body for the playtest's no-text-selection rule (see index.css).
+  // It has to be the body rather than the page root: the context menus,
+  // dialogs and modals all portal out of here.
+  useEffect(() => {
+    document.body.dataset.playtest = 'true';
+    return () => { delete document.body.dataset.playtest; };
+  }, []);
 
   useEffect(() => {
     if (kind === 'generated') {
@@ -219,14 +229,16 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       source?: MoveSource | { kind: 'freecounter'; id: string } | { kind: 'freedie'; id: string };
       tokenCard?: ScryfallCard;
       opponentSource?: { opponentId: string; instanceId: string };
+      opponentZoneSource?: { opponentId: string; zone: OpponentZone; index: number };
       card?: ScryfallCard;
       createCounter?: { color: CounterColor };
       createDie?: { sides: DieSides; color: CounterColor };
       createCardCounter?: { type: string };
       createSticker?: { text: string };
     } | undefined;
-    // Stealing off a bot's board: the ghost is just the card, no battlefield entry.
-    if (data?.opponentSource && data.card) {
+    // Stealing off a bot's board, or out of one of their zones: the ghost is
+    // just the card, with no battlefield entry behind it.
+    if ((data?.opponentSource || data?.opponentZoneSource) && data.card) {
       setActiveCard(data.card);
       setActiveFaceDown(false);
       setActiveTapped(false);
@@ -403,6 +415,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           source?: MoveSource | { kind: 'freecounter'; id: string } | { kind: 'freedie'; id: string };
           tokenCard?: ScryfallCard;
           opponentSource?: { opponentId: string; instanceId: string };
+          opponentZoneSource?: { opponentId: string; zone: OpponentZone; index: number };
           card?: ScryfallCard;
           createCounter?: { color: CounterColor };
           createDie?: { sides: DieSides; color: CounterColor };
@@ -431,6 +444,38 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
       // Tapped creatures can't block and neither can non-creatures, but that
       // check lives in assignBlocker so the targeting arrow obeys it too.
       useOpponentStore.getState().assignBlocker(overData.attackerId, instanceId);
+      return;
+    }
+
+    // ── Theft: a card dragged out of a bot's graveyard, exile, hand or library ──
+    // Reanimate and Sepulchral Primordial put it straight onto your board;
+    // Praetor's Grasp and Sen Triplets put it in your hand. Which one you meant
+    // is the zone you dropped it on, so there is nothing to ask.
+    if (sourceData?.opponentZoneSource) {
+      const toHand = overData?.kind === 'hand-slot'
+        || (overData?.kind === 'pile' && overData.zone === 'hand');
+      const toBattlefield = overData?.kind === 'battlefield';
+      // Let go over the viewer itself and you changed your mind — that is not a
+      // mistake worth a toast.
+      if (overData?.kind === 'opponentZoneViewer') return;
+      if (!toHand && !toBattlefield) {
+        usePlaytestStore.getState().showToast('Drop that on your battlefield or in your hand to take it');
+        return;
+      }
+      const { opponentId, zone, index } = sourceData.opponentZoneSource;
+      const opponent = useOpponentStore.getState().opponents.find(o => o.id === opponentId);
+      const taken = useOpponentStore.getState().takeFromZone(opponentId, zone, index);
+      if (!taken) return;
+      const line = `You took ${taken.name} from ${opponent?.name ?? 'an opponent'}'s ${zone}`;
+      if (toHand) {
+        usePlaytestStore.getState().addToHand(taken, line);
+      } else {
+        // Land it where you dropped it, the same way a stolen permanent does.
+        const rect = document.querySelector('[data-battlefield]')?.getBoundingClientRect();
+        const x = (active.rect.current.translated?.left ?? 0) - (rect?.left ?? 0);
+        const y = (active.rect.current.translated?.top ?? 0) - (rect?.top ?? 0);
+        usePlaytestStore.getState().addPermanent(taken, { x, y }, line);
+      }
       return;
     }
 
@@ -621,16 +666,8 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
         // the same gesture: checkpoint it again and the first Undo would only
         // nudge the pile back by the drop delta — which after a shake-in-place
         // is a few pixels — instead of unstacking it.
-        usePlaytestStore.setState({
-          history: state.stackedDrag ? state.history : [...state.history, {
-            zones: state.zones,
-            battlefield: state.battlefield,
-            life: state.life,
-            turn: state.turn,
-            participants: captureAll(),
-          }].slice(-20),
-          battlefield: updated,
-        });
+        if (!state.stackedDrag) checkpoint();
+        usePlaytestStore.setState({ battlefield: updated });
         usePlaytestStore.getState().applyGroupMove({ kind: 'card', id: source.instanceId }, dx, dy);
       } else {
         moveCard({ source, target: { kind: 'battlefield', x, y, arrived: false } });
@@ -765,7 +802,13 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
 
   return (
     <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={onDragStart} onDragMove={onDragMove} onDragEnd={onDragEnd} onDragCancel={() => { setActiveCard(null); setActiveFaceDown(false); setActiveTapped(false); setActiveBfCard(null); setActiveCreate(null); clearDragTracking(); }}>
-      <div className="h-screen w-screen flex flex-col bg-background overflow-hidden">
+      {/* `select-none` on the whole surface: this is a board, not a document.
+          Every interaction here is a click or a drag — buttons, cards,
+          counters, seat headers — and a drag that starts a text selection
+          paints half the chrome blue on the way. The two places where text is
+          genuinely text opt back in with `select-text`: the game log (you may
+          want to copy a line) and the life input. */}
+      <div className="h-screen w-screen flex flex-col bg-background overflow-hidden select-none">
         <PlaytestToolbar onExit={() => navigate(-1)} onToggleSidePanel={() => setMobileSideOpen(o => !o)} />
         <div className="flex-1 flex min-h-0 relative">
           {/* Opponents are seated across the top of the table, inside
@@ -811,8 +854,8 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
           <OpponentZoneModal opponentId={modal.opponentId} zone={modal.zone} />
         )}
         <PlaytestToast />
+        <CardSlashLayer />
         <FloatingTextLayer />
-        <DamageFlashLayer />
       <CardFlightLayer />
       </div>
       <DragOverlay dropAnimation={null} zIndex={9999} modifiers={[centerCreateOnCursor]}>

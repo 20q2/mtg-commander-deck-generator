@@ -19,9 +19,9 @@
  *
  * ## What it writes
  *
- * Only the fields the engine actually reads — name, id, cmc, type_line,
- * oracle_text, power, toughness, keywords, produced_mana, and the token parts of
- * all_parts. A full Scryfall payload is ~20x larger and none of the rest is
+ * Only the fields the engine actually reads — name, id, cmc, mana_cost,
+ * type_line, oracle_text, power, toughness, keywords, produced_mana, and the
+ * token parts of all_parts. A full Scryfall payload is ~20x larger and none of the rest is
  * consulted, so trimming keeps a ten-deck fixture reviewable in a diff.
  */
 
@@ -71,6 +71,9 @@ function trim(card: Record<string, unknown>): Record<string, unknown> {
     cmc: card.cmc,
     type_line: card.type_line,
   };
+  // The coloured pips the mana planner reads. Without it every spell in the
+  // fixture is all-generic and the diagnostic cannot see a colour screw.
+  if (card.mana_cost) out.mana_cost = card.mana_cost;
   if (card.oracle_text) out.oracle_text = card.oracle_text;
   if (card.power !== undefined) out.power = card.power;
   if (card.toughness !== undefined) out.toughness = card.toughness;
@@ -90,7 +93,7 @@ function trim(card: Record<string, unknown>): Record<string, unknown> {
   if (faces?.length) {
     out.card_faces = faces.map(f => ({
       name: f.name, type_line: f.type_line, oracle_text: f.oracle_text,
-      power: f.power, toughness: f.toughness,
+      mana_cost: f.mana_cost, power: f.power, toughness: f.toughness,
     }));
   }
   return out;

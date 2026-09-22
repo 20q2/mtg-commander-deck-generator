@@ -18,6 +18,9 @@ import {
   buildComboParticipation,
   buildConnectivityPercentiles,
   connectivityAdjustment,
+  OMNIPRESENCE_LANDS,
+  omnipresenceColor,
+  omnipresenceBoost,
 } from './cutRanking';
 
 export interface RoleDeficit {
@@ -360,6 +363,14 @@ function getLandProducedColors(card: ScryfallCard): string[] {
   const producedMana = card.produced_mana || [];
   const oracleText = (card.oracle_text || '').toLowerCase();
   const typeLine = (card.type_line || '').toLowerCase();
+
+  // Urborg / Yavimaya make themselves a Swamp / Forest too, so they genuinely tap
+  // for their granted color even though Scryfall records no mana ability. Counted
+  // as one source here — the far larger "every land becomes a source" upside is
+  // conditional on drawing them, so it drives the recommendation boost instead of
+  // inflating this count. Seeded before the fallback so it isn't read as colorless.
+  const granted = omnipresenceColor(card.name);
+  if (granted) colors.add(granted);
 
   for (const mana of producedMana) {
     if (['W', 'U', 'B', 'R', 'G'].includes(mana)) colors.add(mana);
@@ -1202,6 +1213,7 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
       if (card.isThemeSynergyCard) continue;
       if (isChannelLand(card)) continue; // channel lands are too good to ever cut
       if (isMdfcLand(card)) continue; // MDFCs double as spells — never cut
+      if (fixingWeak && omnipresenceColor(card.name)) continue; // the base's best fixer, never cut
       // Protect multi-color fixing lands when color fixing is weak
       if (fixingWeak) {
         const produced = getLandProducedColors(card);
@@ -2077,6 +2089,49 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     candidateScoreCache.set(name, { score: scoreRecommendation(card, role, subtype, scoringContext), role, subtype });
   }
 
+  const ci = colorIdentity || [];
+
+  // --- Pip Demand Analysis ---
+  const pipDemand: Record<string, number> = {};
+  const symbolPattern = /\{([^}]+)\}/g;
+  const colorLetters = new Set(['W', 'U', 'B', 'R', 'G']);
+  for (const card of nonLandCards) {
+    const costs: string[] = [];
+    if (card.mana_cost) costs.push(card.mana_cost);
+    if (card.card_faces) {
+      for (const face of card.card_faces) {
+        if (face.mana_cost) costs.push(face.mana_cost);
+      }
+    }
+    for (const cost of costs) {
+      let match;
+      while ((match = symbolPattern.exec(cost)) !== null) {
+        for (const char of match[1]) {
+          if (colorLetters.has(char)) {
+            pipDemand[char] = (pipDemand[char] || 0) + 1;
+          }
+        }
+      }
+    }
+  }
+  const pipDemandTotal = Object.values(pipDemand).reduce((s, v) => s + v, 0);
+
+  // --- Omnipresence lands (Urborg / Yavimaya) ---
+  // They produce no fixing of their own, so every color-aware bonus in this file reads
+  // them as colorless. Their real worth is the mana base they convert: a land that
+  // makes all 25 of your lands tap for green is the best fixer a green-pip-heavy deck
+  // can find, and near-worthless to a deck that wants one splash pip. Scored once here
+  // (pip share is deck-wide) and shared by the in-deck relevancy map and the land
+  // recommendations, so both surfaces agree.
+  const omnipresenceBoosts = new Map<string, number>();
+  for (const [name, granted] of Object.entries(OMNIPRESENCE_LANDS)) {
+    if (!ci.includes(granted)) continue;
+    const pipShare = pipDemandTotal > 0 ? (pipDemand[granted] || 0) / pipDemandTotal : 0;
+    const convertible = landCards.filter(l => !getLandProducedColors(l).includes(granted)).length;
+    const boost = omnipresenceBoost(pipShare, convertible);
+    if (boost !== 0) omnipresenceBoosts.set(name, boost);
+  }
+
   // Pre-compute relevancy for in-deck cards (for cut recommendations).
   // Uses the SAME scoreRecommendation composite as candidates above and as the
   // generator/trim-drawer relevancy map (see rebuildRelevancyMap), so every
@@ -2104,6 +2159,7 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     let score = scoreRecommendation(ec, role, subtype, scoringContext);
     if (isChannelLand(card)) score += CHANNEL_LAND_BOOST;
     else if (isMdfcLand(card)) score += MDFC_LAND_BOOST;
+    score += omnipresenceBoosts.get(card.name) ?? 0;
     inDeckScoreMap.set(card.name, Math.round(score));
   }
   const cardRelevancyMap: Record<string, number> = Object.fromEntries(inDeckScoreMap);
@@ -2349,7 +2405,6 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
   };
 
   // --- Color Source & Pip Demand (before land recs for scoring) ---
-  const ci = colorIdentity || [];
   const sourcesPerColor: Record<string, number> = {};
   for (const color of ci) sourcesPerColor[color] = 0;
 
@@ -2373,7 +2428,9 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
       taplands.push(ac);
       card.isTapland = true;
     }
-    if (matchedColors.length >= 2) {
+    // An omnipresence land grants its color to the whole base, so it belongs with the
+    // fixers even though it only matches one color on its own.
+    if (matchedColors.length >= 2 || (omnipresenceColor(card.name) && matchedColors.length >= 1)) {
       fixingLands.push(ac);
     } else if (matchedColors.length === 0) {
       colorlessOnly.push(ac);
@@ -2404,30 +2461,6 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
   const manaFixCards = allNonLandRamp.filter(ac => hasTag(ac.card.name, 'mana-fix'));
   const nonFixRampCards = allNonLandRamp.filter(ac => !hasTag(ac.card.name, 'mana-fix'));
 
-  // --- Pip Demand Analysis ---
-  const pipDemand: Record<string, number> = {};
-  const symbolPattern = /\{([^}]+)\}/g;
-  const colorLetters = new Set(['W', 'U', 'B', 'R', 'G']);
-  for (const card of nonLandCards) {
-    const costs: string[] = [];
-    if (card.mana_cost) costs.push(card.mana_cost);
-    if (card.card_faces) {
-      for (const face of card.card_faces) {
-        if (face.mana_cost) costs.push(face.mana_cost);
-      }
-    }
-    for (const cost of costs) {
-      let match;
-      while ((match = symbolPattern.exec(cost)) !== null) {
-        for (const char of match[1]) {
-          if (colorLetters.has(char)) {
-            pipDemand[char] = (pipDemand[char] || 0) + 1;
-          }
-        }
-      }
-    }
-  }
-  const pipDemandTotal = Object.values(pipDemand).reduce((s, v) => s + v, 0);
 
   // Demand vs supply ratios
   const totalSources = Object.values(sourcesPerColor).reduce((s, v) => s + v, 0);
@@ -2458,6 +2491,7 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
       // Base score from cache (or compute fresh for land-only cards not in candidateMap)
       const cached = candidateScoreCache.get(card.name);
       let landScore = cached?.score ?? scoreRecommendation(card, role, null, scoringContext);
+      landScore += omnipresenceBoosts.get(card.name) ?? 0;
       // Color fixing bonus: boost lands that serve underserved colors
       if (ci.length >= 2) {
         const cardColors = getRecommendationColors(card.name, card.color_identity);

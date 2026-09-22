@@ -1,6 +1,26 @@
 import type { ScryfallCard } from '@/types';
 import type { CardEdit } from '@/components/playtest/types';
+import type { CombatKeyword } from '@/services/playtest/combat';
 import type { AppliedEffect } from '@/services/playtest/opponents/evaluate';
+
+/**
+ * A pump that lasts until end of turn — Goreclaw's attack trigger, Temmet's
+ * draw trigger.
+ *
+ * Deliberately NOT a `CardEdit`, which is the other way a permanent's stats can
+ * be rewritten. Three reasons they have to stay apart: an edit REPLACES the
+ * printed P/T where this ADDS to whatever it currently is, an edit suppresses
+ * the characteristic-defining `*` where a pump must leave a Lord of Extinction
+ * growing, and an edit is permanent where this is cleared the moment combat
+ * resolves. A Frogified creature and a creature swinging big this turn are not
+ * the same thing and must not render as the same thing.
+ */
+export interface TempBoost {
+  power: number;
+  toughness: number;
+  /** Keywords granted for the turn — Goreclaw hands out trample. */
+  keywords?: CombatKeyword[];
+}
 
 export interface OpponentPermanent {
   instanceId: string;
@@ -12,6 +32,8 @@ export interface OpponentPermanent {
   counters: Record<string, number>;
   /** Set when this creature has been rewritten — see CardEdit. */
   edit?: CardEdit;
+  /** Set while an until-end-of-turn pump is live — see TempBoost. */
+  tempBoost?: TempBoost;
 }
 
 /** Zones a permanent can be sent to from the board. */

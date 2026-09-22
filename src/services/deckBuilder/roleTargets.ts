@@ -15,11 +15,6 @@ export const ROLE_LABELS: Record<string, string> = {
 };
 
 // ─── EDHREC Blend Tuning ────────────────────────────────────────────
-// Threshold for "cards in the typical deck for this commander". A card at
-// 18% is played in roughly 1 of every 5–6 tracked decks — low enough to
-// surface the long tail of role cards a commander actually uses, high enough
-// to exclude noise.
-export const EDHREC_INCLUSION_THRESHOLD = 18; // percent
 
 /**
  * Inclusion a commander staple needs to backfill a themed recommendation list.
@@ -39,10 +34,10 @@ export const EDHREC_INCLUSION_THRESHOLD = 18; // percent
  * Putrefy, while still excluding genuinely fringe cards (Abrupt Decay is 7% here) and keeping the
  * eligible pool to about a quarter of the page rather than half of it.
  *
- * Reusing EDHREC_INCLUSION_THRESHOLD (18) would have been tidier — one number meaning one thing —
- * but measurement says 18 admits 126 cards and would dilute the themed list it is meant to
- * supplement. Role needs do not depend on this bar at all: a card filling a deficient role
- * backfills regardless, via the fillsDeficit branch at the call site.
+ * This bar governs BACKFILL ELIGIBILITY only — which staples may pad out a themed recommendation
+ * list. Role targets do not consult it (they are inclusion-weighted averages — see
+ * computeEdhrecRoleTargets), and a card filling a deficient role backfills regardless, via the
+ * fillsDeficit branch at the call site.
  */
 export const STAPLE_BACKFILL_INCLUSION = 30;
 
@@ -58,21 +53,36 @@ export const EDHREC_BLEND_WEIGHT = 0.75;
 const BASELINE_SOFT_FLOOR = 0.7;
 
 // ─── EDHREC-Derived Role Counts ─────────────────────────────────────
-// For the current commander, count cards per role whose EDHREC inclusion
-// meets the threshold. Lands are skipped (basics dominate the distribution
-// and role classification doesn't apply). Cards whose role is undefined
-// are assumed to be synergy/payoff pieces and correctly contribute nothing.
+
+/**
+ * The expected number of cards of each role in an average deck for this commander.
+ *
+ * Every card on the page carries an inclusion percentage — the share of tracked decks playing it —
+ * so summing those fractions across a role's cards IS that role's per-deck average. A card at 40%
+ * inclusion contributes 0.4 of a slot, which is exactly how much of one it occupies.
+ *
+ * This used to COUNT the role's cards above an inclusion threshold, which measures something else
+ * entirely: how broad and well-explored the role's card pool is. The two diverge hardest in green,
+ * where the ramp pool is both enormous and heavily played. On Tom, Bert, and William, 32 distinct
+ * ramp cards clear 18% inclusion while the average deck plays 14 of them — and because the blend
+ * weights EDHREC at 0.75 and the only guard caps the SUM of the four roles rather than any single
+ * one, ramp alone claimed 21 of a 100-card deck's 35-slot budget, squeezing removal and draw below
+ * their own averages. The same overcount inflated protection to 11-13 on Yuriko and Talrand, which
+ * the sum-cap never saw because protection sits deliberately outside it.
+ *
+ * Fractional by design — the blend rounds once, at the end. Lands are skipped (basics dominate the
+ * distribution and role classification doesn't apply to them). Cards with no role are synergy and
+ * payoff pieces, and correctly contribute nothing.
+ */
 export function computeEdhrecRoleTargets(
   edhrecData: EDHRECCommanderData | null | undefined,
-  threshold: number = EDHREC_INCLUSION_THRESHOLD,
 ): Record<RoleKey, number> {
   const counts: Record<RoleKey, number> = { ramp: 0, removal: 0, boardwipe: 0, cardDraw: 0, protection: 0 };
   if (!edhrecData?.cardlists?.allNonLand) return counts;
 
   for (const card of edhrecData.cardlists.allNonLand) {
-    if (card.inclusion < threshold) continue;
     const role = getCardRole(card.name);
-    if (role) counts[role]++;
+    if (role) counts[role] += card.inclusion / 100;
   }
 
   return counts;
@@ -314,7 +324,6 @@ export function getDynamicRoleTargets(
   edhrecStats?: EDHRECCommanderStats,
   edhrecData?: EDHRECCommanderData | null,
   overrideBlendWeight?: number | null,
-  overrideThreshold?: number | null,
 ): {
   targets: Record<RoleKey, number>;
   archetype: Archetype;
@@ -332,9 +341,7 @@ export function getDynamicRoleTargets(
   const pacingMults = PACING_ROLE_ADJUSTMENTS[pacing];
 
   // EDHREC-derived counts (zero-filled when edhrecData is missing)
-  const edhrecCounts = edhrecData
-    ? computeEdhrecRoleTargets(edhrecData, overrideThreshold ?? EDHREC_INCLUSION_THRESHOLD)
-    : null;
+  const edhrecCounts = edhrecData ? computeEdhrecRoleTargets(edhrecData) : null;
 
   const blendWeight = Math.min(1, Math.max(0, overrideBlendWeight ?? EDHREC_BLEND_WEIGHT));
 
@@ -353,7 +360,7 @@ export function getDynamicRoleTargets(
     result[role] = finalCount;
 
     breakdown[role] = {
-      edhrecCount: edhrecCounts ? edhrecCounts[role] : null,
+      edhrecCount: edhrecCounts ? Math.round(edhrecCounts[role] * 10) / 10 : null,
       archetypeTarget: Math.round(archetypeTarget),
       pacingMultiplier: pacingMults[role],
       blended: finalCount,

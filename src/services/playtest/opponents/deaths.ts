@@ -1,12 +1,11 @@
-import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { isLand, makeInstanceId } from '@/components/playtest/utils';
+import { isLand } from '@/components/playtest/utils';
 import {
   BOT_DEATH_TRIGGERS,
   BOT_DEATH_WATCHERS,
   type BotSelfSpec,
 } from '@/services/playtest/opponents/effects';
-import { isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
+import { isCreatureCard, isTokenCard, toPermanent } from '@/services/playtest/opponents/stats';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 
 /**
@@ -90,16 +89,6 @@ function applySpec(o: Opponent, spec: BotSelfSpec): { opponent: Opponent; label:
     default:
       return { opponent: o, label: null };
   }
-}
-
-function toPermanent(card: ScryfallCard): OpponentPermanent {
-  return {
-    instanceId: makeInstanceId(),
-    card,
-    tapped: false,
-    summoningSick: true,
-    counters: {},
-  };
 }
 
 function matchesWatcher(

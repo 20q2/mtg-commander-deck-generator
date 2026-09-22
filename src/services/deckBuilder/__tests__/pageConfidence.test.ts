@@ -1,7 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { pageConfidence, INCLUSION_PRIOR_DECKS } from '../archetypeBlend';
-import { computeEdhrecRoleTargets, EDHREC_INCLUSION_THRESHOLD } from '../roleTargets';
+import { computeEdhrecRoleTargets } from '../roleTargets';
 import type { EDHRECCommanderData } from '@/types';
+
+// Role classification is the tagger's job and needs its S3 payload; stub it so these tests can
+// exercise the arithmetic computeEdhrecRoleTargets does on top of it.
+vi.mock('@/services/tagger/client', () => ({
+  getCardRole: (name: string) => (name.startsWith('Wipe') ? 'boardwipe' : null),
+}));
 
 /** A theme page where every card reads the same inclusion — what a tiny denominator produces. */
 function page(inclusion: number, names: string[]): EDHRECCommanderData {
@@ -56,25 +62,26 @@ describe('pageConfidence', () => {
   });
 });
 
-describe('role targets no longer trust a thin page', () => {
+describe('role targets weigh each card by its inclusion, not by existing', () => {
   const CARDS = ['Wipe A', 'Wipe B', 'Wipe C', 'Wipe D', 'Wipe E'];
 
-  it('an unsmoothed two-deck page would count every card toward targets', () => {
-    // 100% is far above the 18% threshold, so all five would count — the nonsense this prevents.
-    const counted = computeEdhrecRoleTargets(page(100, CARDS));
-    const total = Object.values(counted).reduce((a, b) => a + b, 0);
-    expect(EDHREC_INCLUSION_THRESHOLD).toBeLessThan(100);
-    expect(total).toBeGreaterThanOrEqual(0); // roles come from the tagger; the point is the threshold
-    expect(page(100, CARDS).cardlists.allNonLand.every(c => c.inclusion >= EDHREC_INCLUSION_THRESHOLD)).toBe(true);
+  it('a card counts for its inclusion rate, not a whole slot', () => {
+    // Five wipes each played in 40% of decks is TWO wipes in the average deck, not five. Counting
+    // cards above a threshold instead is what put 21 ramp in a 100-card Golgari deck.
+    expect(computeEdhrecRoleTargets(page(40, CARDS)).boardwipe).toBeCloseTo(2, 6);
   });
 
-  it('after smoothing, a two-deck page falls under the threshold entirely', () => {
-    const thin = smoothed(page(100, CARDS), 2);
-    expect(thin.cardlists.allNonLand.every(c => c.inclusion < EDHREC_INCLUSION_THRESHOLD)).toBe(true);
+  it('a thin page, once smoothed, contributes proportionally less', () => {
+    // Two decks where every card reads 100%: smoothing leaves the five of them worth under a
+    // single slot between them, instead of claiming all five.
+    const thin = computeEdhrecRoleTargets(smoothed(page(100, CARDS), 2)).boardwipe;
+    expect(thin).toBeCloseTo(5 * pageConfidence(2), 6);
+    expect(thin).toBeLessThan(1);
   });
 
-  it('a well-sampled page still clears the threshold', () => {
-    const healthy = smoothed(page(40, CARDS), 476);
-    expect(healthy.cardlists.allNonLand.every(c => c.inclusion >= EDHREC_INCLUSION_THRESHOLD)).toBe(true);
+  it('a well-sampled page keeps nearly its full weight', () => {
+    const healthy = computeEdhrecRoleTargets(smoothed(page(40, CARDS), 476)).boardwipe;
+    expect(healthy).toBeGreaterThan(1.9);
+    expect(healthy).toBeLessThanOrEqual(2);
   });
 });

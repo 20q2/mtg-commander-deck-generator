@@ -25,6 +25,7 @@ import {
 import { fisherYates, isLand as _isLand, makeInstanceId, snapArrival, findArrivalSlot } from '@/components/playtest/utils';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
+import { playCue, playCounterCue } from '@/services/playtest/playtestSound';
 import { useDamageFlash } from '@/store/damageFlashStore';
 import { describeEdit } from '@/services/playtest/powerToughness';
 import { captureAll, restoreAll } from '@/store/undoBridge';
@@ -46,6 +47,13 @@ interface PlaytestState {
   battlefield: BattlefieldCard[];
   life: number;
   turn: number;
+  /**
+   * Commander tax, in mana — the +2 per previous cast you have to remember and
+   * nothing else on the table tracks. Nudged by hand from the command pile:
+   * the app can see a card leave the command zone but not whether that was a
+   * cast, so guessing it would be wrong exactly when it mattered.
+   */
+  commanderTax: number;
   log: LogEntry[];
   history: PlaytestSnapshot[];
   modal: Modal;
@@ -190,6 +198,8 @@ interface PlaytestActions {
   untapAll: () => void;
   setLife: (n: number) => void;
   adjustLife: (delta: number) => void;
+  /** Step commander tax by `delta` mana. Clamped at zero. */
+  adjustCommanderTax: (delta: number) => void;
   nextTurn: () => void;
 
   moveCard: (args: MoveArgs) => void;
@@ -244,6 +254,12 @@ interface PlaytestActions {
   ) => void;
   /** Hands back the whole entry, so a donated permanent keeps its counters. */
   releasePermanent: (instanceId: string) => BattlefieldCard | null;
+  /**
+   * Put a card into your hand from outside the game's own zones — a card
+   * plucked out of an opponent's library, say. `addPermanent`'s counterpart for
+   * the one zone that had no way in.
+   */
+  addToHand: (card: ScryfallCard, logText?: string) => void;
 
   scryConfirm: (topOrder: number[], bottomOrder: number[]) => void;
   surveilConfirm: (topOrder: number[], graveyardOrder: number[]) => void;
@@ -336,6 +352,7 @@ const initial: PlaytestState = {
   battlefield: [],
   life: STARTING_LIFE,
   turn: 1,
+  commanderTax: 0,
   log: [],
   history: [],
   modal: null,
@@ -390,6 +407,7 @@ function snapshotOf(s: PlaytestState): PlaytestSnapshot {
     })),
     life: s.life,
     turn: s.turn,
+    commanderTax: s.commanderTax,
     participants: captureAll(),
   };
 }
@@ -419,6 +437,17 @@ function pileStep(cardHeight: number, count: number, tableHeight: number): numbe
   const room = tableHeight - cardHeight - 16;
   if (count < 2 || room <= 0) return ideal;
   return Math.max(6, Math.min(ideal, Math.floor(room / (count - 1))));
+}
+
+/**
+ * Checkpoint the current state onto the undo stack. Exported because the drag
+ * layer in PlaytestPage checkpoints mid-gesture: it used to hand-roll the
+ * snapshot literal and the cap, which silently went stale every time a new
+ * field joined `snapshotOf` — undoing a drop would then restore the board with
+ * a field left at its post-drop value.
+ */
+export function checkpoint(): void {
+  usePlaytestStore.setState(s => ({ history: pushHistory(s.history, snapshotOf(s)) }));
 }
 
 function pushHistory(history: PlaytestSnapshot[], snap: PlaytestSnapshot): PlaytestSnapshot[] {
@@ -786,6 +815,16 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     });
   },
 
+  adjustCommanderTax: (delta) => set(state => {
+    const commanderTax = Math.max(0, state.commanderTax + delta);
+    if (commanderTax === state.commanderTax) return {};
+    return {
+      history: pushHistory(state.history, snapshotOf(state)),
+      commanderTax,
+      log: [...state.log, makeLogEntry(`Commander tax is +${commanderTax}`, 'system')],
+    };
+  }),
+
   nextTurn: () => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
     const nextTurn = state.turn + 1;
@@ -994,6 +1033,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   }),
 
   toggleTap: (instanceId) => set(state => {
+    playCue('tap');
     const history = pushHistory(state.history, snapshotOf(state));
     const battlefield = state.battlefield.map(b =>
       b.instanceId === instanceId ? { ...b, tapped: !b.tapped } : b
@@ -1067,6 +1107,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   toggleTapMany: (instanceIds) => set(state => {
     const ids = new Set(instanceIds);
     if (ids.size === 0) return {};
+    playCue('tap');
     const history = pushHistory(state.history, snapshotOf(state));
     return {
       history,
@@ -1204,6 +1245,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   adjustCounter: (instanceId, type, delta, anchor) => {
     const card = get().battlefield.find(b => b.instanceId === instanceId);
     if (!card) return;
+    playCounterCue(delta);
     useFloatingText.getState().float(
       `${delta > 0 ? '+' : '−'}${Math.abs(delta)} ${type}`,
       delta > 0 ? 'buff' : 'debuff',
@@ -1334,6 +1376,20 @@ export const usePlaytestStore = create<Store>((set, get) => ({
 
   // Theft's landing point: put an arbitrary card onto the battlefield without it
   // having come from one of your zones. Same arrival maths as spawnToken.
+  addToHand: (card, logText) => set(state => {
+    const history = pushHistory(state.history, snapshotOf(state));
+    const before = state.zones.hand.length;
+    return {
+      history,
+      zones: { ...state.zones, hand: [...state.zones.hand, card] },
+      // Same arrival range a draw sets, so the card deals into the fan rather
+      // than appearing in it.
+      lastDrawRange: { start: before, end: before + 1 },
+      lastReturnRange: { start: -1, end: -1 },
+      log: [...state.log, makeLogEntry(logText ?? `${card.name} went to your hand`, 'move')],
+    };
+  }),
+
   addPermanent: (card, position, logText, arrival) => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
     const rect = canvasRect(state);
@@ -1514,6 +1570,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         battlefield: prev.battlefield,
         life: prev.life,
         turn: prev.turn,
+        commanderTax: prev.commanderTax,
         log,
       };
     });
@@ -1557,11 +1614,14 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     };
   }),
 
-  adjustFreeCounter: (id, delta) => set(state => ({
-    freeCounters: state.freeCounters.map(c =>
-      c.id === id ? { ...c, value: c.value + delta } : c
-    ),
-  })),
+  adjustFreeCounter: (id, delta) => {
+    playCounterCue(delta);
+    set(state => ({
+      freeCounters: state.freeCounters.map(c =>
+        c.id === id ? { ...c, value: c.value + delta } : c
+      ),
+    }));
+  },
 
   removeFreeCounter: (id) => set(state => ({
     freeCounters: state.freeCounters.filter(c => c.id !== id),
