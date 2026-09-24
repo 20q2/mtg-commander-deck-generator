@@ -279,6 +279,7 @@ function DamageNudge({ mod, onChange, tone }: {
 function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWidth: number }) {
   const playerCombat = useOpponentStore(s => s.playerCombat);
   const resolve = useOpponentStore(s => s.resolvePlayerCombat);
+  const resolving = useOpponentStore(s => s.resolvingCombat);
   const battlefield = usePlaytestStore(s => s.battlefield);
   const opponent = useOpponentStore(s => s.opponents.find(o => o.id === opponentId));
   // Lives as long as this one fight does: the component is mounted on confirm
@@ -333,11 +334,17 @@ function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWi
       })}
       <div className="ml-auto shrink-0 flex flex-col items-end gap-0.5">
         <button
-          onClick={() => resolve(opponentId, mod)}
-          title={dealt > 0
-            ? `Deal ${dealt} to ${opponent.name} and end the attack`
-            : `Everything is blocked — end your attack on ${opponent.name}`}
-          className="px-2 h-6 rounded bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-bold inline-flex items-center gap-1"
+          onClick={() => { void resolve(opponentId, mod); }}
+          // The attack now pays itself out one creature at a time, and the strip
+          // stays up for the whole of it. Inert rather than unmounted, so the
+          // row does not reflow out from under the pointer mid-swing.
+          disabled={resolving}
+          title={resolving
+            ? 'Resolving…'
+            : dealt > 0
+              ? `Deal ${dealt} to ${opponent.name} and end the attack`
+              : `Everything is blocked — end your attack on ${opponent.name}`}
+          className="px-2 h-6 rounded bg-violet-600 hover:bg-violet-500 disabled:opacity-60 disabled:cursor-default disabled:hover:bg-violet-600 text-white text-[10px] font-bold inline-flex items-center gap-1"
         >
           <Sword className="w-2.5 h-2.5 shrink-0" />
           Deal

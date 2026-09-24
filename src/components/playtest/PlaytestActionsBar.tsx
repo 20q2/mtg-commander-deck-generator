@@ -8,6 +8,7 @@ import { useOpponentStore } from '@/store/opponentStore';
 import { advanceTurn, isTurnBlocked } from '@/services/playtest/turnFlow';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { captureHandBoxes, flyHandToZone } from '@/components/playtest/CardFlight';
+import { ContextMenuShell } from '@/components/playtest/ContextMenuShell';
 import type { SortMode } from '@/components/playtest/types';
 
 // Defined at module scope (not inside the component) so it keeps a stable
@@ -397,17 +398,6 @@ function HandActionsMenu({ onDone }: { onDone: () => void }) {
   );
 }
 
-/**
- * Deck Actions, sized to sit directly above the library pile.
- *
- * They belong to the library rather than to the toolbar: every one of them —
- * draw, scry, surveil, mill, search — is a thing you do to your deck, and
- * putting them on top of it means the pile is both the target and the control.
- *
- * Search is one of the menu rows rather than its own button beside it: the
- * column is only as wide as a card, and a second button there cost the label
- * more room than the magnifier was worth.
- */
 type ActionZone = 'library' | 'graveyard' | 'exile';
 
 const ZONE_LABEL: Record<ActionZone, string> = {
@@ -417,15 +407,19 @@ const ZONE_LABEL: Record<ActionZone, string> = {
 };
 
 /**
- * The actions for one zone pile, sized to sit directly on top of it.
+ * Look inside one zone, sized to sit directly above its pile.
  *
- * Every pile gets the same affordance: its own icon, the word Actions, and a
- * menu of the things you do to that zone as a whole. Putting them on the pile
- * rather than in the toolbar means the pile is both the target and the
- * control, and you never have to work out which of eight toolbar buttons acts
- * on which zone.
+ * This slot used to be an Actions menu, and the pile under it opened the
+ * viewer on right-click. That was backwards on both counts. Right-click is
+ * where a menu of actions belongs — it is the gesture every other surface in
+ * the playtest already uses for exactly that, and the pile is the thing the
+ * actions act on — which left the button free for the one thing you do to a
+ * zone often enough to want a permanent target for: looking through it.
+ *
+ * Searching a deck is a click now rather than a menu row, and the menu it came
+ * from is one gesture away on the pile below. See `ZoneActionsContextMenu`.
  */
-export function ZoneActions({ zone, className = '', compact = false }: {
+export function ZoneSearch({ zone, className = '', compact = false }: {
   zone: ActionZone;
   className?: string;
   /**
@@ -434,42 +428,80 @@ export function ZoneActions({ zone, className = '', compact = false }: {
    */
   compact?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const openModal = usePlaytestStore(s => s.openModal);
+  const closeModal = usePlaytestStore(s => s.closeModal);
+  const modal = usePlaytestStore(s => s.modal);
+  const count = usePlaytestStore(s => s.zones[zone].length);
 
-  // Desktop-only: a phone reaches these through the hand toolbar's Actions
-  // menu, which mounts the same <ZoneActionsMenu /> a level down.
+  // Desktop-only: a phone reaches the viewer through the hand toolbar's
+  // Actions menu, which mounts the same <ZoneActionsMenu /> a level down.
   const btn = 'relative h-6 px-1.5 text-[11px] rounded-none border-y-0 focus-visible:z-10 hover:z-10';
-  const Icon = ZONE_ICON[zone];
+  const { Icon, label, title } = ZONE_SEARCH[zone];
   const iconOnly = compact;
+  const open = modal?.kind === 'zoneViewer' && modal.zone === zone;
 
   return (
     <div className={`flex items-center [&>*+*]:-ml-px ${className}`}>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            size="sm"
-            className={`${btn} ${iconOnly ? 'w-full px-0 justify-center' : 'flex-1 min-w-0'}`}
-            title={`${ZONE_LABEL[zone]} actions`}
-            aria-label={`${ZONE_LABEL[zone]} actions`}
-          >
-            <Icon className={`w-3 h-3 shrink-0 ${iconOnly ? '' : 'mr-1'}`} />
-            {!iconOnly && <span className="truncate">Actions</span>}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent side="top" align="end" sideOffset={6} className="w-56 p-2">
-          <ZoneActionsMenu zone={zone} onDone={() => setOpen(false)} />
-        </PopoverContent>
-      </Popover>
+      <Button
+        // Pressed state, because this opens a dialog that stays open: the
+        // button is the way back out of it, exactly as it is the way in.
+        variant={open ? 'default' : 'outline'}
+        size="sm"
+        className={`${btn} ${iconOnly ? 'w-full px-0 justify-center' : 'flex-1 min-w-0'}`}
+        // Still live while the viewer is open, even if the zone has since been
+        // emptied: this button is the way back out of the dialog it opened.
+        disabled={count === 0 && !open}
+        title={`${title} (${count})`}
+        aria-label={`${title} (${count})`}
+        aria-pressed={open}
+        onClick={() => open ? closeModal() : openModal({ kind: 'zoneViewer', zone })}
+      >
+        <Icon className={`w-3 h-3 shrink-0 ${iconOnly ? '' : 'mr-1'}`} />
+        {!iconOnly && <span className="truncate">{label}</span>}
+      </Button>
     </div>
   );
 }
 
-const ZONE_ICON: Record<ActionZone, typeof Layers> = {
-  library: Layers,
-  graveyard: Trash2,
-  exile: Sparkles,
+/**
+ * The verb differs by zone and the button should say which it means. You
+ * *search* a deck — the cards are hidden and you are hunting a specific one,
+ * which is what a tutor does. You *look through* a graveyard: it is public
+ * information, already face up, and nothing is being found that wasn't already
+ * visible.
+ */
+const ZONE_SEARCH: Record<ActionZone, { Icon: typeof Layers; label: string; title: string }> = {
+  library:   { Icon: Search, label: 'Search', title: 'Search your deck' },
+  graveyard: { Icon: Eye,    label: 'View',   title: 'Look through your graveyard' },
+  exile:     { Icon: Eye,    label: 'View',   title: 'Look through exile' },
 };
+
+/**
+ * One zone's actions, opened by right-clicking its pile.
+ *
+ * It mounts the same `<ZoneActionsMenu />` the phone toolbar does rather than a
+ * hand-written list of `MenuItem`s, which is the whole point: a new graveyard
+ * action lands on the desktop right-click, the phone menu and nothing else has
+ * to be remembered. The shell is narrower than the popover was only in that it
+ * carries its own padding, so the N picker still fits on one row.
+ */
+export function ZoneActionsContextMenu({ zone, x, y, onClose }: {
+  zone: ActionZone;
+  x: number;
+  y: number;
+  onClose: () => void;
+}) {
+  return (
+    <ContextMenuShell x={x} y={y} width={224} onClose={onClose}>
+      <div className="px-2 pb-2 pt-1">
+        <p className="px-0.5 pb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground/70">
+          {ZONE_LABEL[zone]}
+        </p>
+        <ZoneActionsMenu zone={zone} onDone={onClose} />
+      </div>
+    </ContextMenuShell>
+  );
+}
 
 /**
  * The body of one zone's menu, with no opinion about what opened it.

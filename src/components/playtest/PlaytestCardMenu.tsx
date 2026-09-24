@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Shapes,
   Sparkles,
+  Stamp,
   Trash2,
   Type,
   Wand2,
@@ -22,6 +23,7 @@ import {
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardsByIds, getFrontFaceTypeLine, isDoubleFacedCard } from '@/services/scryfall/client';
 import { isCreatureCard } from '@/services/playtest/opponents/stats';
+import { isEmblem } from '@/services/scryfall/extras';
 import type { ScryfallCard } from '@/types';
 import type { ZoneKey } from '@/components/playtest/types';
 
@@ -79,9 +81,27 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
       return true;
     });
   }, [target]);
-  const tokenKey = tokenParts.map(p => p.id).join(',');
 
-  // Resolve the token cards up front so the menu can show power/toughness and
+  // Emblems this card makes. They live in `all_parts` too, but under
+  // `combo_piece` rather than `token` — the same bucket that holds the card's
+  // own reprint entry — so the type line is the only thing that identifies
+  // one. That reprint entry is a DIFFERENT printing id from the card in hand,
+  // so an id !== card.id self-reference guard doesn't catch it either.
+  const emblemParts = useMemo(() => {
+    const parts = target?.card.all_parts ?? [];
+    const seen = new Set<string>();
+    return parts.filter(p => {
+      if (!isEmblem(p)) return false;
+      const key = p.name.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [target]);
+
+  const tokenKey = [...tokenParts, ...emblemParts].map(p => p.id).join(',');
+
+  // Resolve the created cards up front so the menu can show power/toughness and
   // spawning is instant; clicking still self-heals if the fetch hasn't landed.
   const [tokenCards, setTokenCards] = useState<ScryfallCard[]>([]);
   const [spawnCounts, setSpawnCounts] = useState<Record<string, number>>({});
@@ -329,6 +349,37 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
                 }
               >
                 Create {part.name}
+              </Item>
+            );
+          })}
+          <Sep />
+        </>
+      )}
+
+      {/* Emblems this card makes — an ultimate you'd otherwise have to
+          remember you'd used. Listed even off the battlefield, because
+          Daretti's emblem outlives Daretti and you may well be reading his
+          text from the graveyard to check what it said. */}
+      {emblemParts.length > 0 && (
+        <>
+          {emblemParts.map(part => {
+            const made = spawnCounts[part.id] ?? 0;
+            const resolved = tokenCards.find(c => c.id === part.id);
+            return (
+              <Item
+                key={part.id}
+                icon={resolved
+                  ? <Stamp className="w-3.5 h-3.5" />
+                  : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                onClick={() => { void spawnPart(part); }}
+                trailing={made > 0
+                  ? <span className="font-mono text-[9px] text-primary shrink-0">×{made}</span>
+                  : undefined}
+              >
+                {/* Scryfall names these "<Walker> Emblem", and the menu
+                    header already says which walker you right-clicked — so the
+                    name only earns its place on the freak card with two. */}
+                {emblemParts.length > 1 ? `Create ${part.name}` : 'Create emblem'}
               </Item>
             );
           })}

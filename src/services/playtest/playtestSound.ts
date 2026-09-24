@@ -16,7 +16,7 @@ import { audioContext, noiseBuffer } from '@/services/audio/context';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 
 export type PlaytestCue =
-  | 'shuffle' | 'draw' | 'counterUp' | 'counterDown' | 'land' | 'tap' | 'yourTurn';
+  | 'shuffle' | 'draw' | 'counterUp' | 'counterDown' | 'land' | 'tap' | 'hit' | 'yourTurn';
 
 /** Bot seats play the same cues at half gain — present, but clearly not your own hands. */
 export const BOT_GAIN = 0.5;
@@ -146,6 +146,16 @@ const CUES: Record<PlaytestCue, (ac: AudioContext, gain: number) => void> = {
   tap: (ac, gain) => burst(ac, {
     dur: 0.022, gain: 0.03 * gain, type: 'bandpass', freq: 560, q: 3.5,
   }),
+
+  // A creature connecting, once per strike as combat paces itself out. Lower and shorter than
+  // `land` — a hit is a body, not cardstock — with the noise layer clipped tight so a five-creature
+  // alpha strike reads as five separate impacts rather than one long crunch. The 60ms coalescing
+  // window is doing real work here: a swarm whose strikes crowd closer than that collapses to one
+  // hit instead of rasping.
+  hit: (ac, gain) => {
+    thud(ac, 110, 0.055, 0.055 * gain);
+    burst(ac, { dur: 0.035, gain: 0.03 * gain, type: 'bandpass', freq: 1900, freqTo: 600, q: 1.1 });
+  },
 
   // Control coming back to you after the table has played. The only cue here with a pitch you are
   // meant to notice: it fires once per turn cycle, and its whole job is to reach you when you have

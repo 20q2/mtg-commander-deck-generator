@@ -1,9 +1,14 @@
 import type { ScryfallCard } from '@/types';
 import { searchCards, getCardsByIds } from '@/services/scryfall/client';
+import { isEmblem } from '@/services/scryfall/extras';
 
 /**
- * Resolves the tokens this deck can actually create by walking each card's
- * Scryfall `all_parts` field for entries with component === 'token'.
+ * Resolves the tokens and emblems this deck can actually create by walking each
+ * card's Scryfall `all_parts` field.
+ *
+ * Tokens are the `component: 'token'` entries. Emblems are NOT — Scryfall files
+ * them under `combo_piece`, next to each card's own reprint entry, so they have
+ * to be picked out by type line instead.
  *
  * Token cards are fetched in a single batched POST to /cards/collection.
  * Results are cached in-memory per session (keyed by sorted token-id list).
@@ -20,7 +25,7 @@ export async function resolveDeckTokens(deckCards: ScryfallCard[]): Promise<Scry
   for (const card of deckCards) {
     const parts = card.all_parts ?? [];
     for (const p of parts) {
-      if (p.component !== 'token') continue;
+      if (p.component !== 'token' && !isEmblem(p)) continue;
       // Skip self-references (some cards include themselves in all_parts)
       if (p.id === card.id) continue;
       if (seen.has(p.id)) continue;
@@ -44,14 +49,20 @@ export async function resolveDeckTokens(deckCards: ScryfallCard[]): Promise<Scry
 
   // Dedupe by name + type_line so different printings of the "same" token
   // (different art / set) only appear once in the spawn list.
+  //
+  // Emblems sort to the end rather than sitting wherever their maker happened
+  // to fall: you reach for a token many times a game and an emblem once, and a
+  // superfriends deck would otherwise scatter a dozen of them through the grid.
   const seenKey = new Set<string>();
   const deduped: ScryfallCard[] = [];
+  const emblems: ScryfallCard[] = [];
   for (const c of cards) {
     const key = `${c.name.toLowerCase()}|${c.type_line.toLowerCase()}`;
     if (seenKey.has(key)) continue;
     seenKey.add(key);
-    deduped.push(c);
+    (isEmblem(c) ? emblems : deduped).push(c);
   }
+  deduped.push(...emblems);
 
   deckTokensCache.set(cacheKey, deduped);
   return deduped;

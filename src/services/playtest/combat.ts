@@ -5,15 +5,22 @@ import type { ScryfallCard } from '@/types';
  * attack step and the player's both need identical rules, and the only way to
  * be sure of that is to have one implementation neither store owns.
  *
- * Scope is the seven keywords that decide who dies. Everything else about a
- * card — triggers, activated abilities, protection — is still ignored. This is
- * a goldfish with teeth, not a rules engine.
+ * Scope is the keywords that decide who dies and who can be touched.
+ * Everything else about a card — triggers, activated abilities, protection — is
+ * still ignored. This is a goldfish with teeth, not a rules engine.
+ *
+ * `hexproof` is the odd one out: it changes nothing about combat. It rides in
+ * this set anyway because this is the one keyword pipeline — `loseAbilities`
+ * strips it, `botKeywords` lets a bot's own board grant it, a `tempBoost` can
+ * hand it out for a turn — and duplicating all of that for a second set would
+ * be two places to get the same question wrong.
  */
 
 export type CombatKeyword =
   | 'flying' | 'reach' | 'menace'
   | 'firstStrike' | 'doubleStrike'
-  | 'deathtouch' | 'trample' | 'vigilance';
+  | 'deathtouch' | 'trample' | 'vigilance'
+  | 'indestructible' | 'hexproof';
 
 /**
  * Scryfall's keyword strings, lowercased, mapped to our narrowed set. Reading
@@ -29,6 +36,13 @@ const KEYWORD_MAP: Record<string, CombatKeyword> = {
   'deathtouch': 'deathtouch',
   'trample': 'trample',
   'vigilance': 'vigilance',
+  'indestructible': 'indestructible',
+  'hexproof': 'hexproof',
+  // Shroud is hexproof as far as anything here can tell: the difference is
+  // whether the CONTROLLER can target it, and nothing in this engine ever
+  // targets its own permanents. Ward is deliberately absent — it taxes a
+  // target, it does not forbid one, and there is no cost model to tax with.
+  'shroud': 'hexproof',
 };
 
 /**
@@ -64,6 +78,15 @@ export interface Combatant {
 export interface CombatOutcome {
   /** Damage that got through to the defending player. */
   damageToDefender: number;
+  /**
+   * The same total, split by the attacker that dealt it — unblocked power and
+   * trample overflow alike. Sums to `damageToDefender` by construction.
+   *
+   * The aggregate is what the rules need; the split is what a sequenced combat
+   * animation needs, because "the defender lost 7" cannot be paced out into one
+   * beat per creature without knowing which creature brought what.
+   */
+  damageByAttacker: Record<string, number>;
   deadAttackers: string[];
   deadBlockers: string[];
 }
@@ -117,9 +140,20 @@ export function resolveDamage(
   /** Hit by deathtouch at any point, which is lethal regardless of the total. */
   const touched = new Set<string>();
   let damageToDefender = 0;
+  const damageByAttacker: Record<string, number> = {};
+  const hitDefender = (attacker: Combatant, amount: number) => {
+    if (amount <= 0) return;
+    damageToDefender += amount;
+    damageByAttacker[attacker.instanceId] =
+      (damageByAttacker[attacker.instanceId] ?? 0) + amount;
+  };
 
   const everyone = [...attackers, ...Object.values(blocks).flat()];
   const isDead = (c: Combatant) =>
+    // Indestructible ignores lethal damage AND deathtouch — those are the two
+    // things this function knows how to kill with, so it simply never dies
+    // here. A -X/-X sweeper still gets it; that lives in `resolveEffect`.
+    !c.keywords.has('indestructible') &&
     c.toughness > 0 && (touched.has(c.instanceId) || (marked.get(c.instanceId) ?? 0) >= c.toughness);
 
   for (const pass of ['first', 'normal'] as const) {
@@ -136,7 +170,7 @@ export function resolveDamage(
       // ── The attacker deals its damage ──
       if (strikesIn(attacker, pass)) {
         if (assigned.length === 0) {
-          damageToDefender += attacker.power;
+          hitDefender(attacker, attacker.power);
         } else {
           let remaining = attacker.power;
           // Deathtouch only needs to assign 1 damage to be lethal, which frees
@@ -151,7 +185,7 @@ export function resolveDamage(
             remaining -= give;
           }
           if (attacker.keywords.has('trample') && remaining > 0) {
-            damageToDefender += remaining;
+            hitDefender(attacker, remaining);
           }
         }
       }
@@ -179,6 +213,7 @@ export function resolveDamage(
   const attackerIds = new Set(attackers.map(a => a.instanceId));
   return {
     damageToDefender,
+    damageByAttacker,
     deadAttackers: [...dead].filter(id => attackerIds.has(id)),
     deadBlockers: [...dead].filter(id => !attackerIds.has(id)),
   };

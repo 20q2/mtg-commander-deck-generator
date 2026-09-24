@@ -11,6 +11,7 @@ import { botPower, botToughness } from '@/services/playtest/opponents/stats';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import { boxOf, captureBox, useCardFlights } from '@/components/playtest/CardFlight';
+import { seatLifeAnchor } from '@/store/combatStrikes';
 import { OpponentCardMenu, type OpponentMenuTarget } from '@/components/playtest/opponents/OpponentCardMenu';
 import { OpponentZoneMenu, type OpponentZoneMenuTarget, type OpponentMenuZone } from '@/components/playtest/opponents/OpponentZoneMenu';
 import { OpponentChoiceMenu, type OpponentChoiceMenuTarget } from '@/components/playtest/opponents/OpponentChoiceMenu';
@@ -506,7 +507,7 @@ function SeatLife({
       </button>
 
       <span
-        data-float-id={`opp-life-${opponent.id}`}
+        data-float-id={seatLifeAnchor(opponent.id)}
         className="inline-flex items-center"
       >
         {editing ? (

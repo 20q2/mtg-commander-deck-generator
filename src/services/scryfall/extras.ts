@@ -34,3 +34,21 @@ export function isExtraPrinting(
   if (card.layout && EXTRA_LAYOUTS.has(card.layout)) return true;
   return /^(?:Token|Emblem)\b/.test(card.type_line ?? '');
 }
+
+/**
+ * True for an emblem specifically — the one kind of extra a card makes without
+ * making a token.
+ *
+ * Worth its own predicate because `all_parts` files emblems under
+ * `component: 'combo_piece'`, alongside the card's own reprint entry, rather
+ * than under `'token'` — so anything hunting for "what does this card create"
+ * by component misses every emblem in the game. Related-card entries carry no
+ * `layout`, which is why the type line has to be the test there.
+ */
+export function isEmblem(
+  card: Pick<ScryfallCard, 'layout' | 'type_line'> | null | undefined,
+): boolean {
+  if (!card) return false;
+  if (card.layout === 'emblem') return true;
+  return /^Emblem\b/.test(card.type_line ?? '');
+}

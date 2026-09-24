@@ -15,6 +15,17 @@ export interface PlayerCardRead {
   isCommander: boolean;
   /** Set when this card is a piece of a combo that's live or one card away. */
   comboId: string | null;
+  /**
+   * Untargetable — printed hexproof or shroud, or granted either. A bot that
+   * points a Murder at one has thrown the card away, so targeted effects skip
+   * these entirely rather than scoring them low.
+   *
+   * Optional because the diagnostic's scripted boards and the older tests
+   * build these by hand; absent means "no protection", which is the common case.
+   */
+  hexproof?: boolean;
+  /** Survives "destroy" and lethal damage. Exile, edicts and -X/-X still get it. */
+  indestructible?: boolean;
 }
 
 export interface PlayerBoardRead {
@@ -118,9 +129,32 @@ function creatures(board: PlayerBoardRead) {
   return board.cards.filter(c => c.isCreature);
 }
 
-/** Biggest by power, commander breaking ties — commanders are the scarier card. */
-function biggestCreature(board: PlayerBoardRead): PlayerCardRead | null {
-  const list = creatures(board);
+/**
+ * The two protections a bot has to read before it spends a card, and the
+ * reason they are separate predicates: they fail differently.
+ *
+ * Hexproof stops the spell from being cast at all — there is no legal target,
+ * so the bot must look elsewhere or hold the card. Indestructible lets the
+ * spell resolve and do nothing, which only some effects care about: exile,
+ * an edict and a -X/-X sweeper all still get the creature.
+ */
+const targetable = (c: PlayerCardRead) => !c.hexproof;
+const destructible = (c: PlayerCardRead) => !c.indestructible;
+/** What a plain "destroy target creature" can actually answer. */
+const killable = (c: PlayerCardRead) => targetable(c) && destructible(c);
+
+/**
+ * Biggest by power, commander breaking ties — commanders are the scarier card.
+ *
+ * `usable` narrows it to the creatures the effect asking could actually do
+ * something to. Without it a bot reads an indestructible 8/8 as the obvious
+ * target every turn and never answers the 6/6 standing next to it.
+ */
+function biggestCreature(
+  board: PlayerBoardRead,
+  usable: (c: PlayerCardRead) => boolean = () => true,
+): PlayerCardRead | null {
+  const list = creatures(board).filter(usable);
   if (list.length === 0) return null;
   return [...list].sort((a, b) =>
     b.power - a.power || Number(b.isCommander) - Number(a.isCommander),
@@ -132,7 +166,10 @@ function biggestCreature(board: PlayerBoardRead): PlayerCardRead | null {
  * pieces are already on the table — otherwise every removal spell in the deck
  * would chase a combo that's nowhere near assembling.
  */
-function comboPieceToBreak(board: PlayerBoardRead): PlayerCardRead | null {
+function comboPieceToBreak(
+  board: PlayerBoardRead,
+  usable: (c: PlayerCardRead) => boolean = () => true,
+): PlayerCardRead | null {
   const byCombo = new Map<string, PlayerCardRead[]>();
   for (const c of board.cards) {
     if (!c.comboId) continue;
@@ -142,9 +179,15 @@ function comboPieceToBreak(board: PlayerBoardRead): PlayerCardRead | null {
   }
   let best: PlayerCardRead | null = null;
   for (const pieces of byCombo.values()) {
+    // Counted BEFORE `usable` narrows it: whether a combo is close to firing is
+    // a fact about the board, not about what this spell can touch. Filtering
+    // first would mean a hexproof half of a two-card combo hid the other half,
+    // and the bot would ignore the line it could actually have broken.
     if (pieces.length < 2) continue;
     // Prefer a creature: it's the piece most removal can actually answer.
-    const pick = pieces.find(p => p.isCreature) ?? pieces[0];
+    const answerable = pieces.filter(usable);
+    const pick = answerable.find(p => p.isCreature) ?? answerable[0];
+    if (!pick) continue;
     if (!best || pick.power > best.power) best = pick;
   }
   return best;
@@ -165,7 +208,9 @@ export function resolveEffect(
   switch (spec.kind) {
     case 'destroyCreature':
     case 'exileCreature': {
-      const target = comboPieceToBreak(board) ?? biggestCreature(board);
+      // Exile answers an indestructible creature; destroy does not.
+      const usable = spec.kind === 'exileCreature' ? targetable : killable;
+      const target = comboPieceToBreak(board, usable) ?? biggestCreature(board, usable);
       if (!target) return null;
       return {
         effect: {
@@ -180,18 +225,22 @@ export function resolveEffect(
       // Combo piece, then the biggest creature, then any artifact or
       // enchantment — a Beast Within on a basic land is a wasted card, and
       // `cards[0]` was very often a land.
-      const target = comboPieceToBreak(board)
-        ?? biggestCreature(board)
-        ?? board.cards.find(c => c.isArtifact)
-        ?? board.cards.find(c => !c.isLand && !c.isCreature)
-        ?? board.cards[0];
+      const answerable = board.cards.filter(killable);
+      const target = comboPieceToBreak(board, killable)
+        ?? biggestCreature(board, killable)
+        ?? answerable.find(c => c.isArtifact)
+        ?? answerable.find(c => !c.isLand && !c.isCreature)
+        ?? answerable[0];
       if (!target) return null;
       return { effect: { ...EMPTY, destroy: [target.instanceId] }, target: target.name };
     }
     case 'boardWipe': {
-      // A -X/-X sweeper only kills what it is big enough to kill.
+      // A -X/-X sweeper only kills what it is big enough to kill — but it gets
+      // an indestructible creature, because the creature dies to having zero
+      // toughness rather than to being destroyed. A plain wrath does not.
       const cap = spec.maxToughness;
-      const list = creatures(board).filter(c => cap === undefined || c.toughness <= cap);
+      const list = creatures(board).filter(c =>
+        cap === undefined ? destructible(c) : c.toughness <= cap);
       if (list.length === 0) return null;
       return {
         effect: { ...EMPTY, destroy: list.map(c => c.instanceId) },
@@ -199,7 +248,7 @@ export function resolveEffect(
       };
     }
     case 'artifactSweep': {
-      const list = board.cards.filter(c => c.isArtifact);
+      const list = board.cards.filter(c => c.isArtifact && destructible(c));
       if (list.length === 0) return null;
       return {
         effect: { ...EMPTY, destroy: list.map(c => c.instanceId) },
@@ -210,17 +259,22 @@ export function resolveEffect(
       const list = creatures(board);
       if (list.length === 0) return null;
       // The player chooses what to sacrifice, so they'd give up their worst.
+      // Nothing is skipped here on purpose: a sacrifice is the answer that
+      // goes through hexproof and indestructible alike, which is exactly why
+      // an edict is the right card against a board full of them.
       const worst = [...list].sort((a, b) => a.power - b.power)[0];
       return { effect: { ...EMPTY, destroy: [worst.instanceId] }, target: worst.name };
     }
     case 'damage': {
       const amount = spec.amount * scale;
       // Prefer a creature it can actually kill; otherwise it goes upstairs.
-      const killable = creatures(board)
-        .filter(c => c.toughness > 0 && c.toughness <= amount)
+      // Damage is targeted and damage is what indestructible shrugs off, so
+      // this is the one case where both protections rule a creature out.
+      const victim = creatures(board)
+        .filter(c => killable(c) && c.toughness > 0 && c.toughness <= amount)
         .sort((a, b) => b.power - a.power)[0];
-      if (killable) {
-        return { effect: { ...EMPTY, destroy: [killable.instanceId] }, target: killable.name };
+      if (victim) {
+        return { effect: { ...EMPTY, destroy: [victim.instanceId] }, target: victim.name };
       }
       return { effect: { ...EMPTY, lifeLoss: amount }, target: 'you' };
     }
@@ -334,10 +388,15 @@ export interface ResistanceContext {
   /** 0..1 — higher fires interaction sooner and on smaller threats. */
   aggression: number;
   /**
-   * The bot's own creatures, as toughness values. A wrath that kills more of
-   * its board than yours is a bad wrath, and without this it cannot tell.
+   * The bot's own creatures, as the two facts a wrath cares about. A wrath that
+   * kills more of its board than yours is a bad wrath, and without this it
+   * cannot tell — and a board of indestructible creatures makes a plain wrath
+   * one-sided in the bot's favour, which is a reason to cast it, not to hold it.
+   *
+   * Plain toughness values are still accepted so the older callers and the
+   * diagnostic's scripted boards need not be rewritten.
    */
-  botCreatureToughness: number[];
+  botCreatureToughness: (number | { toughness: number; indestructible?: boolean })[];
   /** Rival boards, so removal can be pointed at whoever is scariest. */
   rivals?: PlayerBoardRead[];
 }
@@ -381,7 +440,12 @@ export function chooseResistancePlay(ctx: ResistanceContext): CastDecision | nul
       case 'boardWipe': {
         const cap = entry.spec.maxToughness;
         const ownLosses = ctx.botCreatureToughness
-          .filter(t => cap === undefined || t <= cap).length;
+          .map(t => (typeof t === 'number' ? { toughness: t } : t))
+          .filter(own => (cap === undefined
+            // A destroy-wipe: indestructible survives it.
+            ? !own.indestructible
+            // A -X/-X wipe: indestructible does not save a small creature.
+            : own.toughness <= cap)).length;
         const net = hits.reduce((n, h) => n + h.effect.destroy.length, 0) - ownLosses;
         // Only a wrath that leaves the bot ahead is worth the card.
         rank = net >= 3 ? 95 : net >= 1 ? 45 : 0;

@@ -8,6 +8,7 @@ import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { ZoneActionsContextMenu } from '@/components/playtest/PlaytestActionsBar';
 import type { ZoneKey } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
 
@@ -118,6 +119,7 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
   const Icon = spec.Icon;
   const imgRef = useRef<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const magnified = useMagnifyHover(hovered);
   const showPreview = magnified && faceUp && top && !drag.isDragging;
 
@@ -133,14 +135,31 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
     });
   };
 
+  /**
+   * Right-click opens that zone's actions at the cursor.
+   *
+   * It used to open the zone viewer, with the actions on a button above the
+   * pile — which had the two the wrong way round. A right-click is the gesture
+   * this playtest already uses for "what can I do to this thing" everywhere
+   * else (a card in hand, a permanent on the table), and the pile is the thing
+   * those actions act on. Looking inside a zone is the steady, repeated job, so
+   * it took the permanent button instead: see `<ZoneSearch />`.
+   *
+   * The command zone keeps opening its viewer, because it has no actions menu —
+   * there is nothing you do to the command zone as a whole.
+   */
   const onContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
-    if (currentModal?.kind === 'zoneViewer' && currentModal.zone === spec.zone) {
-      closeModal();
+    if (spec.zone === 'command') {
+      if (currentModal?.kind === 'zoneViewer' && currentModal.zone === 'command') {
+        closeModal();
+        return;
+      }
+      if (cards.length === 0) return;
+      openModal({ kind: 'zoneViewer', zone: 'command' });
       return;
     }
-    if (cards.length === 0 && spec.zone !== 'library') return;
-    openModal({ kind: 'zoneViewer', zone: spec.zone });
+    setMenu({ x: e.clientX, y: e.clientY });
   };
 
   const interactive = cards.length > 0;
@@ -148,17 +167,21 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
   // menus that clause pointed at are reachable from the Deck / Grave / Exile
   // buttons in the hand toolbar below 768px, so the hint drops rather than
   // sending touch users after a gesture their device doesn't have.
+  const actionHint = spec.zone === 'command'
+    ? `right-click to view ${spec.label.toLowerCase()}`
+    : `right-click for ${spec.label.toLowerCase()} actions`;
   const titleText = !interactive
     ? spec.label
     : spec.zone === 'library'
       ? isDesktop
-        ? `Click to draw a card · type a number to draw that many · right-click to search ${spec.label.toLowerCase()}`
+        ? `Click to draw a card · type a number to draw that many · ${actionHint}`
         : 'Tap to draw a card'
       : isDesktop
-        ? `Click to play top card · type a number to take that many to hand · right-click to view ${spec.label.toLowerCase()}`
+        ? `Click to play top card · type a number to take that many to hand · ${actionHint}`
         : 'Tap to play the top card';
 
   return (
+    <>
     <div
       ref={setDropRef}
       onClick={onClickPile}
@@ -282,6 +305,21 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
         </div>
       )}
     </div>
+    {/* A SIBLING of the pile, not a child of it, and the distinction is not
+        cosmetic: a React portal bubbles its events through the React tree
+        rather than the DOM one, so a menu mounted inside that div would fire
+        the pile's own onClick — every action you picked would also draw a card
+        or play the top of the graveyard. Rendering it out here is what stops
+        that; the portal itself occupies no space in the flex column. */}
+    {menu && spec.zone !== 'command' && (
+      <ZoneActionsContextMenu
+        zone={spec.zone}
+        x={menu.x}
+        y={menu.y}
+        onClose={() => setMenu(null)}
+      />
+    )}
+    </>
   );
 }
 

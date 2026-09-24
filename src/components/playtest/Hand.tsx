@@ -5,7 +5,7 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getCardBackFaceUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
-import { PlaytestActionsBar, ZoneActions, HandActionsButton } from '@/components/playtest/PlaytestActionsBar';
+import { PlaytestActionsBar, ZoneSearch, HandActionsButton } from '@/components/playtest/PlaytestActionsBar';
 import { PlaytestPile, PILES } from '@/components/playtest/PlaytestPile';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
@@ -203,20 +203,20 @@ export function Hand() {
             width. Exile stays half of that. */}
         {isDesktop && (
           <div className="flex items-end gap-2 shrink-0">
-            {/* Deck actions ride on top of the library — draw, scry, mill and
-                search all act on the deck, so the pile is both the target and
-                the control. The other piles hang from the bottom of the row, so
-                this column is bottom-aligned too and the buttons stack above. */}
+            {/* Each pile's button looks INSIDE that zone; its menu of actions
+                is on the pile itself, under right-click. The other piles hang
+                from the bottom of the row, so this column is bottom-aligned
+                too and the buttons stack above. */}
             <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, calc(11vw - 20px), 110px)' }}>
-              <ZoneActions zone="library" className="w-full" />
+              <ZoneSearch zone="library" className="w-full" />
               <PlaytestPile spec={PILES[1]} />
             </div>
             <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, calc(11vw - 20px), 110px)' }}>
-              <ZoneActions zone="graveyard" className="w-full" />
+              <ZoneSearch zone="graveyard" className="w-full" />
               <PlaytestPile spec={PILES[2]} />
             </div>
             <div className="self-start flex flex-col gap-1" style={{ width: 'clamp(30px, calc(5.5vw - 10px), 55px)' }}>
-              <ZoneActions zone="exile" className="w-full" compact />
+              <ZoneSearch zone="exile" className="w-full" compact />
               <PlaytestPile spec={PILES[3]} />
             </div>
           </div>

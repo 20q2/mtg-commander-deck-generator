@@ -51,6 +51,18 @@ interface Flight {
   duration?: number;
   /** Overrides how far the arc bows out of the straight line. */
   bow?: number;
+  /**
+   * A creature throwing itself at something: a ghost of the card lunges at the
+   * target, lands oversized on the beat of impact, and is gone. The real card
+   * never moves — combat does not relocate anything, so nothing may look as
+   * though it has.
+   *
+   * Same layer as the zone flights rather than one of its own, for the reason
+   * in the header: identical requirements (measured boxes, no clipping
+   * ancestor), so a second layer would be this one with different constants.
+   * The constants are what `strike` selects.
+   */
+  strike?: boolean;
 }
 
 interface FlightState {
@@ -109,6 +121,51 @@ export function captureZoneBox(zone: string): Box | null {
 
 const FLIGHT_MS = 420;
 const STAGGER_MS = 45;
+/**
+ * A strike is much shorter than a zone flight. It has to be: the whole point is
+ * that a five-creature attack paces out one beat per creature, and five 420ms
+ * flights end-to-end is a cutscene.
+ */
+export const STRIKE_MS = 260;
+
+/**
+ * The lunge: a small recoil away from the target, then everything in one shove
+ * into it, arriving oversized on the frame of contact and gone two frames later.
+ *
+ * The recoil is what sells it. Without the wind-up the ghost simply appears and
+ * slides, and there is no moment the eye can read as the decision to attack.
+ */
+function strikeFrames(
+  { dx, dy, start, scale }: { dx: number; dy: number; start: number; scale: number },
+): Keyframe[] {
+  const len = Math.hypot(dx, dy) || 1;
+  // Back along the line of attack, never more than a card's width of it.
+  const back = Math.min(22, len * 0.12);
+  // Lands bigger than the target box, so contact is a shove rather than a
+  // thumbnail docking. Measured off the source size — a strike from a big card
+  // should hit harder than one from a token.
+  const impact = Math.max(start, scale) * 1.18;
+  return [
+    { transform: `translate3d(0,0,0) scale(${start})`, opacity: 0.95, offset: 0 },
+    {
+      transform: `translate3d(${(-dx / len) * back}px, ${(-dy / len) * back}px, 0) scale(${start})`,
+      opacity: 1,
+      offset: 0.3,
+    },
+    {
+      transform: `translate3d(${dx}px, ${dy}px, 0) scale(${impact})`,
+      opacity: 1,
+      offset: 0.82,
+    },
+    {
+      // Overshoot slightly past the target and fade out: the ghost is spent, and
+      // whatever it hit is the thing that should be holding your eye by now.
+      transform: `translate3d(${dx * 1.04}px, ${dy * 1.04}px, 0) scale(${impact * 0.94})`,
+      opacity: 0,
+      offset: 1,
+    },
+  ];
+}
 
 /** Fly the given hand indices into a zone pile. No-op if the pile isn't on screen. */
 export function flyHandToZone(indices: number[], zone: string, boxes: Map<number, Box>, cards: ScryfallCard[]) {
@@ -162,34 +219,41 @@ function FlyingCard({ flight }: { flight: Flight }) {
     // The dip: bow the path perpendicular to the direction of travel so the
     // card swings out and settles rather than sliding along a ruled line.
     const len = Math.hypot(dx, dy) || 1;
-    const bow = flight.bow ?? Math.min(90, len * 0.22);
+    // A strike travels nearly straight. The zone flights bow because a card
+    // being put somewhere is a considered move; a creature connecting is not,
+    // and an arcing lunge reads as a lob rather than a hit.
+    const bow = flight.bow ?? (flight.strike ? Math.min(26, len * 0.06) : Math.min(90, len * 0.22));
     const midX = dx / 2 - (dy / len) * bow;
     const midY = dy / 2 + (dx / len) * bow;
-    const duration = flight.duration ?? FLIGHT_MS;
+    const duration = flight.duration ?? (flight.strike ? STRIKE_MS : FLIGHT_MS);
     // A card being turned over lands square. The tilt is for the ones being
     // thrown away, where it reads as the card spinning off.
     const tilt = flight.reveal ? 0 : -8;
 
     const animation = el.animate(
-      [
-        { transform: `translate3d(0,0,0) scale(${start}) rotate(0deg)`, opacity: 1, offset: 0 },
-        {
-          transform: `translate3d(${midX}px, ${midY}px, 0) scale(${peak}) rotate(${tilt}deg)`,
-          opacity: 1,
-          offset: 0.55,
-        },
-        {
-          transform: `translate3d(${dx}px, ${dy}px, 0) scale(${scale}) rotate(0deg)`,
-          // A card being played lands solid — the real one takes over from it.
-          // A card being thrown away fades, because nothing takes over.
-          opacity: flight.reveal ? 1 : 0.85,
-          offset: 1,
-        },
-      ],
+      flight.strike
+        ? strikeFrames({ dx, dy, start, scale })
+        : [
+            { transform: `translate3d(0,0,0) scale(${start}) rotate(0deg)`, opacity: 1, offset: 0 },
+            {
+              transform: `translate3d(${midX}px, ${midY}px, 0) scale(${peak}) rotate(${tilt}deg)`,
+              opacity: 1,
+              offset: 0.55,
+            },
+            {
+              transform: `translate3d(${dx}px, ${dy}px, 0) scale(${scale}) rotate(0deg)`,
+              // A card being played lands solid — the real one takes over from it.
+              // A card being thrown away fades, because nothing takes over.
+              opacity: flight.reveal ? 1 : 0.85,
+              offset: 1,
+            },
+          ],
       {
         duration,
         delay: flight.delay,
-        easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+        // A strike is not a settling motion: it winds up slowly and arrives
+        // fast, so the impact is the moment your eye is on.
+        easing: flight.strike ? 'cubic-bezier(0.55, 0, 0.9, 0.35)' : 'cubic-bezier(0.4, 0, 0.2, 1)',
         fill: 'both',
       },
     );

@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.3.41",
+    "notes": [
+      "Added attack animation during combat against bots",
+      "Bots now understand indestructible and hexproof",
+      "Swapped the button above each zone to search that zone, right click the zone for the same actions menu",
+      "Planeswalker emblems can now be created straight from a card's right-click menu",
+      "Card previews now magnify on hover by default rather than asking you to hold Ctrl. If you'd already chosen how you like them, your choice is kept",
+      "Added a Smallest battlefield card size for fitting a very wide board on screen",
+      "Fixed card previews inside the search, scry and token windows"
+    ]
+  },
+  {
     "version": "1.3.40",
     "notes": [
       "Various playtester improvements"

@@ -4,6 +4,7 @@ import { useDraggable } from '@dnd-kit/core';
 import { Input } from '@/components/ui/input';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { resolveDeckTokens, resolveTokens, deriveColorIdentity } from '@/services/playtest/tokens';
+import { isEmblem } from '@/services/scryfall/extras';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
 import { HoverPreviewImage } from '@/components/playtest/HoverPreviewImage';
 import type { ScryfallCard } from '@/types';
@@ -56,9 +57,13 @@ export function TokenSpawnModal() {
     !q || t.name.toLowerCase().includes(q.toLowerCase()) || t.type_line.toLowerCase().includes(q.toLowerCase()),
   );
 
+  // The deck's emblem walkers pull emblems in here alongside the tokens, so the
+  // dialog only calls itself a token spawner when that's all it is holding.
+  const hasEmblems = tokens.some(isEmblem);
+
   const title = (
     <>
-      Spawn Token
+      {hasEmblems ? 'Spawn Token or Emblem' : 'Spawn Token'}
       {!loading && (
         <span className="text-muted-foreground font-normal ml-1.5">
           ({filtered.length}{filtered.length !== tokens.length ? ` of ${tokens.length}` : ''})
@@ -85,7 +90,7 @@ export function TokenSpawnModal() {
         {!loading && tokens.length > 0 && (
           <p className="mt-1.5 text-[10px] text-muted-foreground">
             {source === 'deck'
-              ? 'Tokens this deck can create (from card data).'
+              ? `${hasEmblems ? 'Tokens and emblems' : 'Tokens'} this deck can create (from card data).`
               : 'No deck-specific tokens found — showing tokens within color identity.'}
           </p>
         )}
@@ -98,7 +103,7 @@ export function TokenSpawnModal() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-sm text-muted-foreground italic text-center py-10">
-            {tokens.length === 0 ? 'No tokens found.' : 'No tokens match the filter.'}
+            {tokens.length === 0 ? 'No tokens found.' : 'Nothing matches the filter.'}
           </div>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(92px,1fr))] gap-2.5">
@@ -111,7 +116,10 @@ export function TokenSpawnModal() {
                 // reopening and re-filtering to do the obvious next thing. The
                 // toast is what tells you it landed, since the dialog may well
                 // be sitting over the spot the token arrived in.
-                onSpawn={() => { spawnToken(t); showToast(`${t.name} token created`); }}
+                onSpawn={() => {
+                  spawnToken(t);
+                  showToast(isEmblem(t) ? `${t.name} created` : `${t.name} token created`);
+                }}
               />
             ))}
           </div>
@@ -133,9 +141,9 @@ function TokenTile({ token, onSpawn }: { token: ScryfallCard; onSpawn: () => voi
       {...listeners}
       onClick={onSpawn}
       className={`rounded-[6px] hover:ring-2 hover:ring-primary transition-all touch-none ${isDragging ? 'opacity-0' : ''}`}
-      title={`Click or drag to spawn ${token.name}`}
+      title={`Click or drag to ${isEmblem(token) ? 'create' : 'spawn'} ${token.name}`}
     >
-      <HoverPreviewImage card={token} size="small" className="w-full rounded-[6px] shadow pointer-events-none" />
+      <HoverPreviewImage card={token} size="small" suppressed={isDragging} className="w-full rounded-[6px] shadow touch-none" />
     </button>
   );
 }

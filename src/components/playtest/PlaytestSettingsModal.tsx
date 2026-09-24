@@ -68,7 +68,7 @@ export function PlaytestSettingsModal({ open, onClose }: Props) {
         {tab === 'general' && <div className="px-5 py-4 space-y-5 text-sm">
           <div>
             <div className="mb-2 font-medium text-foreground/90">Battlefield card size</div>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-4 gap-2">
               {(Object.keys(CARD_SIZES) as BattlefieldCardSize[]).map((key) => {
                 const selected = cardSize === key;
                 const { label, width, height } = CARD_SIZES[key];
@@ -183,8 +183,8 @@ export function PlaytestSettingsModal({ open, onClose }: Props) {
  * I own instantly" and "show me what they're up to" are separate appetites.
  */
 const CARD_PREVIEW_MODES: { key: CardPreviewMode; label: string; blurb: string }[] = [
-  { key: 'ctrl',  label: 'Hold Ctrl', blurb: 'Hold Ctrl and point at a card to blow it up. The default.' },
-  { key: 'hover', label: 'On hover',  blurb: 'Point at a card and it magnifies, no key needed.' },
+  { key: 'hover', label: 'On hover',  blurb: 'Point at a card and it magnifies, no key needed. The default.' },
+  { key: 'ctrl',  label: 'Hold Ctrl', blurb: 'Hold Ctrl and point at a card to blow it up.' },
 ];
 
 const PREVIEW_MODES: { key: OpponentPreviewMode; label: string; blurb: string }[] = [

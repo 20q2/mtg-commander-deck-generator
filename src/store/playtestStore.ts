@@ -28,6 +28,7 @@ import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
 import { playCue, playCounterCue } from '@/services/playtest/playtestSound';
 import { useDamageFlash } from '@/store/damageFlashStore';
 import { describeEdit } from '@/services/playtest/powerToughness';
+import { isEmblem } from '@/services/scryfall/extras';
 import { captureAll, restoreAll } from '@/store/undoBridge';
 
 const HISTORY_CAP = 20;
@@ -1490,7 +1491,13 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     return {
       history,
       battlefield: [...state.battlefield, token],
-      log: [...state.log, makeLogEntry(`Spawned ${card.name} token`, 'move')],
+      // Emblems come through here too — same arrival, but "Spawned Elspeth,
+      // Knight-Errant Emblem token" is two wrong nouns, and the log is the
+      // record you scroll back through to work out how the board got this way.
+      log: [...state.log, makeLogEntry(
+        isEmblem(card) ? `${card.name} created` : `Spawned ${card.name} token`,
+        'move',
+      )],
     };
   }),
 

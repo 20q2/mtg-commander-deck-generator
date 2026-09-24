@@ -12,6 +12,13 @@ import { canBlock, type Combatant } from '@/services/playtest/combat';
  */
 export function killsIt(dealer: Combatant, target: Combatant): boolean {
   if (dealer.power <= 0) return false;
+  // Nothing in combat kills an indestructible creature, deathtouch included.
+  // Every block and attack decision below is phrased in terms of this one
+  // question, so answering it correctly is the whole of "the bots understand
+  // indestructible": they take the free block with an indestructible wall,
+  // they stop trading into an indestructible attacker, and they stop holding
+  // an indestructible creature home to die for them.
+  if (target.keywords.has('indestructible')) return false;
   if (dealer.keywords.has('deathtouch')) return true;
   return dealer.power >= target.toughness;
 }

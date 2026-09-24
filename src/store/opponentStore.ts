@@ -4,13 +4,14 @@ import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
 import { playCue, BOT_GAIN } from '@/services/playtest/playtestSound';
 import { slashCard } from '@/store/cardSlashStore';
+import { seatLifeAnchor, strikeAt, strikePacing } from '@/store/combatStrikes';
 import { takeTurn } from '@/services/playtest/opponents/engine';
 import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/deckSources';
 import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT, describeEdit } from '@/services/playtest/powerToughness';
 import { canBlock, keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
-import { botPower, botToughness, clearTempBoosts, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
+import { botKeywords, botPower, botToughness, clearTempBoosts, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
 import { buryPermanents } from '@/services/playtest/opponents/deaths';
 import {
   pickCardsToDiscard, pickPermanentsToGiveUp, type BotDecision,
@@ -104,6 +105,45 @@ function cancelTurns() {
 }
 
 /**
+ * The same idea for `resolvePlayerCombat`, which now pays a fight out one
+ * creature at a time and so has gaps in it that a reset or an undo can land in.
+ * Bumping this abandons the rest of the sequence — the beats that have already
+ * landed stay landed, which is correct for both: an undo has just restored the
+ * board over the top of them, and a reset has thrown it away entirely.
+ */
+let strikeRun = 0;
+
+/** Abandon an in-flight combat sequence. The caller clears `resolvingCombat`. */
+function cancelStrikes() {
+  strikeRun++;
+}
+
+/** One creature dying on a beat, with the line the log should carry for it. */
+interface StrikeDeath {
+  id: string;
+  /** Yours, so it leaves through the player's own move path. */
+  mine: boolean;
+  line: string;
+}
+
+/**
+ * One attacker's share of a resolved combat: what it hits, what that costs the
+ * seat, and who dies for it. Built before anything is applied, so every name
+ * and every id in it was read while the cards were still on the board.
+ */
+interface StrikeBeat {
+  opponentId: string;
+  attackerId: string;
+  /** Absent only if the card left your board between confirm and resolve. */
+  card?: ScryfallCard;
+  /** `data-float-id` of the blocker it is fighting, or of the seat's life. */
+  targetFloatId: string;
+  /** What this one creature takes off the seat — trample overflow included. */
+  damage: number;
+  deaths: StrikeDeath[];
+}
+
+/**
  * The log's note that a number was nudged by hand.
  *
  * Without it a line reading "You took 9" next to a board that adds up to 7 is
@@ -126,7 +166,6 @@ function sendToGraveyard(o: Opponent, instanceIds: string[]): Opponent {
   return buryPermanents(o, instanceIds).opponent;
 }
 
-/** What these deaths cost YOU, and what to say about them. */
 /**
  * How long a seat stays in its dealing state at minimum.
  *
@@ -145,6 +184,7 @@ function settleDeal(startedAt: number): Promise<void> {
   return rest > 0 ? new Promise(r => setTimeout(r, rest)) : Promise.resolve();
 }
 
+/** What these deaths cost YOU, and what to say about them. */
 function deathToll(o: Opponent, instanceIds: string[]): { lifeLoss: number; logs: string[] } {
   const { lifeLoss, logs } = buryPermanents(o, instanceIds);
   return { lifeLoss, logs };
@@ -226,6 +266,16 @@ interface OpponentState {
       blocks: Record<string, string[]>;
     }>;
   } | null;
+  /**
+   * True while an attack is playing itself out, one creature at a time.
+   *
+   * `playerCombat` is still set for the whole of that — the strip has to keep
+   * showing the fight, and the existing "you cannot pass the turn mid-combat"
+   * gate reads it — so it cannot double as the guard against resolving twice.
+   * This can: the Deal button goes inert on it, and the action refuses to start
+   * a second sequence over the top of a running one.
+   */
+  resolvingCombat: boolean;
   /**
    * True once your combat has resolved this turn — you're past it, in your
    * second main phase. Combat happens once a turn, so the button stops
@@ -384,7 +434,7 @@ interface OpponentActions {
    * honoured alongside an id — it is one seat's hand adjustment, not a blanket
    * one across every fight you happen to have open.
    */
-  resolvePlayerCombat: (opponentId?: string, damageMod?: number) => void;
+  resolvePlayerCombat: (opponentId?: string, damageMod?: number) => Promise<void>;
   /** Throw away an unconfirmed declaration, untapping everything in it. */
   discardDeclaration: () => void;
   /** Let the top item resolve — its effect lands on your board. */
@@ -422,6 +472,9 @@ function readPlayerBoard(): PlayerBoardRead {
       const pt = resolvePT(b);
       const power = parseInt(pt?.modified.split('/')[0] ?? '', 10);
       const toughness = parseInt(pt?.modified.split('/')[1] ?? '', 10);
+      // The same set the damage maths reads, so a creature you Frogified has
+      // lost its hexproof here too rather than only in combat.
+      const keywords = keywordsOf(b.card, b.edit);
       return {
         instanceId: b.instanceId,
         name: b.card.name,
@@ -434,6 +487,8 @@ function readPlayerBoard(): PlayerBoardRead {
         toughness: Number.isNaN(toughness) ? 0 : toughness,
         isCommander: commanders.has(b.card.name),
         comboId: liveComboByCard.get(b.card.name) ?? null,
+        hexproof: keywords.has('hexproof'),
+        indestructible: keywords.has('indestructible'),
       };
     }),
   };
@@ -456,6 +511,10 @@ function readBotBoard(o: Opponent): PlayerBoardRead {
       .map(p => botCombatant(p, o.battlefield, o.graveyard)),
     cards: o.battlefield.map(p => {
       const type = getFrontFaceTypeLine(p.card).toLowerCase();
+      // `botKeywords`, not `keywordsOf`: a rival's Wonder-style grant is as
+      // real as a printed keyword, and the bot pointing removal at this seat
+      // has to see the same board its owner does.
+      const keywords = botKeywords(p, o.battlefield, o.graveyard);
       return {
         instanceId: p.instanceId,
         name: p.card.name,
@@ -466,6 +525,8 @@ function readBotBoard(o: Opponent): PlayerBoardRead {
         toughness: botToughness(p, o.battlefield, o.graveyard),
         isCommander: p.card.name === o.commanderName,
         comboId: armed.find(c => c.onBattlefield.includes(p.card.name))?.id ?? null,
+        hexproof: keywords.has('hexproof'),
+        indestructible: keywords.has('indestructible'),
       };
     }),
   };
@@ -557,6 +618,7 @@ const initial: OpponentState = {
   combatPhase: false,
   declaration: null,
   playerCombat: null,
+  resolvingCombat: false,
   combatDone: false,
   attackAim: null,
   stack: [],
@@ -640,12 +702,15 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
   }),
 
   clearAll: () => {
-    // Never leave a turn awaiting blocks for a table that no longer exists.
+    // Never leave a turn awaiting blocks for a table that no longer exists,
+    // nor a half-played attack still paying itself out into empty seats.
     cancelTurns();
+    cancelStrikes();
     set({
       opponents: [], error: null, combat: null, combatPhase: false,
       declaration: null, playerCombat: null, running: false, actingId: null,
       lastBeat: null, combatDone: false, attackAim: null, stack: [],
+      resolvingCombat: false,
     });
   },
 
@@ -993,9 +1058,13 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     set({ declaration: null, playerCombat: { perOpponent } });
   },
 
-  resolvePlayerCombat: (only, damageMod = 0) => {
+  resolvePlayerCombat: async (only, damageMod = 0) => {
     const playerCombat = get().playerCombat;
     if (!playerCombat) return;
+    // The strip's button goes inert while a sequence runs, but a click landing
+    // in the same frame it re-renders would still get through, and an attack
+    // applied twice takes the life total twice.
+    if (get().resolvingCombat) return;
     const playtest = usePlaytestStore.getState();
     const float = useFloatingText.getState().float;
 
@@ -1006,8 +1075,18 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     // The adjustment belongs to the one fight whose button carried it.
     const mod = only === undefined ? 0 : damageMod;
 
-    const myDead: string[] = [];
-    const theirDead: Record<string, string[]> = {};
+    /**
+     * The whole fight, worked out before any of it is applied.
+     *
+     * The maths is what it always was — same reader, same pure module, read off
+     * the board as it stands now. All the sequencing below decides is *when*
+     * each part of that settled result lands. Nothing is re-resolved as the
+     * board changes under it, so a creature dying on beat two cannot quietly
+     * rewrite beat three.
+     */
+    const beats: StrikeBeat[] = [];
+    /** One summary line and one correction per seat, once its beats are done. */
+    const seatTotals: { opponentId: string; name: string; dealt: number; raw: number }[] = [];
 
     for (const [opponentId, side] of entries) {
       const opponent = get().opponents.find(o => o.id === opponentId);
@@ -1020,73 +1099,157 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       // Same pure module the bot→player direction uses. It does not know or
       // care which side is defending.
       const outcome = resolveDamage(attackers, blocks);
+      const deadAttackers = new Set(outcome.deadAttackers);
+      const deadBlockers = new Set(outcome.deadBlockers);
 
-      for (const id of outcome.deadAttackers) {
-        float('Dies', 'damage', id);
-        slashCard(id);
-        const c = attackers.find(a => a.instanceId === id);
-        playtest.appendLog(`${c?.name ?? 'A creature'} died attacking ${opponent.name}`, 'bot', [opponentId]);
-        myDead.push(id);
-      }
-      for (const id of outcome.deadBlockers) {
-        float('Dies', 'damage', id);
-        slashCard(id);
-        const p = opponent.battlefield.find(b => b.instanceId === id);
-        playtest.appendLog(`${opponent.name}'s ${p?.card.name ?? 'creature'} died blocking`, 'bot', [opponentId]);
-      }
-      theirDead[opponentId] = outcome.deadBlockers;
+      for (const attacker of attackers) {
+        const card = playtest.battlefield.find(b => b.instanceId === attacker.instanceId);
+        const assigned = blocks[attacker.instanceId] ?? [];
+        const deaths: StrikeDeath[] = [];
 
-      const dealt = Math.max(0, outcome.damageToDefender + mod);
-      if (dealt > 0) {
-        playtest.appendLog(`${opponent.name} took ${dealt}${adjustmentNote(mod)}`, 'bot', [opponentId]);
-        get().adjustLife(opponentId, -dealt);
-      } else {
-        playtest.appendLog(
-          `Your attack on ${opponent.name} dealt no damage${adjustmentNote(mod)}`,
-          'bot', [opponentId],
-        );
-      }
-    }
+        // Every name is taken here, while all the cards involved are still on
+        // the board to be read — by the time a beat lands, its dead are gone.
+        for (const blocker of assigned) {
+          if (!deadBlockers.has(blocker.instanceId)) continue;
+          deaths.push({
+            id: blocker.instanceId,
+            mine: false,
+            line: `${opponent.name}'s ${blocker.name} died blocking`,
+          });
+        }
+        if (deadAttackers.has(attacker.instanceId)) {
+          deaths.push({
+            id: attacker.instanceId,
+            mine: true,
+            line: `${attacker.name} died attacking ${opponent.name}`,
+          });
+        }
 
-    // Your dead attackers go to your graveyard through the normal move path.
-    for (const id of myDead) {
-      playtest.moveCard({
-        source: { kind: 'battlefield', instanceId: id },
-        target: { kind: 'zone', zone: 'graveyard' },
+        beats.push({
+          opponentId,
+          card: card?.card,
+          attackerId: attacker.instanceId,
+          // A blocked creature swings at what stands in front of it, an
+          // unblocked one at the seat. Menace puts two bodies in the way and
+          // the lunge picks the first: one ghost per attacker, not one per
+          // pairing, because the attacker is what is taking the swing.
+          targetFloatId: assigned[0]?.instanceId ?? seatLifeAnchor(opponentId),
+          damage: outcome.damageByAttacker[attacker.instanceId] ?? 0,
+          deaths,
+        });
+      }
+
+      seatTotals.push({
+        opponentId,
+        name: opponent.name,
+        dealt: Math.max(0, outcome.damageToDefender + mod),
+        raw: outcome.damageToDefender,
       });
     }
 
-    // Their dead blockers go to theirs. Survivors need no repositioning: they
-    // never left `battlefield`, so their x/y is intact by construction.
-    //
-    // Their death triggers are read BEFORE the deaths are applied, off the same
-    // resolution the graveyard move uses — a zombie deck chump-blocking your
-    // alpha strike bills you for every body it threw in front of you.
-    const tolls = get().opponents.map(o => ({ seatId: o.id, toll: deathToll(o, theirDead[o.id] ?? []) }));
-    const settled = new Set(entries.map(([id]) => id));
-    set(s => {
-      const remaining = Object.fromEntries(
-        Object.entries(s.playerCombat?.perOpponent ?? {}).filter(([id]) => !settled.has(id)),
-      );
-      const done = Object.keys(remaining).length === 0;
-      return {
-        opponents: s.opponents.map(o => sendToGraveyard(o, theirDead[o.id] ?? [])),
-        playerCombat: done ? null : { perOpponent: remaining },
-        // combatPhase stays true from confirm through here so the strips keep
-        // showing the blocks — and stays true while another fight is unsettled.
-        combatPhase: done ? false : s.combatPhase,
-        // Every fight settled means combat is behind you: second main phase.
-        combatDone: done || s.combatDone,
-      };
-    });
+    const animate = usePlaytestSettings.getState().animations;
+    const pacing = strikePacing(beats.length);
+    // A reset, a new table or an undo abandons whatever is left of the
+    // sequence: in all three the board it was applying to has been thrown away.
+    const myRun = ++strikeRun;
+    const mine = () => myRun === strikeRun;
+    const pause = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-    const drained = tolls.reduce((n, t) => n + t.toll.lifeLoss, 0);
-    tolls.forEach(({ seatId, toll }) => toll.logs.forEach(line => playtest.appendLog(line, 'bot', [seatId])));
-    if (drained > 0) playtest.adjustLife(-drained);
+    set({ resolvingCombat: true });
+    try {
+      /** One creature's share of the result, applied as it connects. */
+      const applyBeat = (beat: StrikeBeat) => {
+        playCue('hit');
+        for (const death of beat.deaths) {
+          float('Dies', 'damage', death.id);
+          slashCard(death.id);
+          playtest.appendLog(death.line, 'bot', [beat.opponentId]);
+        }
+        // Their death triggers are read BEFORE the deaths are applied, off the
+        // same resolution the graveyard move uses — a zombie deck chump-blocking
+        // your alpha strike bills you for every body it threw in front of you.
+        const theirs = beat.deaths.filter(d => !d.mine).map(d => d.id);
+        if (theirs.length > 0) {
+          const seat = get().opponents.find(o => o.id === beat.opponentId);
+          const toll = seat ? deathToll(seat, theirs) : { lifeLoss: 0, logs: [] };
+          // Their dead blockers go to their graveyard. Survivors need no
+          // repositioning: they never left `battlefield`, so their x/y is
+          // intact by construction.
+          set(s => ({
+            opponents: s.opponents.map(o =>
+              o.id === beat.opponentId ? sendToGraveyard(o, theirs) : o,
+            ),
+          }));
+          toll.logs.forEach(line => playtest.appendLog(line, 'bot', [beat.opponentId]));
+          if (toll.lifeLoss > 0) playtest.adjustLife(-toll.lifeLoss);
+        }
+        // Your dead attackers go to your graveyard through the normal move path.
+        for (const death of beat.deaths) {
+          if (!death.mine) continue;
+          playtest.moveCard({
+            source: { kind: 'battlefield', instanceId: death.id },
+            target: { kind: 'zone', zone: 'graveyard' },
+          });
+        }
+        if (beat.damage > 0) get().adjustLife(beat.opponentId, -beat.damage);
+      };
+
+      for (const beat of beats) {
+        if (!mine()) return;
+        if (animate) {
+          // Both ends are measured off the live board, so the ghost has to be
+          // thrown before the beat is applied: a blocker already buried has no
+          // box left to aim at.
+          if (beat.card) strikeAt(beat.attackerId, beat.card, beat.targetFloatId, pacing);
+          await pause(Math.min(pacing.impactMs, pacing.beatMs));
+          if (!mine()) return;
+        }
+        applyBeat(beat);
+        if (animate) await pause(Math.max(0, pacing.beatMs - pacing.impactMs));
+      }
+      if (!mine()) return;
+
+      for (const seat of seatTotals) {
+        if (seat.dealt > 0) {
+          playtest.appendLog(`${seat.name} took ${seat.dealt}${adjustmentNote(mod)}`, 'bot', [seat.opponentId]);
+        } else {
+          playtest.appendLog(
+            `Your attack on ${seat.name} dealt no damage${adjustmentNote(mod)}`,
+            'bot', [seat.opponentId],
+          );
+        }
+        // The beats took off what the creatures dealt; the hand adjustment is a
+        // correction to the total and belongs to no one creature. Applying it
+        // as the difference keeps the sum exactly what the button promised —
+        // a negative nudge big enough to wipe out the attack included.
+        const correction = seat.dealt - seat.raw;
+        if (correction !== 0) get().adjustLife(seat.opponentId, -correction);
+      }
+
+      const settled = new Set(entries.map(([id]) => id));
+      set(s => {
+        const remaining = Object.fromEntries(
+          Object.entries(s.playerCombat?.perOpponent ?? {}).filter(([id]) => !settled.has(id)),
+        );
+        const done = Object.keys(remaining).length === 0;
+        return {
+          playerCombat: done ? null : { perOpponent: remaining },
+          // combatPhase stays true from confirm through here so the strips keep
+          // showing the blocks — and stays true while another fight is unsettled.
+          combatPhase: done ? false : s.combatPhase,
+          // Every fight settled means combat is behind you: second main phase.
+          combatDone: done || s.combatDone,
+        };
+      });
+    } finally {
+      // Only if the sequence is still ours: a cancel resets the flag along with
+      // everything else, and may have started a fresh fight since.
+      if (mine()) set({ resolvingCombat: false });
+    }
   },
 
   adjustLife: (id, delta) => {
-    floatDelta(delta, `opp-life-${id}`);
+    floatDelta(delta, seatLifeAnchor(id));
     const before = get().opponents.find(o => o.id === id);
     set(s => ({
       opponents: s.opponents.map(o => (o.id === id ? { ...o, life: o.life + delta } : o)),
@@ -1964,11 +2127,13 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     // resolving it dealt damage in the new game — so the parked promise is
     // settled, the combat dropped and the turn loop cancelled.
     cancelTurns();
+    cancelStrikes();
     return {
       // A reshuffle must not leave a half-declared attack pointing at instance
       // ids that no longer mean anything.
       declaration: null,
       playerCombat: null,
+      resolvingCombat: false,
       combatPhase: false,
       combatDone: false,
       attackAim: null,
@@ -2059,6 +2224,11 @@ registerUndoParticipant({
   restore: (snapshot) => {
     const s = snapshot as OpponentUndoSnapshot;
     const hadCombat = useOpponentStore.getState().combat !== null;
+    // An undo that lands mid-attack has just written the board back over the
+    // beats that had already played, so the rest of them must not arrive on top
+    // of it. `resolvingCombat` is transient and deliberately not in the
+    // snapshot: undoing into a fight leaves you able to resolve it again.
+    cancelStrikes();
     useOpponentStore.setState({
       opponents: s.opponents,
       combat: s.combat,
@@ -2066,6 +2236,7 @@ registerUndoParticipant({
       declaration: s.declaration,
       playerCombat: s.playerCombat,
       combatDone: s.combatDone,
+      resolvingCombat: false,
     });
     // An undo that closes an open combat has to settle the promise runAllTurns
     // is parked on, or the bot's turn never finishes and `running` sticks true,

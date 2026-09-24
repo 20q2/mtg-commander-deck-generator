@@ -866,7 +866,10 @@ export function takeTurn(
         aggression: opp.aggression,
         botCreatureToughness: opp.battlefield
           .filter(p => isCreatureCard(p.card))
-          .map(p => liveToughness(p, opp.battlefield)),
+          .map(p => ({
+            toughness: liveToughness(p, opp.battlefield),
+            indestructible: botKeywords(p, opp.battlefield, opp.graveyard).has('indestructible'),
+          })),
         rivals: rivalReads,
       });
       if (!play) break;
@@ -890,7 +893,11 @@ export function takeTurn(
         const dying = opp.battlefield.filter(
           p =>
             isCreatureCard(p.card) &&
-            (cap === undefined || liveToughness(p, opp.battlefield) <= cap),
+            // Same rule `resolveEffect` applies to your board: a destroy-wipe
+            // leaves an indestructible creature standing, a -X/-X one does not.
+            (cap === undefined
+              ? !botKeywords(p, opp.battlefield, opp.graveyard).has('indestructible')
+              : liveToughness(p, opp.battlefield) <= cap),
         );
         wipeLogs.push(...bury(dying.map(p => p.instanceId)));
       }

@@ -302,7 +302,7 @@ function CardSlot({
       style={{ width: CARD_W, ...dragStyle }}
       className={`relative rounded-[6px] cursor-grab active:cursor-grabbing touch-none shrink-0 ${drag.isDragging ? 'shadow-2xl ring-2 ring-primary' : ''} ${isOver && !drag.isDragging ? 'ring-2 ring-primary' : ''}`}
     >
-      <HoverPreviewImage card={card} size="normal" className="w-full rounded-[6px] shadow pointer-events-none" />
+      <HoverPreviewImage card={card} size="normal" suppressed={drag.isDragging} className="w-full rounded-[6px] shadow touch-none" />
       {showPosition && (
         <span className="absolute top-1 left-1 text-[10px] font-bold bg-background/85 text-foreground px-1.5 py-0.5 rounded pointer-events-none">
           {position + 1}
