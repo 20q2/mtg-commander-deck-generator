@@ -30,7 +30,14 @@ const DWELL_MS = 250;
  */
 export function useMagnifyHover(hovered: boolean, scope: 'own' | 'opponent' = 'own'): boolean {
   const ctrlHeld = useMagnifyKey();
-  const mode = usePlaytestSettings(s => (scope === 'opponent' ? s.opponentPreview : s.cardPreview));
+  /*
+   * One choice for the table unless you deliberately split it: the bots' side
+   * is normally `follow`, which is this same setting read through their scope.
+   */
+  const mode = usePlaytestSettings(s => {
+    if (scope !== 'opponent') return s.cardPreview;
+    return s.opponentPreview === 'follow' ? s.cardPreview : s.opponentPreview;
+  });
   const [dwelled, setDwelled] = useState(false);
 
   /**

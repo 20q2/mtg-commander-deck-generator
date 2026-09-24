@@ -91,7 +91,7 @@ export function OpponentCardMenu({ target, onClose }: Props) {
       ref={menuRef}
       role="menu"
       onMouseDown={(e) => e.stopPropagation()}
-      className="fixed z-[200] w-[212px] max-h-[80vh] overflow-y-auto bg-popover border border-border rounded-md shadow-2xl text-xs py-1"
+      className="fixed z-[210] w-[212px] max-h-[80vh] overflow-y-auto bg-popover border border-border rounded-md shadow-2xl text-xs py-1"
       style={{
         left: adjusted ? adjusted.left : target.x,
         top: adjusted ? adjusted.top : target.y,

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { GripHorizontal, Heart, Loader2 } from 'lucide-react';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
+import { ZONE_WIDTH_FRACTION } from '@/components/playtest/opponents/OpponentSeat';
 import { backgroundUrlForIdentity } from '@/services/spellchroma/colorBackground';
 import type { OpponentStub } from '@/components/playtest/opponentTypes';
 
@@ -22,8 +23,12 @@ import type { OpponentStub } from '@/components/playtest/opponentTypes';
 export function DealingSeat({ stub, width }: { stub: OpponentStub; width: number }) {
   const animations = usePlaytestSettings(s => s.animations);
   const art = useMemo(() => backgroundUrlForIdentity(stub.colors), [stub.colors]);
-  /** The zone piles' width, matching OpponentSeat's own 10%-of-seat rule. */
-  const zoneWidth = Math.round(Math.max(14, width * 0.1));
+  /**
+   * The zone piles' width, off the seat's own constant rather than a copy of
+   * the number. The comment here used to claim the two matched, and said so
+   * while naming a fraction the seat had moved off.
+   */
+  const zoneWidth = Math.round(Math.max(14, width * ZONE_WIDTH_FRACTION));
 
   return (
     <div

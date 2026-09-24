@@ -8,6 +8,10 @@ import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/Pla
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { CardOverlays, badgeFloatAnchor } from '@/components/playtest/CardOverlays';
 import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
+import { useAttackAim } from '@/components/playtest/hooks/useAttackAim';
+import { ArrowLayer, ArrowMark, ARROW_ATTACK } from '@/components/playtest/TargetArrow';
+import { useOpponentStore } from '@/store/opponentStore';
+import { isCreatureCard } from '@/services/playtest/opponents/stats';
 import type { BattlefieldCard as BfCard } from '@/components/playtest/types';
 
 export function BattlefieldCard({ card }: { card: BfCard }) {
@@ -40,6 +44,24 @@ export function BattlefieldCard({ card }: { card: BfCard }) {
     data: { source: { kind: 'battlefield', instanceId: card.instanceId } },
   });
 
+  /*
+   * Combat aiming. While you're in your combat step, a creature that could
+   * still swing is aimed at a seat rather than dragged into one: it stays put
+   * and throws a red arrow at the attack zone. Everything else on the board —
+   * lands, tapped creatures, a creature already declared — keeps the ordinary
+   * drag, so combat never costs you the ability to tidy your board.
+   *
+   * The conditions mirror declareAttacker's, which is what actually decides;
+   * this only decides which gesture the card answers to.
+   */
+  const inDeclareWindow = useOpponentStore(s =>
+    s.combatPhase &&
+    !s.playerCombat &&
+    !Object.values(s.declaration ?? {}).some(ids => ids.includes(card.instanceId)),
+  );
+  const canAim = inDeclareWindow && !card.tapped && !card.faceDown && isCreatureCard(card.card);
+  const { aim, start: startAim, consumeAimedClick } = useAttackAim(card.instanceId, canAim);
+
   // Compute attachment offset: how many cards are attached above us in the stack?
   let xPx = card.x;
   let yPx = card.y;
@@ -58,14 +80,22 @@ export function BattlefieldCard({ card }: { card: BfCard }) {
       <PositionedCard
         ref={draggable.setNodeRef}
         attributes={draggable.attributes}
-        listeners={draggable.listeners}
+        // In aim mode the ordinary drag is off: the card must not follow the
+        // cursor while an arrow is being pulled out of it.
+        listeners={canAim ? undefined : draggable.listeners}
         card={card}
         xPx={xPx}
         yPx={yPx}
         transform={draggable.transform ?? followDelta}
         isDragging={draggable.isDragging}
         selected={selected}
+        // Presence of the handler IS aim mode: dnd-kit's listeners come off in
+        // the same breath, so the two gestures can never both be armed.
+        onAimStart={canAim ? startAim : undefined}
+        aiming={!!aim}
         onTap={(e) => {
+          // An arrow that was just let go isn't also a click on the creature.
+          if (consumeAimedClick()) return;
           // Ctrl/Cmd-click selects instead of tapping, so a card can be picked
           // out without dragging a marquee around it.
           if (e.ctrlKey || e.metaKey) toggleSelect('card', card.instanceId);
@@ -79,6 +109,15 @@ export function BattlefieldCard({ card }: { card: BfCard }) {
         }}
       />
       <PlaytestCardMenu target={menu} onClose={() => setMenu(null)} />
+      {/* One arrow per creature in the attack — a marquee'd group all swings
+          at the seat you point at, and the arrows say so before you let go. */}
+      {aim && (
+        <ArrowLayer>
+          {aim.froms.map((from, i) => (
+            <ArrowMark key={i} from={from} to={aim.to} color={ARROW_ATTACK} />
+          ))}
+        </ArrowLayer>
+      )}
     </>
   );
 }
@@ -92,6 +131,10 @@ interface PositionedProps {
   selected: boolean;
   attributes: DraggableAttributes;
   listeners: Record<string, unknown> | undefined;
+  /** Set only in combat aim mode: pointer-down starts the attack arrow. */
+  onAimStart?: (e: React.PointerEvent<HTMLElement>) => void;
+  /** An attack arrow is currently being pulled out of this card. */
+  aiming: boolean;
   onTap: (e: React.MouseEvent) => void;
   onAdjust: (type: string, delta: number, anchor?: { x: number; y: number }) => void;
   onHover: (v: boolean) => void;
@@ -146,7 +189,7 @@ function useStackFlight(instanceId: string, enabled: boolean) {
 const shieldAnchor = (e: React.MouseEvent<HTMLElement>) => badgeFloatAnchor(e.currentTarget);
 
 const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(function PositionedCard(props, ref) {
-  const { card, xPx, yPx, transform, isDragging, selected, attributes, listeners, onTap, onAdjust, onHover, onContextMenu } = props;
+  const { card, xPx, yPx, transform, isDragging, selected, attributes, listeners, onAimStart, aiming, onTap, onAdjust, onHover, onContextMenu } = props;
   const cardSize = usePlaytestSettings(s => s.cardSize);
   const cardWidth = CARD_SIZES[cardSize].width;
   const cardHeight = CARD_SIZES[cardSize].height;
@@ -161,7 +204,8 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
   // at the same z as its neighbours, so the cards below it aren't painted over.
   const stackedDrag = usePlaytestStore(s => s.stackedDrag);
   const [hovered, setHoveredLocal] = useState(false);
-  const showPreview = useMagnifyHover(hovered) && !isDragging;
+  // No blown-up card in the way of an arrow you're trying to aim.
+  const showPreview = useMagnifyHover(hovered) && !isDragging && !aiming;
   const loyaltyValue = card.counters['loyalty'] ?? 0;
   const isPlaneswalker = card.card.type_line.toLowerCase().includes('planeswalker');
   const tx = transform?.x ?? 0;
@@ -213,6 +257,13 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
       data-bf-card={card.instanceId}
       {...attributes}
       {...(listeners as Record<string, unknown>)}
+      {...(
+        // Spread, not a plain `onPointerDown={onAimStart}` prop: a later prop
+        // wins even when its value is `undefined`, so writing it out unguarded
+        // stripped dnd-kit's own pointer-down off every card that wasn't
+        // aiming and killed battlefield dragging outright.
+        onAimStart ? { onPointerDown: onAimStart } : null
+      )}
       onClick={(e) => { e.stopPropagation(); onTap(e); }}
       onContextMenu={onContextMenu}
       onMouseEnter={() => { onHover(true); setHoveredLocal(true); }}
@@ -228,7 +279,7 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
           ? `transform ${STACK_FLIGHT_MS}ms cubic-bezier(0.2, 0.9, 0.25, 1)`
           : undefined,
         width: cardWidth,
-        cursor: isDragging ? 'grabbing' : 'grab',
+        cursor: onAimStart ? 'crosshair' : isDragging ? 'grabbing' : 'grab',
       }}
     >
       <div
@@ -252,7 +303,11 @@ const PositionedCard = React.forwardRef<HTMLDivElement, PositionedProps>(functio
           className={`w-full rounded-[6px] shadow-lg pointer-events-none ${
             selected
               ? 'ring-2 ring-primary ring-offset-1 ring-offset-transparent'
-              : hovered && !isDragging ? 'ring-1 ring-violet-400' : ''
+              : hovered && !isDragging ? 'ring-1 ring-violet-400'
+              // A hairline red ring on everything that can still swing, so the
+              // creatures worth aiming stand out from the rest of the board
+              // without having to try each one.
+              : onAimStart ? 'ring-1 ring-rose-400/60' : ''
           } ${flipping ? 'animate-bf-flip' : ''}`}
           draggable={false}
         />

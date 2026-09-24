@@ -89,7 +89,9 @@ export interface CastDecision {
   extra: AppliedEffect[];
 }
 
-const EMPTY: AppliedEffect = { destroy: [], destination: 'graveyard', lifeLoss: 0, discard: 0 };
+/** An effect that does nothing to the player. Also the shape of a stack item
+ *  that exists only so you get a window — see `StackItem.arrived`. */
+export const EMPTY: AppliedEffect = { destroy: [], destination: 'graveyard', lifeLoss: 0, discard: 0 };
 
 function creatures(board: PlayerBoardRead) {
   return board.cards.filter(c => c.isCreature);

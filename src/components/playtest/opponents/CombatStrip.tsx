@@ -1,5 +1,4 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useDroppable } from '@dnd-kit/core';
 import { ArrowBigUp, HeartCrack, ShieldCheck, Sword, X } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
@@ -10,6 +9,7 @@ import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { incomingDamage, readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
 import { isCreatureCard } from '@/services/playtest/opponents/stats';
 import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
+import { TargetArrow, type Point } from '@/components/playtest/TargetArrow';
 import { CARD_ASPECT, type BattlefieldCard } from '@/components/playtest/types';
 import type { Attacker } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
@@ -94,6 +94,10 @@ export function CombatStrip({ opponentId, seatWidth, seatHeight }: {
   const playerCombat = useOpponentStore(s => s.playerCombat);
   const combat       = useOpponentStore(s => s.combat);
   const combatPhase  = useOpponentStore(s => s.combatPhase);
+  // An attack arrow being aimed at this seat. The card owning the gesture holds
+  // pointer capture, so no hover event ever reaches the strip — the store is
+  // the only way the seat can know it is being pointed at.
+  const aimedAt     = useOpponentStore(s => s.attackAim?.opponentId === opponentId);
 
   const declared = declaration?.[opponentId] ?? [];
   const mine     = playerCombat?.perOpponent[opponentId];
@@ -125,6 +129,10 @@ export function CombatStrip({ opponentId, seatWidth, seatHeight }: {
       // The incoming case gets the entrance: adding the class to the live
       // element is enough to play it, and this element was a 1px spacer until
       // the attack opened, so it plays exactly once per attack.
+      // The attack arrow's drop target. Present only while the zone is actually
+      // open for business, so an aim that lands on a busy seat does nothing
+      // rather than quietly failing inside declareAttacker.
+      data-combat-strip={armed ? opponentId : undefined}
       className={`relative mt-1 rounded-md border p-1 min-h-[38px] flex items-center gap-1 flex-wrap transition-colors ${
         theirs && animations ? 'animate-combat-open' : ''
       } ${
@@ -144,7 +152,7 @@ export function CombatStrip({ opponentId, seatWidth, seatHeight }: {
          * attack has to stay violet, or dropping a blocker would look like
          * dropping an attacker.
          */
-        isOver && armed ? 'border-rose-300 bg-rose-500/25'
+        (isOver || aimedAt) && armed ? 'border-rose-300 bg-rose-500/25'
         : isOver ? 'border-violet-300 bg-violet-500/25'
         : theirs ? 'border-rose-400/60 bg-rose-500/15 shadow-[0_0_20px_rgba(244,63,94,0.25)]'
         : armed  ? `${empty ? 'border-dashed ' : ''}border-rose-400/70 bg-rose-500/10`
@@ -185,6 +193,8 @@ function Declared({ instanceIds, seatWidth }: { instanceIds: string[]; seatWidth
             key={id}
             onClick={() => undeclare(id)}
             title={`${card.card.name} is attacking · click to pull it back`}
+            // Where the standing arrow from the creature on your board ends.
+            data-attack-copy={id}
             className="relative shrink-0 group"
             style={turnedBox(cardW(seatWidth, ATTACKER_SCALE))}
           >
@@ -222,7 +232,7 @@ function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWi
         const blockerIds = side.blocks[id] ?? [];
         return (
           <div key={id} className="shrink-0 flex flex-col items-center gap-0.5">
-            <div className="relative" style={turnedBox(cardW(seatWidth, COMBAT_SCALE))}>
+            <div className="relative" data-attack-copy={id} style={turnedBox(cardW(seatWidth, COMBAT_SCALE))}>
               <img
                 src={getCardImageUrl(card.card, 'small')}
                 alt={card.card.name}
@@ -625,51 +635,5 @@ function AttackerSlot({
 
       {aim && <TargetArrow from={aim.from} to={aim.to} />}
     </div>
-  );
-}
-
-interface Point { x: number; y: number }
-
-/**
- * The targeting arrow, portalled to <body>. It has to escape the seat: the
- * seat uses backdrop-blur, which makes it a containing block for fixed
- * positioning, so an arrow rendered in place would be trapped inside the seat
- * instead of reaching your board.
- */
-function TargetArrow({ from, to }: { from: Point; to: Point }) {
-  // Bow the curve out sideways so a near-vertical drag still reads as an arc
-  // rather than a straight line lying on top of itself.
-  const dx = to.x - from.x;
-  const dy = to.y - from.y;
-  const len = Math.hypot(dx, dy) || 1;
-  const bow = Math.min(60, len * 0.25);
-  const cx = (from.x + to.x) / 2 - (dy / len) * bow;
-  const cy = (from.y + to.y) / 2 + (dx / len) * bow;
-  // The head points along the tangent at the tip, which is the line from the
-  // control point to the end of the curve.
-  const angle = (Math.atan2(to.y - cy, to.x - cx) * 180) / Math.PI;
-
-  return createPortal(
-    <svg
-      aria-hidden
-      className="fixed inset-0 pointer-events-none"
-      style={{ zIndex: 200, width: '100vw', height: '100vh' }}
-    >
-      <path
-        d={`M ${from.x} ${from.y} Q ${cx} ${cy} ${to.x} ${to.y}`}
-        fill="none"
-        stroke="rgb(52 211 153)"
-        strokeWidth={4}
-        strokeLinecap="round"
-        opacity={0.95}
-      />
-      <circle cx={from.x} cy={from.y} r={5} fill="rgb(52 211 153)" />
-      <polygon
-        points="0,-7 14,0 0,7"
-        fill="rgb(52 211 153)"
-        transform={`translate(${to.x} ${to.y}) rotate(${angle})`}
-      />
-    </svg>,
-    document.body,
   );
 }

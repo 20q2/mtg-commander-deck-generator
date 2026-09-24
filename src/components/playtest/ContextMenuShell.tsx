@@ -6,6 +6,10 @@ import { createPortal } from 'react-dom';
  * position that flips and clamps so the menu can't open off-screen, and
  * dismissal on Esc or a click anywhere else.
  *
+ * Menus sit at z-210, one band above MagnifiedPreview's z-200: a right-click
+ * usually leaves the card hovered, and at equal z the hover preview would cover
+ * the menu depending on portal order.
+ *
  * It is rendered hidden for one frame — the clamp needs the menu's measured
  * size, and a menu that paints at the raw cursor position first visibly jumps.
  */
@@ -54,7 +58,7 @@ export function ContextMenuShell({
       role="menu"
       onMouseDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
-      className="fixed z-[200] max-h-[80vh] overflow-y-auto bg-popover border border-border rounded-md shadow-2xl text-xs py-1"
+      className="fixed z-[210] max-h-[80vh] overflow-y-auto bg-popover border border-border rounded-md shadow-2xl text-xs py-1"
       style={{
         width,
         left: adjusted ? adjusted.left : x,

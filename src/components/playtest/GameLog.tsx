@@ -2,12 +2,20 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ListFilter, Trash2, Sparkles, Crown, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
+import { useOpponentStore } from '@/store/opponentStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { LOG_CATEGORIES, type LogCategory } from '@/components/playtest/types';
 import { LogCardText, useCardIndex, type CardIndex } from '@/components/playtest/LogCardText';
 import type { DetectedCombo, ScryfallCard } from '@/types';
 
 type Tab = 'log' | 'combos';
+
+/**
+ * The seat chip standing for everything that isn't a bot — your own moves, turn
+ * markers, system notices. Those entries carry no `seats`, so they need a key of
+ * their own to be switched off by.
+ */
+const YOU = 'you';
 
 /**
  * The log/combos half of the side panel. It no longer owns the strip: SidePanel
@@ -22,12 +30,31 @@ export function GameLog({ onCollapse }: { onCollapse?: () => void }) {
   const setLogFilter = usePlaytestSettings(s => s.setLogFilter);
   const toggleLogCategory = usePlaytestSettings(s => s.toggleLogCategory);
   const cardIndex = useCardIndex();
+  const opponents = useOpponentStore(s => s.opponents);
   const [tab, setTab] = useState<Tab>('log');
   const [showFilters, setShowFilters] = useState(false);
+  // Seats are per-game ids, so which ones you've muted is not worth persisting
+  // alongside the category filter — it would name seats that no longer exist.
+  const [hiddenSeats, setHiddenSeats] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const filtered = useMemo(() => log.filter(e => enabled[e.category]), [log, enabled]);
-  const allEnabled = useMemo(() => (Object.values(enabled) as boolean[]).every(Boolean), [enabled]);
+  // A seat that has left the table takes its mute with it: otherwise its
+  // parting line stays hidden behind a chip that is no longer there to unhide.
+  const hidden = useMemo(() => {
+    const live = new Set(opponents.map(o => o.id));
+    return new Set([...hiddenSeats].filter(id => id === YOU || live.has(id)));
+  }, [hiddenSeats, opponents]);
+
+  const filtered = useMemo(() => log.filter(e => {
+    if (!enabled[e.category]) return false;
+    // A line can name two seats — one bot attacking another — and stays as long
+    // as either of them is showing.
+    return e.seats?.length ? e.seats.some(id => !hidden.has(id)) : !hidden.has(YOU);
+  }), [log, enabled, hidden]);
+  const allEnabled = useMemo(
+    () => (Object.values(enabled) as boolean[]).every(Boolean) && hidden.size === 0,
+    [enabled, hidden],
+  );
 
   useEffect(() => {
     if (tab !== 'log') return;
@@ -35,8 +62,16 @@ export function GameLog({ onCollapse }: { onCollapse?: () => void }) {
   }, [tab, filtered.length]);
 
   const toggle = (key: LogCategory) => toggleLogCategory(key);
-  const setAll = (v: boolean) =>
+  const toggleSeat = (key: string) => setHiddenSeats(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  });
+  const setAll = (v: boolean) => {
     setLogFilter({ move: v, tap: v, library: v, counter: v, life: v, turn: v, bot: v, system: v });
+    setHiddenSeats(v ? new Set() : new Set([YOU, ...opponents.map(o => o.id)]));
+  };
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
@@ -108,6 +143,28 @@ export function GameLog({ onCollapse }: { onCollapse?: () => void }) {
               );
             })}
           </div>
+          {opponents.length > 0 && (
+            <div className="space-y-1 pt-1 border-t border-border/30">
+              <div className="text-[9px] uppercase tracking-wide text-muted-foreground/70">Seats</div>
+              <div className="flex flex-wrap gap-1">
+                <SeatChip
+                  label="You"
+                  on={!hidden.has(YOU)}
+                  chip="bg-sky-500/15 text-sky-300 border-sky-400/40"
+                  onClick={() => toggleSeat(YOU)}
+                />
+                {opponents.map(o => (
+                  <SeatChip
+                    key={o.id}
+                    label={o.name}
+                    on={!hidden.has(o.id)}
+                    chip="bg-violet-500/15 text-violet-300 border-violet-400/40"
+                    onClick={() => toggleSeat(o.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex gap-2 text-[10px]">
             <button onClick={() => setAll(true)} className="text-muted-foreground hover:text-foreground underline-offset-2 hover:underline">All</button>
             <span className="text-muted-foreground/50">·</span>
@@ -136,6 +193,29 @@ export function GameLog({ onCollapse }: { onCollapse?: () => void }) {
 
       {tab === 'combos' && <CombosPanel combos={combos} />}
     </div>
+  );
+}
+
+/**
+ * One seat's toggle. Same shape as the category chips above it, so the two rows
+ * read as one filter rather than as two unrelated controls.
+ */
+function SeatChip({ label, on, chip, onClick }: {
+  label: string;
+  on: boolean;
+  chip: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`text-[10px] px-1.5 py-0.5 rounded border transition-all max-w-[11rem] truncate ${
+        on ? chip : 'bg-transparent text-muted-foreground border-border/40 opacity-60 hover:opacity-100'
+      }`}
+      title={`${on ? 'Hide' : 'Show'} ${label}`}
+    >
+      {label}
+    </button>
   );
 }
 

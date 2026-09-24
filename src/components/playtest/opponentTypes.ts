@@ -118,6 +118,13 @@ export interface OpponentStub {
    * sit down across from it.
    */
   source?: string;
+  /**
+   * Kept in the data but off the seat picker. A deck is shelved rather than
+   * deleted because its cards carry dozens of hand-authored registry entries
+   * that other decks draw on, and because a seat already at the table still has
+   * to be able to resolve its own stub by id.
+   */
+  hidden?: boolean;
   /** Entries are "<qty> <card name>". */
   cards: string[];
 }
@@ -157,7 +164,21 @@ export interface StackItem extends StackSource {
   opponentId: string;
   opponentName: string;
   effect: AppliedEffect;
+  /**
+   * Permanents this spell put onto the BOT's own board, when the item exists
+   * because of the `everything` stack mode rather than because something was
+   * aimed at you.
+   *
+   * Countering such a spell has to take the body back off — that is the whole
+   * difference between the two modes. Empty for anything aimed at you, where
+   * the bot's side of the cast is already settled and only your board is at
+   * stake.
+   */
+  arrived?: string[];
 }
+
+/** Where a cast card came from, for the flight that animates it. */
+export type CastZone = 'hand' | 'command' | 'graveyard';
 
 /** Who a bot's attack is pointed at. */
 export type AttackTarget =
@@ -193,10 +214,42 @@ export interface TurnFrame {
   attackTarget?: AttackTarget;
   /**
    * The card behind `effects`, for the stack. Present on every beat that does
-   * something to the player and absent on the rest — which is exactly the test
-   * the store uses to decide whether a beat is worth stopping the turn for.
+   * something to the player and absent on the rest.
    */
   source?: StackSource;
+  /**
+   * The card this beat took out of a zone: cast from hand, a commander out of
+   * the command zone, a Gravecrawler recast from the graveyard, or a land
+   * played.
+   *
+   * Stated here rather than worked out downstream because nothing downstream
+   * can reconstruct it. Both the `everything` stack mode and the seat's cast
+   * animation used to read "their hand got smaller", which cannot see a
+   * commander (it never was in hand), a reanimation (nor that), or a cast that
+   * draws in the same beat (net zero) — and which counts the cleanup discard as
+   * a card being played.
+   *
+   * `from` is where the flight starts: a commander leaving an empty hand fan
+   * read as a card appearing out of nowhere.
+   *
+   * `onStack` splits the two jobs this fact does. The animation only needs to
+   * know a card moved; the `everything` stack mode only needs to know whether
+   * it used the stack. A land drop is the case that separates them — it slides
+   * out of their hand like anything else, and there is no window to respond to
+   * one.
+   */
+  moved?: { card: ScryfallCard; from: CastZone; onStack: boolean };
+  /**
+   * Cards that went from this seat's LIBRARY into its hand this beat — its
+   * draw step, a Divination, a tutor.
+   *
+   * Counted by the engine as it happens, because the hand's size cannot tell a
+   * draw from anything else in the same beat: a Divination is one card out and
+   * two in, which nets to a single draw, and a cantrip nets to nothing at all.
+   * Cards taken back out of the GRAVEYARD are not counted — nothing came off
+   * the top of the deck, so there is nothing to fly from it.
+   */
+  drew?: number;
 }
 
 /** One creature swinging at you, flattened for the combat UI. */

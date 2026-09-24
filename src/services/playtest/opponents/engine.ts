@@ -8,6 +8,7 @@ import {
   BOT_LANDFALL_SELF,
   BOT_RECURRING_EFFECTS,
   BOT_RECURSION,
+  BOT_SPELL_TRIGGERS,
   BOT_TRIGGERS,
   costOf,
   lookupActivated,
@@ -23,7 +24,7 @@ import { BOT_COMBOS, comboPiecesWanted, liveCombos } from '@/services/playtest/o
 import { pickSacrificeFodder } from '@/services/playtest/opponents/choices';
 import { buryPermanents } from '@/services/playtest/opponents/deaths';
 import { keywordsOf } from '@/services/playtest/combat';
-import type { AttackTarget, Opponent, OpponentPermanent, StackSource, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
+import type { AttackTarget, CastZone, Opponent, OpponentPermanent, StackSource, TurnFrame, TurnResult } from '@/components/playtest/opponentTypes';
 
 /**
  * The bot turn loop. Pure: it takes an opponent plus a read of the player's board
@@ -238,14 +239,19 @@ export function takeTurn(
     attackTarget?: AttackTarget,
     /** The card behind `effects`. Only beats that touch the player have one. */
     source?: StackSource,
+    /** The card leaving a zone this beat, if any — see TurnFrame.moved. */
+    moved?: { card: ScryfallCard; from: CastZone; onStack: boolean },
   ) => {
     effects.forEach(spend);
     // Triggers are billed against the board as it stands at the end of the
     // beat, so a Purphoros cast alongside its goblins counts them.
     const etb = etbDamage(opp.battlefield, pendingCreatures);
     const selfDamage = etb + pendingDrain;
+    // Read before the reset: the frame below is built after it.
+    const drew = pendingDraws;
     pendingCreatures = 0;
     pendingDrain = 0;
+    pendingDraws = 0;
     frames.push({
       opponent: {
         ...opp,
@@ -263,6 +269,8 @@ export function takeTurn(
       attackTarget,
       selfDamage,
       source,
+      moved,
+      drew,
     });
   };
 
@@ -290,6 +298,13 @@ export function takeTurn(
    * the same way ETB trigger damage is, straight onto the frame.
    */
   let pendingDrain = 0;
+
+  /**
+   * Cards drawn off the top of the library since the last frame. Read and
+   * reset by `frame`, the same way the two counters above are — see
+   * TurnFrame.drew for why this is counted rather than diffed.
+   */
+  let pendingDraws = 0;
 
   /**
    * Kill some of the bot's own permanents — a wrath, a sacrifice — through
@@ -399,6 +414,7 @@ export function takeTurn(
         for (let i = 0; i < spec.count; i++) {
           if (opp.library.length === 0) break;
           opp.hand.push(opp.library.shift() as ScryfallCard);
+          pendingDraws++;
           drawn++;
         }
         return drawn > 0 ? `draws ${drawn}` : null;
@@ -559,6 +575,7 @@ export function takeTurn(
             if (!addBody(best.card)) break;
           } else {
             opp.hand.push(best.card);
+            pendingDraws++;
           }
           found.push(best.card.name);
         }
@@ -663,6 +680,33 @@ export function takeTurn(
     return applySpecs(specsOf(entry));
   };
 
+  /**
+   * Everything on the board that watches the bot cast an instant or sorcery —
+   * see BOT_SPELL_TRIGGERS. Returns the log lines; the damage is billed onto
+   * this beat through `pendingDrain`, the channel death triggers already use,
+   * so a turn casting three spells under a Guttersnipe hits you once for six
+   * rather than three times for two.
+   *
+   * The board is snapshotted before the loop because a trigger that makes a
+   * token grows it, and a payoff must not feed itself the turn it lands.
+   */
+  const castTriggers = (spell: ScryfallCard): string[] => {
+    const value = costOf(spell);
+    const lines: string[] = [];
+    for (const p of [...opp.battlefield]) {
+      const trigger = BOT_SPELL_TRIGGERS[p.card.name];
+      if (!trigger) continue;
+      if (trigger.minMana !== undefined && value < trigger.minMana) continue;
+      if (trigger.damage) {
+        pendingDrain += trigger.damage;
+        lines.push(`${opp.name}'s ${p.card.name} deals ${trigger.damage} to you`);
+      }
+      const label = trigger.spec ? applySpecs(specsOf({ spec: trigger.spec })) : null;
+      if (label) lines.push(`${opp.name}'s ${p.card.name} ${label}`);
+    }
+    return lines;
+  };
+
   // ── Untap + draw ──
   // `tempBoost` is cleared here as a backstop. Combat resolution is what
   // normally ends an until-end-of-turn pump — see `clearTempBoosts` in the
@@ -675,6 +719,7 @@ export function takeTurn(
   let drewForTurn = false;
   if (opp.library.length > 0) {
     opp.hand.push(opp.library.shift() as ScryfallCard);
+    pendingDraws++;
     drewForTurn = true;
   } else if (!opp.decked) {
     // Logged once, then never again — a bot that can't draw isn't a loss here,
@@ -708,7 +753,7 @@ export function takeTurn(
   if (landIdx >= 0) {
     const land = opp.hand.splice(landIdx, 1)[0];
     opp.battlefield.push({ ...toPermanent(land), summoningSick: false });
-    frame([`${opp.name} plays ${land.name}`], [], [], land.name);
+    frame([`${opp.name} plays ${land.name}`], [], [], land.name, undefined, undefined, { card: land, from: 'hand', onStack: false });
 
     // Landfall that pays the bot — a Rampaging Baloths turning every land it
     // ramps into into another 4/4.
@@ -776,7 +821,7 @@ export function takeTurn(
       opp.battlefield.push(toPermanent(commander));
       arrive(commander);
       opp.commanderCasts += 1;
-      frame([`${opp.name} casts ${commander.name}`], [], [], commander.name);
+      frame([`${opp.name} casts ${commander.name}`], [], [], commander.name, undefined, undefined, { card: commander, from: 'command', onStack: true });
     }
   }
 
@@ -850,8 +895,13 @@ export function takeTurn(
         wipeLogs.push(...bury(dying.map(p => p.instanceId)));
       }
 
+      // A removal spell feeds the payoffs exactly as a cantrip does, which is
+      // the whole reason a spellslinger deck plays interaction. Permanents cast
+      // from this step — an ETB Chupacabra — are creature spells and do not.
+      const interactionTriggers = play.staysOnBattlefield ? [] : castTriggers(play.card);
+
       frame(
-        [`${opp.name} casts ${play.reason}`, ...wipeLogs],
+        [`${opp.name} casts ${play.reason}`, ...wipeLogs, ...interactionTriggers],
         play.effect ? [play.effect, ...play.extra] : [], [], play.card.name, undefined,
         play.effect
           ? {
@@ -863,6 +913,7 @@ export function takeTurn(
               label: describeEffect(play.effect, play.target),
             }
           : undefined,
+        { card: play.card, from: 'hand', onStack: true },
       );
     }
   }
@@ -900,6 +951,7 @@ export function takeTurn(
       hit
         ? { card, name: card.name, kind: 'ability', label: describeEffect(hit.effect, hit.target) }
         : undefined,
+      { card, from: 'hand', onStack: true },
     );
   }
 
@@ -924,7 +976,7 @@ export function takeTurn(
     opp.battlefield = tapForMana(opp.battlefield, rec.cost);
     opp.battlefield.push({ ...toPermanent(card), tapped: rec.tapped ?? false });
     arrive(card);
-    frame([`${opp.name} returns ${card.name} from the graveyard`], [], [], card.name);
+    frame([`${opp.name} returns ${card.name} from the graveyard`], [], [], card.name, undefined, undefined, { card, from: 'graveyard', onStack: true });
   }
 
   // ── Develop ──
@@ -997,7 +1049,10 @@ export function takeTurn(
     // nothing else, so a swarm appeared out of nowhere.
     const castLogs = [`${opp.name} casts ${spell.name}`, ...sacLogs];
     if (label) castLogs.push(`${opp.name} ${label}`);
-    frame(castLogs, [], [], label ?? spell.name);
+    // After the spell's own effect, so a cantrip draws before the Drake it made
+    // is announced — the order the two would actually resolve in.
+    if (!isPermanent(spell)) castLogs.push(...castTriggers(spell));
+    frame(castLogs, [], [], label ?? spell.name, undefined, undefined, { card: spell, from: 'hand', onStack: true });
   }
 
   // ── Activated abilities ──

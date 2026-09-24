@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
-import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
+import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import type { ScryfallCard } from '@/types';
 
 /**
@@ -167,15 +167,15 @@ function CardRef({ card, scope, dim }: { card: ScryfallCard; scope: 'own' | 'opp
   const ref = useRef<HTMLSpanElement | null>(null);
   const [hovered, setHovered] = useState(false);
   /**
-   * Plain hover, not the Ctrl gesture the board uses. That gesture exists so a
-   * preview doesn't leap out while you are dragging cards around; the log is
-   * text you point at deliberately, and "hover the name to see the card" is the
-   * whole feature. The one setting it still answers to is opponent previews
-   * being off — someone who turned those off should not get bot cards popping
-   * up from another surface.
+   * The same gate as every other preview on the table.
+   *
+   * This used to be plain hover on the argument that the log is text you point
+   * at deliberately — but a name in the log IS a card here, and somebody who
+   * asked for Ctrl asked for it because previews jumping out unbidden is the
+   * thing they wanted to stop. It reads the log line's own side, so a bot's
+   * card obeys the bots' setting and yours obeys yours.
    */
-  const opponentPreview = usePlaytestSettings(s => s.opponentPreview);
-  const allowed = scope === 'own' || opponentPreview !== 'off';
+  const allowed = useMagnifyHover(hovered, scope);
 
   return (
     <>
@@ -194,7 +194,7 @@ function CardRef({ card, scope, dim }: { card: ScryfallCard; scope: 'own' | 'opp
       </span>
       {/* Anchored to the name in a strip pinned to the right edge, so 'right'
           has no room and the shared placement chain puts it on the left. */}
-      {allowed && hovered && <MagnifiedPreview card={card} anchorRef={ref} side="right" />}
+      {allowed && <MagnifiedPreview card={card} anchorRef={ref} side="right" />}
     </>
   );
 }

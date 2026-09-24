@@ -1,20 +1,22 @@
 /**
  * The playtest table's sound layer: five very quiet synthesized cues — a shuffle riffle, a card
  * draw, a counter click, a card landing, a tap tick — so the board feels physical without anything
- * chattering at you.
+ * chattering at you, plus one deliberately audible chime when the bots hand the turn back to you.
  *
  * Synthesized rather than sampled, like the brew's chimes: no asset files, nothing added to the
  * bundle, nothing to fetch. Everything is wrapped in try/catch and built lazily off the shared
  * AudioContext, so the module is inert in tests and never throws into the UI.
  *
  * Gains sit well under the brew's celebration chime (which peaks at 0.06). That chime fires a
- * handful of times a session; these fire hundreds of times, and anything you hear hundreds of times
- * has to sit below conscious notice.
+ * handful of times a session; the table cues fire hundreds of times, and anything you hear hundreds
+ * of times has to sit below conscious notice. The `yourTurn` chime is the exception on purpose —
+ * it fires once a turn cycle and is the one sound meant to fetch you back from another window.
  */
 import { audioContext, noiseBuffer } from '@/services/audio/context';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 
-export type PlaytestCue = 'shuffle' | 'draw' | 'counterUp' | 'counterDown' | 'land' | 'tap';
+export type PlaytestCue =
+  | 'shuffle' | 'draw' | 'counterUp' | 'counterDown' | 'land' | 'tap' | 'yourTurn';
 
 /** Bot seats play the same cues at half gain — present, but clearly not your own hands. */
 export const BOT_GAIN = 0.5;
@@ -97,6 +99,24 @@ function shuffleRiffle(ac: AudioContext, gain: number): void {
   });
 }
 
+/**
+ * A soft pitched note for the one cue that is meant to be heard rather than felt: a triangle wave
+ * with a gentle attack and a long exponential tail, so it reads as a chime and not a notification
+ * beep.
+ */
+function bell(ac: AudioContext, freq: number, startAt: number, dur: number, gain: number): void {
+  const osc = ac.createOscillator();
+  osc.type = 'triangle';
+  osc.frequency.value = freq;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, startAt);
+  g.gain.exponentialRampToValueAtTime(gain, startAt + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, startAt + dur);
+  osc.connect(g).connect(ac.destination);
+  osc.start(startAt);
+  osc.stop(startAt + dur + 0.02);
+}
+
 const CUES: Record<PlaytestCue, (ac: AudioContext, gain: number) => void> = {
   shuffle: shuffleRiffle,
 
@@ -126,6 +146,16 @@ const CUES: Record<PlaytestCue, (ac: AudioContext, gain: number) => void> = {
   tap: (ac, gain) => burst(ac, {
     dur: 0.022, gain: 0.03 * gain, type: 'bandpass', freq: 560, q: 3.5,
   }),
+
+  // Control coming back to you after the table has played. The only cue here with a pitch you are
+  // meant to notice: it fires once per turn cycle, and its whole job is to reach you when you have
+  // looked away from the screen. An ascending fourth — G5 then C6, the second overlapping the
+  // first's tail — which is why it can sit louder than the table cues without nagging.
+  yourTurn: (ac, gain) => {
+    const now = ac.currentTime;
+    bell(ac, 783.99, now, 0.26, 0.05 * gain);
+    bell(ac, 1046.5, now + 0.1, 0.34, 0.045 * gain);
+  },
 };
 
 /**

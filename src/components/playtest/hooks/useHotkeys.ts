@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
-import { usePlaytestSettings } from '@/store/playtestSettingsStore';
+import { advanceTurn } from '@/services/playtest/turnFlow';
 import type { ZoneKey } from '@/components/playtest/types';
 
 type PileZone = Exclude<ZoneKey, 'hand'>;
@@ -76,22 +76,11 @@ export function usePlaytestHotkeys() {
         return;
       }
 
-      // Enter (main or numpad — both report e.key === 'Enter'): advance the
-      // turn and draw, matching the Next Turn button.
+      // Enter (main or numpad — both report e.key === 'Enter'): the same turn
+      // advance the Next Turn button runs, guard and ordering included.
       if (e.key === 'Enter') {
         e.preventDefault();
-        const bots = useOpponentStore.getState();
-        // Same lock the Next Turn button holds. Advancing while a bot's turn is
-        // in flight, or while a confirmed attack is waiting on damage, drops
-        // that turn on the floor and desyncs the game with nothing said.
-        if (bots.running || bots.combat || bots.playerCombat) return;
-        // An unconfirmed declaration never happened — untap and forget it.
-        bots.exitCombat();
-        // Fresh turn, fresh combat — same reset the Next Turn button does.
-        bots.beginTurn();
-        s.nextTurn();
-        s.draw(1);
-        if (usePlaytestSettings.getState().opponentAutoTurns) bots.runAllTurns();
+        void advanceTurn();
         return;
       }
       // Backspace: reset the playtest, matching the Reset button. preventDefault

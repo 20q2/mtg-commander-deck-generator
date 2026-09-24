@@ -15,8 +15,9 @@ interface Props {
   side?: 'top' | 'right';
   /** Preview width in px (height derives from the card aspect). Defaults to 340. */
   width?: number;
-  /** Stacking order. Defaults to 200; lower it (e.g. below a popover's z-50)
-   *  when the preview should sit under another overlay. */
+  /** Stacking order. Defaults to 200 — under the playtest context menus at
+   *  z-210. Lower it (e.g. below a popover's z-50) when the preview should sit
+   *  under another overlay. */
   z?: number;
 }
 

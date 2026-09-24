@@ -143,7 +143,8 @@ export function PlaytestSettingsModal({ open, onClose }: Props) {
                 <div className="font-medium text-foreground/90">Table sounds</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
                   Quiet cues as you play &mdash; a shuffle riffle, a card off the top, a click on a
-                  counter, a card landing. Bot seats play the same cues, softer.
+                  counter, a card landing. Bot seats play the same cues, softer, and a chime tells you
+                  when they hand the turn back.
                 </div>
               </div>
             </label>
@@ -187,6 +188,9 @@ const CARD_PREVIEW_MODES: { key: CardPreviewMode; label: string; blurb: string }
 ];
 
 const PREVIEW_MODES: { key: OpponentPreviewMode; label: string; blurb: string }[] = [
+  // First and default: one gesture for the whole table is what almost everyone
+  // wants, and the three below are the override for the case where it isn't.
+  { key: 'follow', label: 'Same as my cards', blurb: '' },
   { key: 'ctrl',  label: 'Hold Ctrl', blurb: 'Hold Ctrl and hover one of their cards.' },
   { key: 'hover', label: 'On hover',  blurb: 'Shows the card as soon as you point at it, no key needed.' },
   { key: 'off',   label: 'Off',       blurb: 'Never magnifies their cards. Tooltips still name them.' },
@@ -194,6 +198,9 @@ const PREVIEW_MODES: { key: OpponentPreviewMode; label: string; blurb: string }[
 
 function BotsTab() {
   const opponentPreview = usePlaytestSettings(s => s.opponentPreview);
+  // Named rather than implied: "same as my cards" is only useful if you can
+  // see from here what your cards are set to.
+  const cardPreview = usePlaytestSettings(s => s.cardPreview);
   const setOpponentPreview = usePlaytestSettings(s => s.setOpponentPreview);
   const resistanceDefault = usePlaytestSettings(s => s.opponentResistanceDefault);
   const setResistanceDefault = usePlaytestSettings(s => s.setOpponentResistanceDefault);
@@ -216,7 +223,13 @@ function BotsTab() {
               }`}
             >
               <div className="text-xs font-medium">{mode.label}</div>
-              <div className="text-[11px] text-muted-foreground mt-0.5">{mode.blurb}</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">
+                {mode.key === 'follow'
+                  ? `Whatever General → Card preview says — currently ${
+                      cardPreview === 'hover' ? 'on hover' : 'hold Ctrl'
+                    }.`
+                  : mode.blurb}
+              </div>
             </button>
           ))}
         </div>

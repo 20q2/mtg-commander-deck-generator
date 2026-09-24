@@ -37,7 +37,7 @@ function bot(over: Partial<Opponent> = {}): Opponent {
 describe('runAllTurns across seats', () => {
   beforeEach(() => {
     // No pauses, no held stack: the whole cycle resolves inside the await.
-    usePlaytestSettings.setState({ animations: false, stackHold: false });
+    usePlaytestSettings.setState({ animations: false, stackMode: 'auto' });
     useOpponentStore.setState({ opponents: [], running: false, combat: null, stack: [] });
   });
 
@@ -98,7 +98,7 @@ describe('runAllTurns across seats', () => {
     const caster = bot({ id: 'A', name: 'Seat A', resistance: true, hand: [murder], turnsTaken: 6,
       battlefield: Array.from({ length: 3 }, () => perm(card({ name: 'Swamp', type_line: 'Basic Land — Swamp', cmc: 0 }))) });
     const victim = bot({ id: 'B', name: 'Seat B', battlefield: [fatty] });
-    usePlaytestSettings.setState({ animations: false, stackHold: true });
+    usePlaytestSettings.setState({ animations: false, stackMode: 'targeted' });
     useOpponentStore.setState({ opponents: [caster, victim], stack: [] });
     await useOpponentStore.getState().runAllTurns();
     const b = useOpponentStore.getState().opponents.find(o => o.id === 'B')!;

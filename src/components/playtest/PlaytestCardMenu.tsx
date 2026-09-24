@@ -239,7 +239,7 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
       ref={menuRef}
       role="menu"
       onMouseDown={(e) => e.stopPropagation()}
-      className="fixed z-[200] w-[220px] max-h-[80vh] overflow-y-auto bg-popover border border-border rounded-md shadow-2xl text-xs py-1"
+      className="fixed z-[210] w-[220px] max-h-[80vh] overflow-y-auto bg-popover border border-border rounded-md shadow-2xl text-xs py-1"
       style={{
         left: adjusted ? adjusted.left : target.x,
         top: adjusted ? adjusted.top : target.y,
@@ -273,12 +273,14 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
           <Item
             icon={bfCard.faceDown ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
             onClick={applyFaceDown}
+            shortcut="F"
           >
             {bfCard.faceDown ? 'Flip face up' : 'Flip face down'}{bulkSuffix}
           </Item>
           <Item
             icon={<CopyIcon className="w-3.5 h-3.5" />}
             onClick={applyCopy}
+            shortcut="Ctrl+C"
           >
             {isBulk ? `Create copies${bulkSuffix}` : 'Create copy'}
           </Item>
@@ -352,11 +354,23 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
 
       {/* Move destinations */}
       {target.kind !== 'hand' && (
-        <Item icon={<HandIcon className="w-3.5 h-3.5" />} onClick={() => move('hand')}>Move to hand{bulkSuffix}</Item>
+        <Item
+          icon={<HandIcon className="w-3.5 h-3.5" />}
+          onClick={() => move('hand')}
+          shortcut={onBattlefield ? '1' : undefined}
+        >
+          Move to hand{bulkSuffix}
+        </Item>
       )}
       <Item icon={<ArrowUpToLine className="w-3.5 h-3.5" />}   onClick={() => move('libtop')}>Move to library top{bulkSuffix}</Item>
       <Item icon={<ArrowDownToLine className="w-3.5 h-3.5" />} onClick={() => move('libbot')}>Move to library bottom{bulkSuffix}</Item>
-      <Item icon={<Trash2 className="w-3.5 h-3.5" />}          onClick={() => move('graveyard')}>Move to graveyard{bulkSuffix}</Item>
+      <Item
+        icon={<Trash2 className="w-3.5 h-3.5" />}
+        onClick={() => move('graveyard')}
+        shortcut={onBattlefield || inHand ? 'Del' : undefined}
+      >
+        Move to graveyard{bulkSuffix}
+      </Item>
       <Item icon={<Sparkles className="w-3.5 h-3.5" />}        onClick={() => move('exile')}>Move to exile{bulkSuffix}</Item>
       {commanderNames.includes(target.card.name) && (
         <Item icon={<Crown className="w-3.5 h-3.5" />}         onClick={() => move('command')}>Move to command zone{bulkSuffix}</Item>

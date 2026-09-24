@@ -135,6 +135,15 @@ export interface LogEntry {
   ts: number;
   text: string;
   category: LogCategory;
+  /**
+   * Which opponent seats this entry is about, by seat id. Empty or absent means
+   * the entry belongs to you or to the table as a whole — your own moves, turn
+   * markers, system notices.
+   *
+   * A line can name two seats: one bot swinging at another is news to both, and
+   * filtering the log down to either of them has to keep it.
+   */
+  seats?: string[];
   /** Marked true when undo() reverses the action that produced this entry. */
   undone?: boolean;
 }

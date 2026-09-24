@@ -25,7 +25,32 @@ export function Hand() {
   const [menu, setMenu] = useState<CardMenuTarget | null>(null);
   const [hoveredFanIndex, setHoveredFanIndex] = useState<number | null>(null);
   const rowRef = useRef<HTMLDivElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [rowWidth, setRowWidth] = useState(0);
+
+  /**
+   * Publish this bar's height so the side strip's stack panel can line its top
+   * edge up with ours, and the two read as one row across the bottom of the
+   * table rather than a column with a gap in it.
+   *
+   * A CSS variable rather than state plumbed through the page: the hand owns
+   * its own height — it moves with card size, with whether the fan has anything
+   * in it, and with the sort row wrapping — and nothing else should have to
+   * model that to stay level with it.
+   */
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const publish = () =>
+      document.documentElement.style.setProperty('--playtest-hand-h', `${el.offsetHeight}px`);
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty('--playtest-hand-h');
+    };
+  }, []);
 
   useEffect(() => {
     if (!rowRef.current) return;
@@ -62,7 +87,7 @@ export function Hand() {
 
   return (
     <div
-      ref={setDropRef}
+      ref={node => { setDropRef(node); rootRef.current = node; }}
       className="border-t border-border/50 bg-card/30 px-2 sm:px-4 py-2 sm:py-3 flex flex-col"
     >
       {/* Toolbar row mirrors the hand row's three-column layout below so the

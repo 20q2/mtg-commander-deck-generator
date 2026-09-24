@@ -106,6 +106,24 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   // ── Burn ──
   'Lightning Bolt':        { spec: { kind: 'damage', amount: 3 } },
   'Shock':                 { spec: { kind: 'damage', amount: 2 } },
+  // ── Prismari Performance (bracket 2) ──
+  'Lightning Strike':      { spec: { kind: 'damage', amount: 3 } },
+  'Fire Prophecy':         { spec: { kind: 'damage', amount: 3 } },
+  // "3 damage to a creature, or destroy an artifact." The bot only ever wants
+  // the first half, so that is the half it knows.
+  'Abrade':                { spec: { kind: 'damage', amount: 3 } },
+  // Also draws a card. BOT_EFFECTS is strictly player-facing and a card lives
+  // in one map or the other, so the damage is the half modelled — it is the
+  // half that decides whether the spell is worth casting.
+  'Electrolyze':           { spec: { kind: 'damage', amount: 2 } },
+  // X spells. See BOT_COSTS for what the bot actually pays; the amounts here
+  // are written to match those numbers.
+  'Crackle with Power':    { spec: { kind: 'damage', amount: 5 } },
+  'Comet Storm':           { spec: { kind: 'damage', amount: 4 } },
+  // "3 damage divided as you choose" — taken as a single lump, which is how the
+  // engine points damage anyway.
+  'Meteor Swarm':          { spec: { kind: 'damage', amount: 3 } },
+  'Mizzium Mortars':       { spec: { kind: 'destroyCreature' } },
 
   // ── Sweepers ──
   'Blasphemous Act':       { spec: { kind: 'boardWipe' } },
@@ -478,6 +496,25 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
   'Primeval Titan':       { spec: { kind: 'fetchLand', count: 2, tapped: true } },
   'Hornet Queen':         { spec: { kind: 'makeTokens', tokens: [{ name: 'Insect', count: 4 }] } },
   'Harmonize':            { spec: { kind: 'draw', count: 3 } },
+
+  // ── Prismari Performance ──
+  // Cantrips are here rather than left unlisted because a non-permanent with no
+  // entry is a card the develop step will not cast at all — it would sit in
+  // hand forever and the payoffs would never fire.
+  'Opt':                  { spec: { kind: 'draw', count: 1 } },
+  'Ponder':               { spec: { kind: 'draw', count: 1 } },
+  // Draws three and puts two back. Net one card, which is what the bot gets.
+  'Brainstorm':           { spec: { kind: 'draw', count: 1 } },
+  'Think Twice':          { spec: { kind: 'draw', count: 1 } },
+  'Behold the Multiverse': { spec: { kind: 'draw', count: 2 } },
+  'Expressive Iteration': { spec: { kind: 'draw', count: 2 } },
+  "Chemister's Insight":  { spec: { kind: 'draw', count: 2 } },
+  "Blue Sun's Zenith":    { spec: { kind: 'draw', count: 3 } },
+  // Buying a spell back out of the yard is how the deck keeps casting after it
+  // has emptied its hand, which is the turn a spellslinger deck usually stalls.
+  'Ardent Elementalist':  { spec: { kind: 'regrow', count: 1 } },
+  'Mystic Retrieval':     { spec: { kind: 'regrow', count: 1 } },
+  'Torrential Gearhulk':  { spec: { kind: 'regrow', count: 1 } },
   // "Draw a card for each green creature you control" — in this deck, most of
   // the board. Four is what it looks like on the turn a seven-drop resolves.
   'Regal Force':          { spec: { kind: 'draw', count: 4 } },
@@ -718,6 +755,12 @@ export type BotStaticSpec =
  * spec or a list of them; read them through `staticsOf`.
  */
 export const BOT_STATICS: Record<string, BotStaticSpec | BotStaticSpec[]> = {
+  // Reduces instants and sorceries only; `costReducer` without a subtype
+  // reduces everything, so this over-applies to the handful of creature spells
+  // in the deck. Left as-is deliberately: casting one more spell a turn is the
+  // entire reason the card is in a spellslinger deck, and the alternative was
+  // not modelling it at all.
+  'Goblin Electromancer': { kind: 'costReducer', amount: 1 },
   // "Other Goblins get +1/+1" — includeSelf stays off, so the lord is a 2/2.
   'Goblin King':         { kind: 'anthem', power: 1, toughness: 1, subtype: 'goblin' },
   // "Other Goblins you control get +1/+1 and have haste" — both halves.
@@ -997,6 +1040,62 @@ export const BOT_TRIGGERS: Record<string, BotTriggerSpec> = {
 };
 
 /**
+ * "Whenever you cast an instant or sorcery spell, …" — magecraft, and the
+ * Young Pyromancer / Talrand / Guttersnipe family.
+ *
+ * The one thing a spellslinger deck IS, and until this existed the registry
+ * could not say it. Every other archetype's payoff hangs off a permanent
+ * arriving, a creature dying or a land dropping; this one hangs off the act of
+ * casting, and without it a deck of burn and cantrips leaves the bot with an
+ * empty board and nothing to attack with — which is not a spellslinger deck,
+ * it is a deck that does nothing.
+ *
+ * Fires on every instant and sorcery the bot casts, from the develop step and
+ * the interaction step alike: a Lightning Bolt pointed at your blocker feeds
+ * the engine exactly as a cantrip does, which is the whole reason the deck
+ * plays removal.
+ */
+export interface BotSpellTrigger {
+  /** What it does to the BOT's own board — a token, a card. */
+  spec?: BotSelfSpec | BotSelfSpec[];
+  /**
+   * Life the player loses each time it fires. Billed through the same per-beat
+   * channel as death and ETB triggers, so a turn that casts three spells with a
+   * Guttersnipe out reads as one number rather than three stray log lines.
+   */
+  damage?: number;
+  /**
+   * Only fires for spells of at least this mana value, measured by `costOf` —
+   * what the bot actually pays, not the printed cmc, so an X spell counts for
+   * the number it was really cast for.
+   *
+   * Written for Zaffai, whose magecraft is tiered and whose 4/4 half is the
+   * only tier worth modelling. Firing it on every cantrip would be a different
+   * and much better card.
+   */
+  minMana?: number;
+}
+
+export const BOT_SPELL_TRIGGERS: Record<string, BotSpellTrigger> = {
+  // ── Prismari Performance ──
+  // The scry tier is dropped — the engine has no library manipulation to point
+  // it at — and the double-strike tier with it. The 4/4 is the card.
+  'Zaffai, Thunder Conductor': { spec: { kind: 'makeTokens', tokens: [{ name: 'Elemental', count: 1 }] }, minMana: 5 },
+  // Each of these makes a DIFFERENT token name on purpose: tokens are matched
+  // out of the deck's fetched pool by name, so two payoffs making "Elemental"
+  // would be indistinguishable and the smaller one would win. That is also why
+  // Young Pyromancer is not in this deck.
+  'Talrand, Sky Summoner':     { spec: { kind: 'makeTokens', tokens: [{ name: 'Drake', count: 1 }] } },
+  'Murmuring Mystic':          { spec: { kind: 'makeTokens', tokens: [{ name: 'Bird', count: 1 }] } },
+  // Triggers on any noncreature spell, artifacts included. This deck is almost
+  // all instants and sorceries, so the over-count is a rounding error.
+  'Third Path Iconoclast':     { spec: { kind: 'makeTokens', tokens: [{ name: 'Soldier', count: 1 }] } },
+  'Archmage Emeritus':         { spec: { kind: 'draw', count: 1 } },
+  'Guttersnipe':               { damage: 2 },
+  'Electrostatic Field':       { damage: 1 },
+};
+
+/**
  * What a card really costs the bot, when raw CMC lies.
  *
  * Two cases. An X spell has a near-zero CMC, so without an override the bot
@@ -1034,6 +1133,12 @@ export const BOT_COSTS: Record<string, number> = {
   'Welcome the Dead':        4,
   'March of the Multitudes': 6,
   'Blasphemous Act':         5,
+  // X spells, priced at the point the bot is willing to cast them. The damage
+  // and draw counts in the maps above are written against these numbers, and
+  // they are also what decides whether Zaffai's magecraft tier is reached.
+  'Crackle with Power':      5,
+  'Comet Storm':             5,
+  "Blue Sun's Zenith":       6,
   // "Costs {X} less, where X is the total power of creatures you control." A
   // printed twelve is a price this deck never pays — by the time it casts
   // Ghalta the board is already enormous, which is the point of the card.

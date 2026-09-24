@@ -17,7 +17,7 @@ import { OpponentChoiceMenu, type OpponentChoiceMenuTarget } from '@/components/
 import { backgroundUrlForIdentity } from '@/services/spellchroma/colorBackground';
 import { CombatStrip } from '@/components/playtest/opponents/CombatStrip';
 import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
-import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
+import type { CastZone, Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 import type { ResizeAxis, SeatSize } from '@/components/playtest/opponents/OpponentSeats';
 import { CARD_ASPECT } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
@@ -122,7 +122,7 @@ export function OpponentSeat({
    * shrinking them at that moment was the worst possible timing.
    */
   const scale = attackingYou ? COMBAT_SHRINK : 1;
-  const zoneWidth = Math.round(Math.max(14, width * 0.10 * scale));
+  const zoneWidth = Math.round(Math.max(14, width * ZONE_WIDTH_FRACTION * scale));
 
   const landPiles = useMemo(() => pileUp(rows.lands), [rows.lands]);
   const landWidth = landWidthFor(width, landPiles, scale);
@@ -278,7 +278,7 @@ export function OpponentSeat({
                     count={pile.count}
                     comboPiece={armedPieces.has(pile.top.card.name)}
                     width={rowWidth(width, row.scale * scale)}
-                    playedFromHand={pile.ids.some(id => playedIds.includes(id))}
+                    castFrom={pile.ids.some(id => playedIds.includes(id)) ? (beat?.from ?? 'hand') : null}
                     beatTick={beat?.tick ?? 0}
                   />
                 ))}
@@ -311,26 +311,35 @@ export function OpponentSeat({
               count={pile.count}
               comboPiece={armedPieces.has(pile.top.card.name)}
               width={landWidth}
-              playedFromHand={pile.ids.some(id => playedIds.includes(id))}
+              castFrom={pile.ids.some(id => playedIds.includes(id)) ? (beat?.from ?? 'hand') : null}
               beatTick={beat?.tick ?? 0}
             />
           ))}
         </div>
       )}
 
-      {/* Bottom row: the hand fan and the zone piles, grouped right. Mirrors
-          your own hand row, with Exile half-width and hanging from the top. */}
+      {/* Bottom row: the commander at the left, everything else grouped right.
+          Mirrors your own hand row, with Exile half-width and hanging from the
+          top.
+
+          The commander is split off from the other piles on purpose. The rest of
+          the row is this seat's changing state — what it is holding, what it has
+          left, what has died — and the commander is the one thing about a seat
+          that does not change. Sitting apart it reads as a name plate rather
+          than as a fourth pile to count, and the row's empty left end was doing
+          nothing else. */}
       <div className="relative z-10 mt-1 flex items-end gap-1 shrink-0">
+        {/* Their commander, face up. Who you are playing against is the single
+            most useful fact about a seat, and it was the one zone the seat
+            never showed. Face up because it is public information. */}
+        <ZonePile
+          label="Command" count={opponent.command.length} width={zoneWidth}
+          anchorId={`command:${opponent.id}`}
+          top={opponent.command[opponent.command.length - 1]}
+          hint={opponent.command.length > 0 ? 'Their commander' : 'Commander is on the battlefield'}
+          Icon={Crown} tint="bg-purple-500/10 border-purple-400/30"
+        />
         <div className="ml-auto flex items-end gap-1 shrink-0">
-          {/* Their commander, face up. Who you are playing against is the single
-              most useful fact about a seat, and it was the one zone the seat
-              never showed. Face up because it is public information. */}
-          <ZonePile
-            label="Command" count={opponent.command.length} width={zoneWidth}
-            top={opponent.command[opponent.command.length - 1]}
-            hint={opponent.command.length > 0 ? 'Their commander' : 'Commander is on the battlefield'}
-            Icon={Crown} tint="bg-purple-500/10 border-purple-400/30"
-          />
           <HandFan
             opponentId={opponent.id} count={opponent.hand.length} width={zoneWidth}
             onContextMenu={openZoneMenu('hand')}
@@ -345,6 +354,7 @@ export function OpponentSeat({
           />
           <ZonePile
             label="Graveyard" count={opponent.graveyard.length} width={zoneWidth}
+            anchorId={`graveyard:${opponent.id}`}
             top={opponent.graveyard[opponent.graveyard.length - 1]}
             hint="Click to view · right-click for more"
             onClick={() => openModal({ kind: 'opponentZone', opponentId: opponent.id, zone: 'graveyard' })}
@@ -834,7 +844,7 @@ function ZonePile({
   width: number;
   hint: string;
   /**
-   * Marks this pile as a flight endpoint, as `data-bot-zone`. Only the library
+   * Marks this pile as a flight endpoint, as `data-bot-zone`. The library
    * needs one so far — it is where a draw comes from.
    */
   anchorId?: string;
@@ -960,6 +970,17 @@ const ROW_GAP = 4;
 const COMBAT_SHRINK = 0.6;
 
 /**
+ * How wide a zone pile is, as a fraction of the seat's width.
+ *
+ * It sets the HEIGHT of the whole bottom row, not just the width of the piles:
+ * they are card-shaped, so the row is always 1.4 of this. Everything in the row
+ * is a pile you glance at rather than read — the count badge and the zone symbol
+ * are what you are actually looking for, and both stay legible well below this —
+ * so the row can afford to be short and hand the space to the board above it.
+ */
+export const ZONE_WIDTH_FRACTION = 0.075;
+
+/**
  * Seat width → card width for a row.
  *
  * Only a floor, no ceiling. There used to be an 84px cap, which meant that
@@ -1067,7 +1088,7 @@ function splitRows(battlefield: OpponentPermanent[]): Record<RowKey, OpponentPer
 
 function OpponentPermanentCard({
   opponentId, permanent, width, count = 1, comboPiece = false,
-  playedFromHand = false, beatTick = 0,
+  castFrom = null, beatTick = 0,
 }: {
   opponentId: string;
   permanent: OpponentPermanent;
@@ -1085,8 +1106,12 @@ function OpponentPermanentCard({
    * the seat's hand — so it flies in from the hand fan instead of dealing in
    * from the top.
    */
-  playedFromHand?: boolean;
-  /** The beat that `playedFromHand` belongs to, so the flight fires once. */
+  /**
+   * Set when this card was just cast, to the zone it was cast OUT of. Null on
+   * everything else — a token, a land, a permanent that was already there.
+   */
+  castFrom?: CastZone | null;
+  /** The beat that `castFrom` belongs to, so the flight fires once. */
   beatTick?: number;
 }) {
   const togglePermanentTap = useOpponentStore(s => s.togglePermanentTap);
@@ -1162,8 +1187,12 @@ function OpponentPermanentCard({
   const boxHeight = permanent.tapped ? width : cardHeight;
 
   /**
-   * Cast out of their hand: the card leaves the hand fan, swings out over the
-   * table getting bigger, turns face up, and lands in this slot.
+   * Cast: the card leaves the zone it was cast from, swings out over the table
+   * getting bigger, turns face up, and lands in this slot.
+   *
+   * Usually the hand fan. A commander comes off the command pile and a
+   * Gravecrawler off the graveyard, and flying either of those out of a hand
+   * that may well be empty read as a card appearing from nowhere.
    *
    * It replaces the deal-in keyframe for this one card rather than joining it.
    * Two arrival animations on one card show it twice — and the keyframe would
@@ -1186,11 +1215,15 @@ function OpponentPermanentCard({
   const flown = useRef(0);
   const [flying, setFlying] = useState(false);
   useLayoutEffect(() => {
-    if (!playedFromHand || !animations) return;
+    if (!castFrom || !animations) return;
     if (flown.current === beatTick) return;
     flown.current = beatTick;
     const to = boxOf(boxRef.current);
-    const from = captureBox(`[data-bot-hand="${opponentId}"]`);
+    const from = captureBox(
+      castFrom === 'hand'
+        ? `[data-bot-hand="${opponentId}"]`
+        : `[data-bot-zone="${castFrom}:${opponentId}"]`,
+    );
     if (!to || !from) return;
     useCardFlights.getState().launch([{
       card: permanent.card,
@@ -1207,7 +1240,7 @@ function OpponentPermanentCard({
     if (count > 1) return;
     setFlying(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [beatTick, playedFromHand]);
+  }, [beatTick, castFrom]);
 
   /**
    * Give the card back when its flight lands.
@@ -1216,7 +1249,7 @@ function OpponentPermanentCard({
    * a style preference — it is the whole bug. With the timer living in the
    * launch effect above, its cleanup ran on the next dependency change, and
    * the next beat is 260ms away while the flight is 460ms long. So React
-   * cleared the timer, re-ran the effect, found `playedFromHand` false for
+   * cleared the timer, re-ran the effect, found `castFrom` null for
    * this card by then, returned early — and the card stayed hidden for the
    * rest of the game. Everything a bot played was invisible except the last
    * card of each turn, which had no following beat to cancel it.
@@ -1236,9 +1269,9 @@ function OpponentPermanentCard({
       className={`relative shrink-0 transition-[opacity,width,height] duration-300 ${
         drag.isDragging ? 'opacity-30' : attacking ? 'opacity-25' : ''
       } ${
-        // The flight is this card's arrival animation when it came from hand;
+        // The flight is this card's arrival animation when it was cast;
         // everything else still drops in from the top.
-        animations && !playedFromHand ? 'animate-deal-in-from-top' : ''
+        animations && !castFrom ? 'animate-deal-in-from-top' : ''
       } ${comboPiece ? 'ring-2 ring-rose-400 rounded-[3px] animate-pulse' : ''}`}
       style={{ width: boxWidth, height: boxHeight, visibility: flying ? 'hidden' : undefined }}
       onMouseEnter={() => setHovered(true)}

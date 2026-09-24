@@ -98,6 +98,9 @@ export function AddOpponentModal() {
   const byBracket = useMemo(() => {
     const groups = new Map<Bracket, OpponentStub[]>();
     for (const stub of OPPONENT_STUBS) {
+      // Shelved decks stay resolvable by id — see OpponentStub.hidden — but
+      // nothing offers them a chair.
+      if (stub.hidden) continue;
       const list = groups.get(stub.bracket) ?? [];
       list.push(stub);
       groups.set(stub.bracket, list);

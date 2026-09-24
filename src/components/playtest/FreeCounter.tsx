@@ -169,7 +169,7 @@ function CounterContextMenu({
     <div
       ref={ref}
       onMouseDown={(e) => e.stopPropagation()}
-      className="fixed z-[200] w-[180px] bg-popover border border-border rounded-md shadow-2xl text-xs py-2"
+      className="fixed z-[210] w-[180px] bg-popover border border-border rounded-md shadow-2xl text-xs py-2"
       style={{
         left: pos ? pos.left : x,
         top: pos ? pos.top : y,

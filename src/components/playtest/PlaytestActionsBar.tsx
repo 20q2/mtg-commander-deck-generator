@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
+import { advanceTurn, isTurnBlocked } from '@/services/playtest/turnFlow';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { captureHandBoxes, flyHandToZone } from '@/components/playtest/CardFlight';
 import type { SortMode } from '@/components/playtest/types';
@@ -601,48 +602,14 @@ export function CombatButton({ chip = false }: { chip?: boolean }) {
 }
 
 export function NextTurnButton({ chip = false }: { chip?: boolean }) {
-  const nextTurn = usePlaytestStore(s => s.nextTurn);
-  const draw = usePlaytestStore(s => s.draw);
   const turn = usePlaytestStore(s => s.turn);
-  const runAllTurns = useOpponentStore(s => s.runAllTurns);
   const opponentCount = useOpponentStore(s => s.opponents.length);
   const combat = useOpponentStore(s => s.combat);
-  const playerCombat = useOpponentStore(s => s.playerCombat);
-  const exitCombat = useOpponentStore(s => s.exitCombat);
-  const beginTurn = useOpponentStore(s => s.beginTurn);
   const botsRunning = useOpponentStore(s => s.running);
   const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
-
-  // Locked while a bot's turn is in flight. runAllTurns already refuses to start
-  // a second pass, so without this the button silently advanced YOUR turn and
-  // drew you a card while the bots' turns were dropped on the floor — the game
-  // desynced and nothing said so.
-  //
-  // Also locked on a confirmed attack of your own: blocks are chosen but damage
-  // hasn't happened, and advancing past that would strand it the same way.
-  const blocked = botsRunning || !!combat || !!playerCombat;
-
-  // One button still drives the whole game — but in the right order. Your
-  // turn ended when you pressed it; the table plays; THEN your next turn
-  // begins with its untap and draw. It used to log "Turn 5 / Drew Sol Ring"
-  // and then three bots casting, as if they were acting inside your turn.
-  const handleNextTurn = async () => {
-    if (blocked) return;
-    // Leave combat on the way out: an unconfirmed declaration never happened,
-    // so untap and forget it rather than carrying a half-built attack — or an
-    // open combat phase — into the bots' turn.
-    exitCombat();
-    if (autoTurns && opponentCount > 0) {
-      const completed = await runAllTurns();
-      // A reset or an exit while the bots were playing threw this game away.
-      if (!completed) return;
-    }
-    // A fresh turn gets a fresh combat, so the phase readout goes back to
-    // offering one.
-    beginTurn();
-    nextTurn();
-    draw(1);
-  };
+  // The same predicate advanceTurn checks before it does anything, subscribed to
+  // here so the button greys out the moment it would start refusing clicks.
+  const blocked = useOpponentStore(isTurnBlocked);
 
   return (
     <Button
@@ -653,7 +620,7 @@ export function NextTurnButton({ chip = false }: { chip?: boolean }) {
           ? 'bg-rose-500/15 border-rose-400/50 text-rose-200'
           : 'bg-primary/15 hover:bg-primary/25 border-primary/40 text-primary-foreground/90'
       }`}
-      onClick={handleNextTurn}
+      onClick={() => void advanceTurn()}
       title={
         combat        ? 'Resolve combat before taking your next turn'
       : botsRunning   ? 'Waiting for the opponents to finish their turn'

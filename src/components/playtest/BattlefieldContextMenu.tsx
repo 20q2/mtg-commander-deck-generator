@@ -67,7 +67,7 @@ export function BattlefieldContextMenu({ target, onClose }: Props) {
       ref={ref}
       role="menu"
       onMouseDown={(e) => e.stopPropagation()}
-      className="fixed z-[200] w-[200px] bg-popover/95 backdrop-blur-sm border border-border rounded-md shadow-2xl text-xs py-1.5"
+      className="fixed z-[210] w-[200px] bg-popover/95 backdrop-blur-sm border border-border rounded-md shadow-2xl text-xs py-1.5"
       style={{
         left: adjusted ? adjusted.left : target.screenX,
         top: adjusted ? adjusted.top : target.screenY,
@@ -93,7 +93,7 @@ export function BattlefieldContextMenu({ target, onClose }: Props) {
       >
         <ClipboardPaste className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="flex-1">Paste</span>
-        <span className="text-[10px] font-mono text-muted-foreground/60">Ctrl+V</span>
+        <Kbd>Ctrl+V</Kbd>
       </button>
 
       <div className="h-px bg-border/60 my-1" />
@@ -114,9 +114,17 @@ export function BattlefieldContextMenu({ target, onClose }: Props) {
       >
         <RotateCcw className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="flex-1">Untap all</span>
-        <span className="text-[10px] font-mono text-muted-foreground/60">U</span>
+        <Kbd>U</Kbd>
       </button>
     </div>,
     document.body,
+  );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="ml-2 px-1 py-0.5 rounded border border-border/60 bg-accent/30 font-mono text-[9px] text-muted-foreground shrink-0">
+      {children}
+    </kbd>
   );
 }

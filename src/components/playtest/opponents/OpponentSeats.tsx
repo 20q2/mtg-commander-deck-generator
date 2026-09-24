@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, Play, Plus } from 'lucide-react';
+import {
+  AlignHorizontalSpaceBetween, Bot, Check, Columns3, LayoutPanelLeft,
+  LayoutTemplate, PanelsLeftRight, Play, Plus,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ContextMenuShell, MenuHeading, MenuItem } from '@/components/playtest/ContextMenuShell';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore, MAX_OPPONENTS } from '@/store/opponentStore';
@@ -8,6 +12,11 @@ import { OpponentSeat } from '@/components/playtest/opponents/OpponentSeat';
 import { DealingSeat } from '@/components/playtest/opponents/DealingSeat';
 import { findStub } from '@/services/playtest/opponents/deckSources';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import {
+  matchesPlan, planSeatLayout, SEAT_LAYOUTS,
+  RESIZE_MIN_W, RESIZE_MAX_W, RESIZE_MIN_H, RESIZE_MAX_H,
+  type Canvas, type SeatBox, type SeatLayoutKind,
+} from '@/components/playtest/opponents/seatLayouts';
 import type { OpponentStub } from '@/components/playtest/opponentTypes';
 
 /** Never let one seated opponent sprawl across the whole table. */
@@ -20,16 +29,6 @@ const USABLE_FRACTION = 0.62;
 const POSITIONS_KEY = 'playtest-seat-positions-v2';
 const WIDTHS_KEY = 'playtest-seat-widths-v2';
 const SIZES_KEY = 'playtest-seat-sizes-v2';
-
-/**
- * A hand-set size can go well past the automatic ceiling — the whole point of
- * resizing a seat is to make one opponent big enough to actually read.
- */
-const RESIZE_MIN_W = 160;
-const RESIZE_MAX_W = 900;
-/** Tall enough to still show a header and a combat strip. */
-const RESIZE_MIN_H = 110;
-const RESIZE_MAX_H = 900;
 
 /** Which handle you grabbed. */
 export type ResizeAxis = 'x' | 'y' | 'both';
@@ -52,7 +51,7 @@ type SeatPositions = Record<string, { x: number; y: number }>;
  * card in the seat is a fraction of it, while height decides how much table
  * the seat may occupy before its board starts scrolling.
  */
-export type SeatSize = { w?: number; h?: number };
+export type SeatSize = SeatBox;
 type SeatSizes = Record<string, SeatSize>;
 
 function loadJson<T>(key: string): T {
@@ -77,6 +76,20 @@ function loadSizes(): SeatSizes {
 }
 
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+
+/**
+ * The table the seats are laid out on.
+ *
+ * Measured off the live element rather than read from `battlefieldRect`: the
+ * store's copy is still 0×0 in plenty of situations — playtestStore's own
+ * `canvasRect` exists for exactly this reason — and a layout planned against a
+ * zero-width canvas silently does nothing at all.
+ */
+function canvasSize(): Canvas {
+  const r = document.querySelector('[data-battlefield]')?.getBoundingClientRect();
+  if (r && r.width > 0 && r.height > 0) return { width: r.width, height: r.height };
+  return usePlaytestStore.getState().battlefieldRect;
+}
 
 /**
  * The opponents, seated across the top of the table rather than stacked in a
@@ -112,6 +125,8 @@ export function OpponentSeats() {
    * under a transform, and only lands in the other layer on release.
    */
   const [drag, setDrag] = useState<{ seatId: string; dx: number; dy: number } | null>(null);
+  /** Where the seat-layout menu was opened from, or null while it's closed. */
+  const [layoutMenu, setLayoutMenu] = useState<{ x: number; y: number } | null>(null);
 
   const persist = useCallback((next: SeatPositions) => {
     setPositions(next);
@@ -242,6 +257,24 @@ export function OpponentSeats() {
     else next[seatId] = current;
     persistSizes(next);
   }, [persistSizes]);
+
+  /**
+   * Arrange every seat at once.
+   *
+   * Writes the whole map rather than merging: a preset is a statement about
+   * the table, and a seat left at its old coordinates because it happened not
+   * to be in the plan would be the one thing you asked this button to fix.
+   */
+  const applyLayout = useCallback((kind: SeatLayoutKind) => {
+    const plan = planSeatLayout(
+      kind,
+      useOpponentStore.getState().opponents.map(o => o.id),
+      canvasSize(),
+    );
+    persist(plan.positions);
+    persistSizes(plan.sizes);
+    setLayoutMenu(null);
+  }, [persist, persistSizes]);
 
   const resetSeat = useCallback((seatId: string) => {
     const next = { ...loadPositions() };
@@ -404,10 +437,62 @@ export function OpponentSeats() {
             <Plus className="w-3.5 h-3.5" />
           </Button>
         )}
+        {/* Under the ＋, because the two are the same kind of thing: one adds a
+            seat to the table, the other decides where the seats go. */}
+        <Button
+          size="sm" variant="ghost"
+          className="h-6 w-6 p-0 bg-background/70 backdrop-blur-sm"
+          onClick={e => {
+            const r = e.currentTarget.getBoundingClientRect();
+            // Hung off the button's left edge: it lives in the top-right
+            // corner, and a menu opening rightwards would only ever be clamped
+            // back against the window.
+            setLayoutMenu(m => (m ? null : { x: r.left - 4, y: r.bottom + 4 }));
+          }}
+          title="Arrange the seats"
+        >
+          <LayoutTemplate className="w-3.5 h-3.5" />
+        </Button>
       </div>
+
+      {layoutMenu && (
+        <ContextMenuShell
+          x={layoutMenu.x}
+          y={layoutMenu.y}
+          onClose={() => setLayoutMenu(null)}
+          width={208}
+        >
+          <MenuHeading>Seat layout</MenuHeading>
+          {SEAT_LAYOUTS.map(({ kind, label }) => {
+            const plan = planSeatLayout(kind, opponents.map(o => o.id), canvasSize());
+            const current = matchesPlan(plan, positions, sizes);
+            const Icon = LAYOUT_ICON[kind];
+            return (
+              <MenuItem key={kind} icon={<Icon className="w-3.5 h-3.5" />} onClick={() => applyLayout(kind)}>
+                <span className="flex items-center justify-between gap-2">
+                  {label}
+                  {current && <Check className="w-3 h-3 shrink-0 text-violet-300" />}
+                </span>
+              </MenuItem>
+            );
+          })}
+        </ContextMenuShell>
+      )}
     </>
   );
 }
+
+/**
+ * One glyph per arrangement, so the menu can be read at a glance rather than
+ * word by word. Deliberately not LayoutGrid/Rows3, which already mean "grid or
+ * list view of cards" everywhere else in the app.
+ */
+const LAYOUT_ICON: Record<SeatLayoutKind, typeof Columns3> = {
+  row: Columns3,
+  spread: AlignHorizontalSpaceBetween,
+  rail: LayoutPanelLeft,
+  flank: PanelsLeftRight,
+};
 
 /**
  * Publish the auto row's rendered height so arriving cards can snap below it.

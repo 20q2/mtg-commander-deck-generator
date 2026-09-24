@@ -3,9 +3,10 @@ import { Check, Hand as HandIcon, Heart, Layers, Skull, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useOpponentStore } from '@/store/opponentStore';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { usePlaytestSettings } from '@/store/playtestSettingsStore';
+import { usePlaytestSettings, type StackMode } from '@/store/playtestSettingsStore';
 import { StackTargeting } from '@/components/playtest/StackTargeting';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
+import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import type { StackItem, StackKind } from '@/components/playtest/opponentTypes';
 import type { ScryfallCard } from '@/types';
 
@@ -31,6 +32,48 @@ const KIND_LABEL: Record<StackKind, string> = {
   combo: 'goes off',
 };
 
+/**
+ * The three settings, in the order the button cycles them: least interruption
+ * to most. Each one answers the same question — how much of a bot's turn stops
+ * and waits for you — so they live in one table rather than as scattered
+ * conditionals.
+ */
+const MODES: {
+  key: StackMode;
+  label: string;
+  /** Sentence in the idle panel, after "Label — ". */
+  blurb: string;
+  /** Tooltip sentence on the button. */
+  hint: string;
+  chip: string;
+  accent: string;
+}[] = [
+  {
+    key: 'auto',
+    label: 'Pass',
+    blurb: 'each one shows for a beat and then resolves itself. Their turn never stops, so there is no window to counter anything.',
+    hint: 'Auto-passing — spells show for a beat, then resolve themselves.',
+    chip: 'border-border/50 text-muted-foreground/70 hover:text-foreground',
+    accent: 'text-foreground/80',
+  },
+  {
+    key: 'targeted',
+    label: 'Targeting Me',
+    blurb: 'anything they point at you pauses here until you answer. Tap lands, cast what you need, then Resolve it or Counter it yourself.',
+    hint: "Holding priority — a bot's turn pauses on anything aimed at you.",
+    chip: 'border-rose-400/50 bg-rose-500/15 text-rose-200',
+    accent: 'text-rose-200',
+  },
+  {
+    key: 'everything',
+    label: 'Hold all',
+    blurb: 'every spell they cast pauses here, even the ones that never touch your board — so a counterspell can answer their ramp, not just their removal. Land drops still run at speed.',
+    hint: 'Holding priority on EVERY spell they cast, not just the ones aimed at you.',
+    chip: 'border-violet-400/60 bg-violet-500/20 text-violet-100',
+    accent: 'text-violet-200',
+  },
+];
+
 function artOf(card: ScryfallCard | undefined): string | null {
   if (!card) return null;
   return card.image_uris?.art_crop ?? card.card_faces?.[0]?.image_uris?.art_crop ?? null;
@@ -40,8 +83,10 @@ export function StackPanel() {
   const stack = useOpponentStore(s => s.stack);
   const resolveTop = useOpponentStore(s => s.resolveStackTop);
   const counterTop = useOpponentStore(s => s.counterStackTop);
-  const hold = usePlaytestSettings(s => s.stackHold);
-  const setHold = usePlaytestSettings(s => s.setStackHold);
+  const mode = usePlaytestSettings(s => s.stackMode);
+  const setMode = usePlaytestSettings(s => s.setStackMode);
+  const next = MODES[(MODES.findIndex(m => m.key === mode) + 1) % MODES.length];
+  const current = MODES.find(m => m.key === mode) ?? MODES[1];
 
   // Newest first: a stack resolves last-on-first-off, so the item you are being
   // asked about is the one at the top of the list.
@@ -55,26 +100,29 @@ export function StackPanel() {
           ? 'basis-1/2 flex-1 border-rose-400/40 bg-rose-950/25'
           : 'basis-auto shrink-0 border-border/50'
       }`}
+      // Its top edge lines up with the hand's, so the strip reads as two rows
+      // rather than a column with a gap in it. The hand publishes its own
+      // height (see Hand.tsx) because nothing else can know it — it changes
+      // with card size, with the sort row, and with whether you are holding
+      // anything. A floor rather than a fixed height: when something is
+      // actually waiting the panel still grows upward into the log.
+      style={{ minHeight: 'var(--playtest-hand-h, 0px)' }}
     >
       <div className="px-2 py-1.5 flex items-center gap-1.5 border-b border-border/40">
         <Layers className={`w-3.5 h-3.5 ${busy ? 'text-rose-300' : 'text-muted-foreground/70'}`} />
         <span className={`text-[11px] font-semibold ${busy ? 'text-rose-100' : 'text-muted-foreground'}`}>
           Stack{busy ? ` · ${items.length}` : ''}
         </span>
+        {/* One button cycling three settings rather than three buttons: the
+            strip is 224px wide and this is a preference, not a decision you
+            make mid-turn. The tooltip names what clicking does next. */}
         <button
-          onClick={() => setHold(!hold)}
-          title={
-            hold
-              ? "Holding priority — a bot's turn pauses until you resolve or counter. Click to auto-pass."
-              : 'Auto-passing — spells show for a beat, then resolve themselves. Click to hold priority.'
-          }
-          className={`ml-auto text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors ${
-            hold
-              ? 'border-rose-400/50 bg-rose-500/15 text-rose-200'
-              : 'border-border/50 text-muted-foreground/70 hover:text-foreground'
-          }`}
+          onClick={() => setMode(next.key)}
+          title={`${current.hint} Click for ${next.label}.`}
+          aria-label={`Stack mode: ${current.label}`}
+          className={`ml-auto shrink-0 whitespace-nowrap text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded border transition-colors ${current.chip}`}
         >
-          {hold ? 'Hold' : 'Auto'}
+          {current.label}
         </button>
       </div>
 
@@ -86,19 +134,10 @@ export function StackPanel() {
         // one about the setting you are actually playing under.
         <div className="px-3 py-2 text-[10px] text-muted-foreground/70 leading-snug space-y-1.5">
           <p className="italic">Nothing waiting. Spells the bots aim at you stop here first.</p>
-          {hold ? (
-            <p>
-              <span className="font-semibold text-rose-200">Hold</span> — their turn
-              pauses here until you answer. Tap lands, cast what you need, then
-              Resolve it or Counter it yourself.
-            </p>
-          ) : (
-            <p>
-              <span className="font-semibold text-foreground/80">Auto</span> — each one
-              shows for a beat and then resolves itself. Their turn never stops, so
-              there is no window to counter anything.
-            </p>
-          )}
+          <p>
+            <span className={`font-semibold ${current.accent}`}>{current.label}</span>
+            {' — '}{current.blurb}
+          </p>
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto px-2 py-2 space-y-2">
@@ -157,7 +196,7 @@ function StackCard({
           does, and that is the question this panel is asking. */}
       <PreviewOnHover
         card={item.card}
-        title={item.card ? `${item.card.name} — hover to read it` : undefined}
+        title={item.card ? `${item.card.name} — point at it to read it` : undefined}
         className="relative h-14 bg-black/60"
       >
         {art && (
@@ -188,6 +227,7 @@ function StackCard({
                   key={t.instanceId}
                   card={t.card}
                   title={`${t.card.name} — yours, and what this is aimed at`}
+                  scope="own"
                   className="w-9 h-7 rounded-[3px] overflow-hidden ring-1 ring-rose-400/60 bg-black/50 shrink-0"
                 >
                   {tArt ? (
@@ -236,7 +276,13 @@ function StackCard({
               size="sm"
               variant="outline"
               className="h-6 flex-1 text-[10px] gap-1 [&_svg]:size-3"
-              title="You answered it — the effect is thrown away"
+              title={
+                item.arrived?.length
+                  // Only the `everything` mode makes items like this — see
+                  // counterStackTop, which takes the body back off the board.
+                  ? 'You answered it — the spell is countered and goes to their graveyard'
+                  : 'You answered it — the effect is thrown away'
+              }
               onClick={onCounter}
             >
               <X />Counter
@@ -255,25 +301,33 @@ function StackCard({
  * hoverable: the spell's own face, and each of your permanents it is pointing
  * at.
  *
- * Deliberately NOT behind the magnify setting, unlike every other preview in
- * playtest. Elsewhere the thing you are pointing at is already a card — the
- * preview only makes it bigger. Here it never is: a 56px art crop carries no
- * rules text and a 36px target thumb carries no name, so "hold Ctrl" would
- * leave the spell you are being asked to answer unreadable by default, and
- * the bots' `off` setting would leave it unreadable full stop.
+ * Behind the magnify setting like every other preview on the table. It used to
+ * be exempt, on the argument that a 56px art crop carries no rules text and so
+ * "hold Ctrl" would leave the spell you are being asked to answer unreadable —
+ * but the tile already prints the spell's name over its art and says what it
+ * does in words underneath, and each target thumb names itself in a tooltip.
+ * The preview is the rules text, which is the same thing it is everywhere
+ * else, so it answers to the same choice.
+ *
+ * Scope is per card, not per panel: the spell is theirs, the permanents it is
+ * pointing at are yours. With the bots' side on `follow` that is one setting
+ * anyway.
  *
  * `side="right"` because the panel is pinned to the right edge of the window:
  * the preview finds no room there and flips to the left, clear of the tile it
  * came from.
  */
-function PreviewOnHover({ card, title, className, children }: {
+function PreviewOnHover({ card, title, className, scope = 'opponent', children }: {
   card?: ScryfallCard;
   title?: string;
   className?: string;
+  /** Whose card this is, which decides which preview setting answers for it. */
+  scope?: 'own' | 'opponent';
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState(false);
+  const magnified = useMagnifyHover(hovered, scope);
   return (
     <div
       ref={ref}
@@ -283,7 +337,7 @@ function PreviewOnHover({ card, title, className, children }: {
       onPointerLeave={(e) => { if (e.pointerType === 'mouse') setHovered(false); }}
     >
       {children}
-      {card && hovered && <MagnifiedPreview card={card} anchorRef={ref} side="right" />}
+      {card && magnified && <MagnifiedPreview card={card} anchorRef={ref} side="right" />}
     </div>
   );
 }

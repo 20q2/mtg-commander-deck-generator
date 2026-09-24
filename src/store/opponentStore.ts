@@ -19,8 +19,9 @@ import { registerUndoParticipant } from '@/store/undoBridge';
 import { chooseBlocks, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
 import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
+import { EMPTY as NO_EFFECT } from '@/services/playtest/opponents/evaluate';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
-import type { CombatState, Opponent, OpponentPermanent, OpponentZone, StackItem, TurnFrame } from '@/components/playtest/opponentTypes';
+import type { CastZone, CombatState, Opponent, OpponentPermanent, OpponentZone, StackItem, TurnFrame } from '@/components/playtest/opponentTypes';
 import type { BattlefieldCard, CardEdit } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
 
@@ -204,20 +205,31 @@ interface OpponentState {
   actingId: string | null;
   /**
    * The motion in the beat just applied, for the seat to animate: how many
-   * cards the seat drew, and which permanents arrived out of its hand.
+   * cards came off the top of its library, and the permanent it just cast.
    *
-   * Derived by diffing the seat before and after the frame rather than
-   * declared by the engine. The engine describes a turn in terms of what it
-   * decided; the animation needs to know what visibly CHANGED, and the two
-   * stopped agreeing the moment anything could kill a creature mid-turn. A
-   * diff also covers every path for free — land drops, casts, and the tokens
-   * that came from neither.
+   * Read off the FRAME, not off a diff of the seat. This used to be a
+   * subtraction — "their hand got smaller, so they cast something" — and a
+   * hand's size cannot carry that much. It could not see a commander (which
+   * never passes through hand), a reanimation (nor does that), or a cantrip
+   * (one card out, one in, nets to nothing), and it had to special-case tokens
+   * back out because they arrive without a hand ever shrinking. The engine
+   * knows what it cast and what it drew; now it says so.
+   *
+   * `played` is the cast card itself and nothing else. The tokens a spell makes
+   * arrive alongside it and were never in a hand to fly out of.
    *
    * `tick` rather than identity, because two beats in a row can move the same
    * cards — a second copy of the same land — and the seat has to be able to
    * tell "again" from "still".
    */
-  lastBeat: { opponentId: string; drew: number; played: string[]; tick: number } | null;
+  lastBeat: {
+    opponentId: string;
+    drew: number;
+    played: string[];
+    /** Which zone the cast card flies out of. */
+    from: CastZone;
+    tick: number;
+  } | null;
   /** Set while a bot is attacking and waiting on your blocks. */
   combat: CombatState | null;
   /**
@@ -244,6 +256,16 @@ interface OpponentState {
    * offering a second one until `beginTurn` clears this.
    */
   combatDone: boolean;
+  /**
+   * The attack arrow currently being dragged out of one of your creatures, and
+   * the seat it is hovering over (null while it is pointing at open table).
+   *
+   * Purely transient aiming state — it lives here rather than in the card that
+   * owns the gesture because the seat on the other end has to light up, and the
+   * card holds pointer capture for the whole drag so no pointer event ever
+   * reaches the strip.
+   */
+  attackAim: { instanceId: string; opponentId: string | null } | null;
   /**
    * What the bots have aimed at you and not yet resolved, newest last. The turn
    * loop is parked for as long as this is non-empty, so anything here is a
@@ -367,6 +389,8 @@ interface OpponentActions {
   declareAttacker: (opponentId: string, instanceId: string) => void;
   /** Pull a declared attacker back out. Untaps it. */
   undeclareAttacker: (instanceId: string) => void;
+  /** Aiming an attack arrow at a seat, or null once it's let go. */
+  setAttackAim: (aim: { instanceId: string; opponentId: string | null } | null) => void;
   /** Lock the attack in and let every bot choose its blocks. */
   confirmAttack: () => void;
   /**
@@ -461,8 +485,14 @@ function readBotBoard(o: Opponent): PlayerBoardRead {
   };
 }
 
-/** Apply one bot effect to the player's board through the normal move path. */
-function applyEffect(effect: AppliedEffect) {
+/**
+ * Apply one bot effect to the player's board through the normal move path.
+ *
+ * `casterId` is only for the log: the lines this writes are about YOUR board,
+ * but they are things a particular seat did to you, so filtering the log down
+ * to that seat has to keep them.
+ */
+function applyEffect(effect: AppliedEffect, casterId: string) {
   const playtest = usePlaytestStore.getState();
 
   const commanders = new Set(playtest.source?.commanderNames ?? []);
@@ -479,7 +509,7 @@ function applyEffect(effect: AppliedEffect) {
       source: { kind: 'battlefield', instanceId },
       target: { kind: 'zone', zone: toCommand ? 'command' : effect.destination },
     });
-    if (toCommand && hit) playtest.appendLog(`${hit.card.name} returns to the command zone`, 'bot');
+    if (toCommand && hit) playtest.appendLog(`${hit.card.name} returns to the command zone`, 'bot', [casterId]);
   }
 
   if (effect.discard > 0) {
@@ -487,7 +517,7 @@ function applyEffect(effect: AppliedEffect) {
       const hand = usePlaytestStore.getState().zones.hand;
       if (hand.length === 0) break;
       const index = Math.floor(Math.random() * hand.length);
-      playtest.appendLog(`You discard ${hand[index].name}`, 'bot');
+      playtest.appendLog(`You discard ${hand[index].name}`, 'bot', [casterId]);
       playtest.moveCard({
         source: { kind: 'zone', zone: 'hand', index },
         target: { kind: 'zone', zone: 'graveyard' },
@@ -531,6 +561,7 @@ const initial: OpponentState = {
   declaration: null,
   playerCombat: null,
   combatDone: false,
+  attackAim: null,
   stack: [],
 };
 
@@ -567,7 +598,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         pending: s.pending.filter(p => p.key !== key),
       }));
       const playtest = usePlaytestStore.getState();
-      playtest.appendLog(`${stub.name} sat down across from you`, 'bot');
+      playtest.appendLog(`${stub.name} sat down across from you`, 'bot', [opponent.id]);
       // Said out loud rather than swallowed: a deck short a handful of cards
       // plays noticeably worse, and you could not tell that was why.
       if (missing.length > 0) {
@@ -575,7 +606,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         const rest = missing.length > 4 ? ` and ${missing.length - 4} more` : '';
         playtest.appendLog(
           `${stub.name} is missing ${missing.length} card${missing.length === 1 ? '' : 's'}: ${listed}${rest}`,
-          'bot',
+          'bot', [opponent.id],
         );
         set({ error: `${stub.name} sat down without ${missing.length} of its cards — see the log.` });
         playtest.showToast(`${stub.name}: ${missing.length} cards unavailable`);
@@ -598,7 +629,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
   remove: (id) => set(s => {
     const gone = s.opponents.find(o => o.id === id);
-    if (gone) usePlaytestStore.getState().appendLog(`${gone.name} left the table`, 'bot');
+    if (gone) usePlaytestStore.getState().appendLog(`${gone.name} left the table`, 'bot', [id]);
     // A seat takes its unresolved spells with it. Left behind they were items
     // cast by a bot no longer at the table — and if one of them was holding a
     // turn parked, the only way to release it was to answer a spell from a
@@ -617,7 +648,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     set({
       opponents: [], error: null, combat: null, combatPhase: false,
       declaration: null, playerCombat: null, running: false, actingId: null,
-      lastBeat: null, combatDone: false, stack: [],
+      lastBeat: null, combatDone: false, attackAim: null, stack: [],
     });
   },
 
@@ -695,7 +726,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     // Every attacker died or left before you resolved. Nothing to work out, but
     // the turn is still parked on this promise.
     if (attackers.length === 0) {
-      playtest.appendLog(`${combat.opponentName}'s attack came to nothing`, 'bot');
+      playtest.appendLog(`${combat.opponentName}'s attack came to nothing`, 'bot', [combat.opponentId]);
       set(s => ({
         combat: null,
         opponents: s.opponents.map(o => (o.id === combat.opponentId ? clearTempBoosts(o) : o)),
@@ -716,14 +747,14 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       );
       playtest.appendLog(
         `${names.get(id) ?? 'A creature'} died blocking ${killer?.card.name ?? 'an attacker'}`,
-        'bot',
+        'bot', [combat.opponentId],
       );
     }
     for (const id of deadAttackers) {
       float('Dies', 'damage', id);
       slashCard(id);
       const attacker = attackers.find(a => a.instanceId === id);
-      playtest.appendLog(`${attacker?.name ?? 'An attacker'} died in combat`, 'bot');
+      playtest.appendLog(`${attacker?.name ?? 'An attacker'} died in combat`, 'bot', [combat.opponentId]);
     }
 
     for (const id of deadBlockers) {
@@ -742,15 +773,15 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           o.id === combat.opponentId ? sendToGraveyard(o, deadAttackers) : o,
         ),
       }));
-      toll.logs.forEach(line => playtest.appendLog(line, 'bot'));
+      toll.logs.forEach(line => playtest.appendLog(line, 'bot', [combat.opponentId]));
       if (toll.lifeLoss > 0) playtest.adjustLife(-toll.lifeLoss);
     }
 
     if (outcome.damageToDefender > 0) {
-      playtest.appendLog(`You took ${outcome.damageToDefender} from ${combat.opponentName}`, 'bot');
+      playtest.appendLog(`You took ${outcome.damageToDefender} from ${combat.opponentName}`, 'bot', [combat.opponentId]);
       playtest.adjustLife(-outcome.damageToDefender);
     } else {
-      playtest.appendLog(`${combat.opponentName}'s attack dealt no damage`, 'bot');
+      playtest.appendLog(`${combat.opponentName}'s attack dealt no damage`, 'bot', [combat.opponentId]);
     }
 
     // Combat is over, so any until-end-of-turn pump on the attacking seat ends
@@ -778,9 +809,9 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const fizzled = item.effect.destroy.length > 0 && stillThere.length === 0;
 
     if (fizzled) {
-      playtest.appendLog(`${item.name} fizzles — no legal target`, 'bot');
+      playtest.appendLog(`${item.name} fizzles — no legal target`, 'bot', [item.opponentId]);
     } else {
-      applyEffect({ ...item.effect, destroy: stillThere });
+      applyEffect({ ...item.effect, destroy: stillThere }, item.opponentId);
     }
     popStack(item.id);
   },
@@ -790,11 +821,42 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     // stack that resolved bottom-up would be a stack in name only.
     const item = get().stack[get().stack.length - 1];
     if (!item) return;
-    // Nothing to undo on the bot's side: an instant or sorcery was already put
-    // into their graveyard when it was cast, which is where a countered spell
-    // goes anyway. An ETB trigger's body is on their board and stays there,
-    // same as being Stifled.
-    usePlaytestStore.getState().appendLog(`You counter ${item.name}`, 'bot');
+
+    // A permanent spell caught in `everything` mode is already standing on their
+    // board — the beat applies before it parks — so countering it has to take
+    // the body back off. It goes to their graveyard, which is where a countered
+    // spell goes, but NOT through `sendToGraveyard`: that fires death triggers,
+    // and a spell that never resolved never entered the battlefield, so nothing
+    // died. A Midnight Reaper must not draw off a counterspell.
+    //
+    // For everything else there is still nothing to undo on their side: an
+    // instant or sorcery was put into their graveyard as it was cast, and an ETB
+    // trigger's body stays put, same as being Stifled.
+    const arrived = item.arrived ?? [];
+    if (arrived.length > 0) {
+      set(s => ({
+        opponents: s.opponents.map(o => {
+          if (o.id !== item.opponentId) return o;
+          const taken = o.battlefield.filter(p => arrived.includes(p.instanceId));
+          return {
+            ...o,
+            battlefield: o.battlefield.filter(p => !arrived.includes(p.instanceId)),
+            // A token is not a card and has no graveyard to go to, and a
+            // commander countered on the stack goes back to the command zone.
+            graveyard: [
+              ...o.graveyard,
+              ...taken.filter(p => !isTokenCard(p.card) && p.card.name !== o.commanderName).map(p => p.card),
+            ],
+            command: [
+              ...o.command,
+              ...taken.filter(p => p.card.name === o.commanderName).map(p => p.card),
+            ],
+          };
+        }),
+      }));
+    }
+
+    usePlaytestStore.getState().appendLog(`You counter ${item.name}`, 'bot', [item.opponentId]);
     popStack(item.id);
   },
 
@@ -805,7 +867,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
   exitCombat: () => {
     get().discardDeclaration();
-    set({ combatPhase: false });
+    set({ combatPhase: false, attackAim: null });
   },
 
   beginTurn: () => set({ combatDone: false }),
@@ -870,6 +932,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     });
   },
 
+  setAttackAim: (aim) => set({ attackAim: aim }),
+
   discardDeclaration: () => {
     const current = get().declaration;
     if (!current) return;
@@ -916,7 +980,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
       playtest.appendLog(
         `You attack ${opponent.name} with ${attackers.length} creature${attackers.length === 1 ? '' : 's'}`,
-        'bot',
+        'bot', [opponentId],
       );
     }
 
@@ -962,22 +1026,22 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         float('Dies', 'damage', id);
         slashCard(id);
         const c = attackers.find(a => a.instanceId === id);
-        playtest.appendLog(`${c?.name ?? 'A creature'} died attacking ${opponent.name}`, 'bot');
+        playtest.appendLog(`${c?.name ?? 'A creature'} died attacking ${opponent.name}`, 'bot', [opponentId]);
         myDead.push(id);
       }
       for (const id of outcome.deadBlockers) {
         float('Dies', 'damage', id);
         slashCard(id);
         const p = opponent.battlefield.find(b => b.instanceId === id);
-        playtest.appendLog(`${opponent.name}'s ${p?.card.name ?? 'creature'} died blocking`, 'bot');
+        playtest.appendLog(`${opponent.name}'s ${p?.card.name ?? 'creature'} died blocking`, 'bot', [opponentId]);
       }
       theirDead[opponentId] = outcome.deadBlockers;
 
       if (outcome.damageToDefender > 0) {
-        playtest.appendLog(`${opponent.name} took ${outcome.damageToDefender}`, 'bot');
+        playtest.appendLog(`${opponent.name} took ${outcome.damageToDefender}`, 'bot', [opponentId]);
         get().adjustLife(opponentId, -outcome.damageToDefender);
       } else {
-        playtest.appendLog(`Your attack on ${opponent.name} dealt no damage`, 'bot');
+        playtest.appendLog(`Your attack on ${opponent.name} dealt no damage`, 'bot', [opponentId]);
       }
     }
 
@@ -995,7 +1059,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     // Their death triggers are read BEFORE the deaths are applied, off the same
     // resolution the graveyard move uses — a zombie deck chump-blocking your
     // alpha strike bills you for every body it threw in front of you.
-    const tolls = get().opponents.map(o => deathToll(o, theirDead[o.id] ?? []));
+    const tolls = get().opponents.map(o => ({ seatId: o.id, toll: deathToll(o, theirDead[o.id] ?? []) }));
     const settled = new Set(entries.map(([id]) => id));
     set(s => {
       const remaining = Object.fromEntries(
@@ -1013,8 +1077,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       };
     });
 
-    const drained = tolls.reduce((n, t) => n + t.lifeLoss, 0);
-    tolls.flatMap(t => t.logs).forEach(line => playtest.appendLog(line, 'bot'));
+    const drained = tolls.reduce((n, t) => n + t.toll.lifeLoss, 0);
+    tolls.forEach(({ seatId, toll }) => toll.logs.forEach(line => playtest.appendLog(line, 'bot', [seatId])));
     if (drained > 0) playtest.adjustLife(-drained);
   },
 
@@ -1026,7 +1090,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     }));
     // Announced on the crossing only, so nudging a dead bot's life stays quiet.
     if (before && before.life > 0 && before.life + delta <= 0) {
-      usePlaytestStore.getState().appendLog(`${before.name} is defeated`, 'bot');
+      usePlaytestStore.getState().appendLog(`${before.name} is defeated`, 'bot', [id]);
     }
   },
 
@@ -1061,7 +1125,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         : zone === 'exile'     ? 'exile'
         : zone === 'hand'      ? 'hand'
         :                        'top of library';
-        usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} → ${label}`, 'bot');
+        usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} → ${label}`, 'bot', [o.id]);
 
         // Killing it is a death like any other, so it goes through the one helper
         // that knows a commander belongs in the command zone and a token belongs
@@ -1116,7 +1180,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const hit = opp?.battlefield.find(p => p.instanceId === instanceId);
     if (!opp || !hit) return;
     usePlaytestStore.getState().pushCheckpoint();
-    usePlaytestStore.getState().appendLog(`${opp.name}'s ${describeEdit(hit.card.name, edit)}`, 'bot');
+    usePlaytestStore.getState().appendLog(`${opp.name}'s ${describeEdit(hit.card.name, edit)}`, 'bot', [opponentId]);
     set(s => ({
       opponents: s.opponents.map(o =>
         o.id === opponentId
@@ -1139,7 +1203,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     opponents: s.opponents.map(o => {
       if (o.id !== opponentId) return o;
       const hit = o.battlefield.find(p => p.instanceId === instanceId);
-      if (hit) usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} was destroyed`, 'bot');
+      if (hit) usePlaytestStore.getState().appendLog(`${o.name}'s ${hit.card.name} was destroyed`, 'bot', [o.id]);
       return sendToGraveyard(o, [instanceId]);
     }),
   })),
@@ -1166,7 +1230,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       ),
     }));
     usePlaytestStore.getState().appendLog(
-      `${opp.name} discards ${namesOf(discarded)}`, 'bot',
+      `${opp.name} discards ${namesOf(discarded)}`, 'bot', [opponentId],
     );
   },
 
@@ -1192,7 +1256,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       zone === 'exile'
         ? `${opp.name} exiles ${card.name} from their hand`
         : `${opp.name} discards ${card.name}`,
-      'bot',
+      'bot', [opponentId],
     );
   },
 
@@ -1238,7 +1302,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
               : x,
           ),
         }));
-        playtest.appendLog(`${o.name} discards ${namesOf(cards)}`, 'bot');
+        playtest.appendLog(`${o.name} discards ${namesOf(cards)}`, 'bot', [o.id]);
         continue;
       }
 
@@ -1264,10 +1328,10 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           ),
         }));
         if (returned.length > 0) {
-          playtest.appendLog(`${o.name} returns ${namesOf(returned.map(p => p.card))} to hand`, 'bot');
+          playtest.appendLog(`${o.name} returns ${namesOf(returned.map(p => p.card))} to hand`, 'bot', [o.id]);
         }
         if (vanished.length > 0) {
-          playtest.appendLog(`${o.name}'s ${namesOf(vanished.map(p => p.card))} ceases to exist`, 'bot');
+          playtest.appendLog(`${o.name}'s ${namesOf(vanished.map(p => p.card))} ceases to exist`, 'bot', [o.id]);
         }
         continue;
       }
@@ -1279,8 +1343,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       ids.forEach(id => { float('Dies', 'damage', id); slashCard(id); });
       const toll = deathToll(o, ids);
       set(s => ({ opponents: s.opponents.map(x => (x.id === o.id ? sendToGraveyard(x, ids) : x)) }));
-      playtest.appendLog(`${o.name} sacrifices ${namesOf(gone.map(p => p.card))}`, 'bot');
-      toll.logs.forEach(line => playtest.appendLog(line, 'bot'));
+      playtest.appendLog(`${o.name} sacrifices ${namesOf(gone.map(p => p.card))}`, 'bot', [o.id]);
+      toll.logs.forEach(line => playtest.appendLog(line, 'bot', [o.id]));
       if (toll.lifeLoss > 0) playtest.adjustLife(-toll.lifeLoss);
     }
   },
@@ -1305,7 +1369,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     }));
     usePlaytestStore.getState().appendLog(
       `${opp.name} ${zone === 'exile' ? 'exiles' : 'mills'} ${moved.length} card${moved.length === 1 ? '' : 's'}: ${namesOf(moved)}`,
-      'bot',
+      'bot', [opponentId],
     );
     // Not `decked`: that flag means "tried to draw and couldn't", and it is set
     // where the draw happens. An empty library is only a loss on the next draw.
@@ -1345,7 +1409,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     }));
     usePlaytestStore.getState().appendLog(
       `${opp.name}'s ${card.name} → ${zone === 'exile' ? 'exile' : 'graveyard'} from their library`,
-      'bot',
+      'bot', [opponentId],
     );
   },
 
@@ -1358,7 +1422,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         o.id === opponentId ? { ...o, library: fisherYates(o.library) } : o,
       ),
     }));
-    usePlaytestStore.getState().appendLog(`${opp.name} shuffles their library`, 'bot');
+    usePlaytestStore.getState().appendLog(`${opp.name} shuffles their library`, 'bot', [opponentId]);
   },
 
   exileGraveyard: (opponentId) => {
@@ -1372,7 +1436,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       ),
     }));
     usePlaytestStore.getState().appendLog(
-      `${opp.name}'s graveyard is exiled (${count} card${count === 1 ? '' : 's'})`, 'bot',
+      `${opp.name}'s graveyard is exiled (${count} card${count === 1 ? '' : 's'})`, 'bot', [opponentId],
     );
   },
 
@@ -1390,7 +1454,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     }));
     usePlaytestStore.getState().appendLog(
       `${opp.name} shuffles ${count} card${count === 1 ? '' : 's'} from their graveyard into their library`,
-      'bot',
+      'bot', [opponentId],
     );
   },
 
@@ -1448,19 +1512,19 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       if (blocked.length > 0) {
         playtest.appendLog(
           `${defender.name} blocks with ${blocked.length} creature${blocked.length === 1 ? '' : 's'}`,
-          'bot',
+          'bot', [attacker.id, defenderId],
         );
       }
 
       const outcome = resolveDamage(attackers, blocks);
       for (const id of outcome.deadAttackers) {
         const c = attackers.find(a => a.instanceId === id);
-        playtest.appendLog(`${attacker.name}'s ${c?.name ?? 'creature'} died attacking ${defender.name}`, 'bot');
+        playtest.appendLog(`${attacker.name}'s ${c?.name ?? 'creature'} died attacking ${defender.name}`, 'bot', [attacker.id, defenderId]);
         slashCard(id);
       }
       for (const id of outcome.deadBlockers) {
         const c = pool.find(b => b.instanceId === id);
-        playtest.appendLog(`${defender.name}'s ${c?.name ?? 'creature'} died blocking`, 'bot');
+        playtest.appendLog(`${defender.name}'s ${c?.name ?? 'creature'} died blocking`, 'bot', [attacker.id, defenderId]);
         slashCard(id);
       }
 
@@ -1476,14 +1540,14 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       if (outcome.damageToDefender > 0) {
         playtest.appendLog(
           `${defender.name} took ${outcome.damageToDefender} from ${attacker.name}`,
-          'bot',
+          'bot', [attacker.id, defenderId],
         );
         get().adjustLife(defenderId, -outcome.damageToDefender);
       } else {
         // Say so. A fight that logged its blocks and then went quiet read as
         // an unfinished sentence — you could not tell whether it was still
         // being worked out or had simply bounced off.
-        playtest.appendLog(`${attacker.name}'s attack on ${defender.name} dealt no damage`, 'bot');
+        playtest.appendLog(`${attacker.name}'s attack on ${defender.name} dealt no damage`, 'bot', [attacker.id, defenderId]);
       }
     };
 
@@ -1491,7 +1555,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
      * An effect aimed at another seat. Both sides are bots, so it applies
      * at once — your stack is for things aimed at you.
      */
-    const applyRivalEffect = (e: AppliedEffect, casterName: string) => {
+    const applyRivalEffect = (e: AppliedEffect, caster: Opponent) => {
       const playtest = usePlaytestStore.getState();
       const seatId = e.target!.seatId;
       const rival = get().opponents.find(o => o.id === seatId);
@@ -1514,11 +1578,11 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           // its creature die), which is what deathToll returns.
           const toll = deathToll(rival, ids);
           set(s => ({ opponents: s.opponents.map(o => (o.id === seatId ? sendToGraveyard(o, ids) : o)) }));
-          toll.logs.forEach(line => playtest.appendLog(line, 'bot'));
+          toll.logs.forEach(line => playtest.appendLog(line, 'bot', [seatId]));
           if (toll.lifeLoss > 0) playtest.adjustLife(-toll.lifeLoss);
         }
         const names = rival.battlefield.filter(p => ids.includes(p.instanceId)).map(p => p.card.name);
-        playtest.appendLog(`${casterName} ${e.destination === 'exile' ? 'exiles' : 'destroys'} ${rival.name}'s ${names.join(', ')}`, 'bot');
+        playtest.appendLog(`${caster.name} ${e.destination === 'exile' ? 'exiles' : 'destroys'} ${rival.name}'s ${names.join(', ')}`, 'bot', [caster.id, seatId]);
       }
       if (e.lifeLoss > 0) get().adjustLife(seatId, -e.lifeLoss);
       // Discard against a hidden hand is not modelled; the bot's own tutor and
@@ -1526,31 +1590,52 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     };
 
     /**
-     * Park the turn on one beat's effects.
+     * Park the turn on one beat.
      *
      * Holding priority is the default: the item waits until you resolve or
      * counter it, and everything you do in the meantime — untapping a land,
      * dropping a counterspell into your graveyard — is a normal move on your
      * own board, which is why nothing here has to model a response.
+     *
+     * `plain` is the `everything` mode's case: a spell that never touched your
+     * board, on the stack purely so you get a window. It carries the permanents
+     * it put on the bot's side, because countering one has to take them back
+     * off — otherwise "counter" would be a button that logs a sentence.
      */
-    const putOnStack = async (f: TurnFrame, step: number) => {
-      const items: StackItem[] = f.effects.map(effect => ({
-        id: makeInstanceId(),
-        opponentId: f.opponent.id,
-        opponentName: f.opponent.name,
-        effect,
-        card: f.source?.card,
-        name: f.source?.name ?? f.blurb ?? f.opponent.name,
-        kind: f.source?.kind ?? 'spell',
-        label: f.source?.label ?? 'Resolves',
-      }));
+    const putOnStack = async (
+      f: TurnFrame,
+      step: number,
+      plain?: { arrived: string[]; card?: ScryfallCard },
+    ) => {
+      const items: StackItem[] = plain
+        ? [{
+            id: makeInstanceId(),
+            opponentId: f.opponent.id,
+            opponentName: f.opponent.name,
+            effect: NO_EFFECT,
+            arrived: plain.arrived,
+            card: plain.card,
+            name: f.blurb ?? f.opponent.name,
+            kind: 'spell',
+            label: plain.arrived.length > 0 ? 'Enters their board' : 'Resolves',
+          }]
+        : f.effects.map(effect => ({
+            id: makeInstanceId(),
+            opponentId: f.opponent.id,
+            opponentName: f.opponent.name,
+            effect,
+            card: f.source?.card,
+            name: f.source?.name ?? f.blurb ?? f.opponent.name,
+            kind: f.source?.kind ?? 'spell',
+            label: f.source?.label ?? 'Resolves',
+          }));
       set(s => ({ stack: [...s.stack, ...items] }));
 
-      if (!usePlaytestSettings.getState().stackHold) {
+      if (usePlaytestSettings.getState().stackMode === 'auto') {
         // Auto-pass: hold it long enough to read, then let it through.
         await pause(Math.max(STEP_MS, step));
         if (!mine()) return;
-        for (const item of items) applyEffect(item.effect);
+        for (const item of items) applyEffect(item.effect, item.opponentId);
         set(s => ({ stack: s.stack.filter(x => !items.some(i => i.id === x.id)) }));
         return;
       }
@@ -1563,18 +1648,30 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
     try {
       /**
-       * What changed on a seat across one beat: cards drawn, and the permanents that arrived.
-       * Shared by the flight animation below and the bot sound cues, which have different
-       * appetites — the flights are suppressed when animations are off, the sounds are not.
+       * What is worth animating about one beat, read off the frame the engine
+       * produced. Shared by the flight animation and the bot sound cues, which
+       * have different appetites — the flights are suppressed when animations
+       * are off, the sounds are not.
+       *
+       * `arrivalsIn` still does the work of finding the body, because only the
+       * store knows which instance ids are new to the board; the frame is what
+       * says a cast happened at all, and which card it was.
        */
-      const beatDiff = (before: Opponent, after: Opponent) => ({
-        drew: Math.max(0, after.hand.length - before.hand.length),
-        played: after.hand.length < before.hand.length
-          ? after.battlefield
-              .filter(p => !before.battlefield.some(q => q.instanceId === p.instanceId))
-              .map(p => p.instanceId)
-          : [],
-      });
+      const beatMotion = (f: TurnFrame, before: Opponent, after: Opponent) => {
+        const moved = f.moved;
+        return {
+          drew: f.drew ?? 0,
+          // The card that moved, and only it. A Secure the Wastes arrives as
+          // four Warriors and the spell itself is in the graveyard, so nothing
+          // on the board flies out of their hand.
+          played: moved
+            ? arrivalsIn(before, after).filter(id =>
+                after.battlefield.find(p => p.instanceId === id)?.card.name === moved.card.name,
+              )
+            : [],
+          from: moved?.from ?? 'hand',
+        };
+      };
 
       /**
        * Hand the seat the two things worth animating: a draw, and a card
@@ -1588,14 +1685,27 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
        * lands at once, and a queue of flights for beats that already happened
        * is worse than none.
        */
-      const publishBeat = (before: Opponent, after: Opponent) => {
-        const { drew, played } = beatDiff(before, after);
-        if (drew === 0 && played.length === 0) return;
+      /**
+       * Every permanent that appeared on a seat's board across one beat,
+       * whatever zone it came from. Deliberately wider than `beatDiff.played`,
+       * which only counts the ones that flew out of the HAND because that is
+       * what the flight animation can draw — a commander has no hand card to
+       * fly from, but countering it still has to take it back off the board.
+       */
+      const arrivalsIn = (before: Opponent, after: Opponent) =>
+        after.battlefield
+          .filter(p => !before.battlefield.some(q => q.instanceId === p.instanceId))
+          .map(p => p.instanceId);
+
+      const publishBeat = (
+        motion: ReturnType<typeof beatMotion>,
+        after: Opponent,
+      ) => {
+        if (motion.drew === 0 && motion.played.length === 0) return;
         set(st => ({
           lastBeat: {
             opponentId: after.id,
-            drew,
-            played,
+            ...motion,
             tick: (st.lastBeat?.tick ?? 0) + 1,
           },
         }));
@@ -1681,17 +1791,17 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           set(s => ({
             opponents: s.opponents.map(o => (o.id === f.opponent.id ? after : o)),
           }));
-          if (before && animate) publishBeat(before, after);
+          const motion = before ? beatMotion(f, before, after) : null;
+          if (motion && animate) publishBeat(motion, after);
           // The seat's own quiet cues, at half gain — enough to know a bot did something without
           // it competing with your hands. Deliberately outside the `animate` gate: turning off
           // card flights asks for less motion, not for the table to go silent, and the blurb
           // below plays either way.
-          if (before) {
-            const { drew, played } = beatDiff(before, after);
-            if (drew > 0) playCue('draw', BOT_GAIN);
-            if (played.length > 0) playCue('land', BOT_GAIN);
+          if (motion) {
+            if (motion.drew > 0) playCue('draw', BOT_GAIN);
+            if (motion.played.length > 0) playCue('land', BOT_GAIN);
           }
-          f.logs.forEach(line => usePlaytestStore.getState().appendLog(line, 'bot'));
+          f.logs.forEach(line => usePlaytestStore.getState().appendLog(line, 'bot', [f.opponent.id]));
           // Narrate the play off the bot's lane, so you can follow the turn
           // without reading the log.
           if (f.blurb) useFloatingText.getState().float(f.blurb, 'neutral', `opp-lane-${f.opponent.id}`);
@@ -1701,11 +1811,31 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           // record of what hit you either way.
           const toRivals = f.effects.filter(e => e.target);
           const toYou = f.effects.filter(e => !e.target);
-          for (const e of toRivals) applyRivalEffect(e, f.opponent.name);
+          for (const e of toRivals) applyRivalEffect(e, f.opponent);
           if (toYou.length > 0) {
             await putOnStack({ ...f, effects: toYou }, step);
-            if (!mine()) return false;
+          } else if (usePlaytestSettings.getState().stackMode === 'everything' && f.moved?.onStack && before) {
+            // Nothing was aimed at you, but you asked for a window on everything
+            // they cast. The engine marks which beats used the stack — see
+            // TurnFrame.moved — because no diff of the seat can tell a cast from
+            // a land drop, a draw or the cleanup discard.
+            await putOnStack({ ...f, effects: [] }, step, {
+              // Whatever the cast put on their board, so countering it can take
+              // the body back off — their commander included.
+              arrived: arrivalsIn(before, after),
+              card: f.moved.card,
+            });
           }
+          // Anything of theirs that is gone now, having been there when the beat
+          // landed, left while YOU held priority — you countered the spell that
+          // put it there, or answered it off their board by hand. The remaining
+          // frames are snapshots the engine planned before any of that happened,
+          // so without this the next beat stands it right back up: a countered
+          // commander was on their board again one beat later.
+          noteCasualties(after);
+          // Either branch can have parked for a long time — the table may have
+          // been thrown away while it waited.
+          if (!mine()) return false;
           // Damage from the bot's own triggers, billed per beat.
           if (f.selfDamage) usePlaytestStore.getState().adjustLife(-f.selfDamage);
 
@@ -1757,7 +1887,15 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         // anything that died while the turn was being played out.
         set(s => ({ opponents: s.opponents.map(o => (o.id === final.id ? correct(final) : o)) }));
       }
-      return mine();
+      // Every seat has played and the turn is yours again. This is the one cue meant to be
+      // noticed rather than felt: with three seats and animations on, a full table takes long
+      // enough that you go and look at something else, and nothing else here says you can act.
+      //
+      // Nothing when `mine()` is false: the game was reset or left while the table was playing,
+      // so there is no turn to come back to.
+      if (!mine()) return false;
+      playCue('yourTurn');
+      return true;
     } finally {
       set({ running: false, actingId: null });
     }
@@ -1782,7 +1920,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           : o,
       ),
     }));
-    usePlaytestStore.getState().appendLog(`You took ${permanent.card.name} from ${opponent.name}`, 'bot');
+    usePlaytestStore.getState().appendLog(`You took ${permanent.card.name} from ${opponent.name}`, 'bot', [opponentId]);
     return permanent;
   },
 
@@ -1808,7 +1946,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           : o,
       ),
     }));
-    usePlaytestStore.getState().appendLog(`${card.name} went to ${opponent.name}`, 'bot');
+    usePlaytestStore.getState().appendLog(`${card.name} went to ${opponent.name}`, 'bot', [opponentId]);
   },
 
   resetAll: () => set(s => {
@@ -1825,6 +1963,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       playerCombat: null,
       combatPhase: false,
       combatDone: false,
+      attackAim: null,
       combat: null,
       running: false,
       actingId: null,

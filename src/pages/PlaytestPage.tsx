@@ -35,6 +35,7 @@ import { GameOutcomeBanner } from '@/components/playtest/GameOutcomeBanner';
 import { FloatingTextLayer } from '@/components/playtest/FloatingTextLayer';
 import { CardFlightLayer } from '@/components/playtest/CardFlight';
 import { CardSlashLayer } from '@/components/playtest/CardSlashLayer';
+import { AttackArrowLayer } from '@/components/playtest/AttackArrowLayer';
 import { trackEvent } from '@/services/analytics';
 import { usePlaytestHotkeys } from '@/components/playtest/hooks/useHotkeys';
 import { useTableSounds } from '@/components/playtest/hooks/useTableSounds';
@@ -857,6 +858,7 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
         <CardSlashLayer />
         <FloatingTextLayer />
       <CardFlightLayer />
+      <AttackArrowLayer />
       </div>
       <DragOverlay dropAnimation={null} zIndex={9999} modifiers={[centerCreateOnCursor]}>
         {activeCard && !stackedDrag ? (

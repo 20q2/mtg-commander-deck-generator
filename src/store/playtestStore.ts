@@ -277,7 +277,8 @@ interface PlaytestActions {
   setHoveredHandIndex: (index: number | null) => void;
   setTrialPins: (pins: TrialPin[]) => void;
 
-  appendLog: (text: string, category?: LogCategory) => void;
+  /** `seats` names the opponent seats the line is about — see LogEntry.seats. */
+  appendLog: (text: string, category?: LogCategory, seats?: string[]) => void;
   clearLog: () => void;
   /**
    * Flash a short message at the top of the table. For the moments where an
@@ -456,8 +457,8 @@ function pushHistory(history: PlaytestSnapshot[], snap: PlaytestSnapshot): Playt
   return next;
 }
 
-function makeLogEntry(text: string, category: LogCategory = 'system'): LogEntry {
-  return { id: makeInstanceId(), ts: Date.now(), text, category };
+function makeLogEntry(text: string, category: LogCategory = 'system', seats?: string[]): LogEntry {
+  return { id: makeInstanceId(), ts: Date.now(), text, category, ...(seats?.length ? { seats } : {}) };
 }
 
 /**
@@ -1595,7 +1596,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     )],
   })),
 
-  appendLog: (text, category = 'system') => set(state => ({ log: [...state.log, makeLogEntry(text, category)] })),
+  appendLog: (text, category = 'system', seats) => set(state => ({ log: [...state.log, makeLogEntry(text, category, seats)] })),
   clearLog: () => set({ log: [] }),
   showToast: (text) => set(state => ({
     // The tick is what re-triggers the display, so a repeated message still shows.
@@ -1603,8 +1604,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   })),
 
   addFreeCounter: (color = 'emerald', position) => set(state => {
-    const cx = position ? Math.round(position.x - 22) : Math.floor(state.battlefieldRect.width / 2 - 22);
-    const cy = position ? Math.round(position.y - 22) : Math.floor(state.battlefieldRect.height / 2 - 22);
+    const canvas = canvasRect(state);
+    const cx = position ? Math.round(position.x - 22) : Math.floor(canvas.width / 2 - 22);
+    const cy = position ? Math.round(position.y - 22) : Math.floor(canvas.height / 2 - 22);
     return {
       freeCounters: [
         ...state.freeCounters,
@@ -1637,8 +1639,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   })),
 
   addFreeDie: (sides, position, color = 'blue') => set(state => {
-    const cx = position?.x ?? Math.floor(state.battlefieldRect.width / 2 - 22);
-    const cy = position?.y ?? Math.floor(state.battlefieldRect.height / 2 - 22);
+    const canvas = canvasRect(state);
+    const cx = position?.x ?? Math.floor(canvas.width / 2 - 22);
+    const cy = position?.y ?? Math.floor(canvas.height / 2 - 22);
     const initial = 1 + Math.floor(Math.random() * sides);
     return {
       freeDice: [
