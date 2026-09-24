@@ -13,6 +13,7 @@ export function TokenSpawnModal() {
   const battlefield = usePlaytestStore(s => s.battlefield);
   const closeModal = usePlaytestStore(s => s.closeModal);
   const spawnToken = usePlaytestStore(s => s.spawnToken);
+  const showToast = usePlaytestStore(s => s.showToast);
 
   const [tokens, setTokens] = useState<ScryfallCard[]>([]);
   const [source, setSource] = useState<'deck' | 'color'>('deck');
@@ -105,7 +106,12 @@ export function TokenSpawnModal() {
               <TokenTile
                 key={t.id}
                 token={t}
-                onSpawn={() => { spawnToken(t); closeModal(); }}
+                // The dialog stays up. Making tokens comes in runs — three
+                // Soldiers, then a Treasure — and closing after each one meant
+                // reopening and re-filtering to do the obvious next thing. The
+                // toast is what tells you it landed, since the dialog may well
+                // be sitting over the spot the token arrived in.
+                onSpawn={() => { spawnToken(t); showToast(`${t.name} token created`); }}
               />
             ))}
           </div>

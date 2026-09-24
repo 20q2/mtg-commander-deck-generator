@@ -310,7 +310,11 @@ export function PlaytestPage({ kind }: { kind: 'list' | 'generated' | 'pasted' }
     let tapped = false;
     if (moveSource.kind === 'zone') {
       card = state.zones[moveSource.zone][moveSource.index];
-      if (moveSource.zone === 'library') faceDown = true;
+      // Only the top card is revealed, and only while that mode is on — a card
+      // dragged out of the middle of the library is still a card back.
+      if (moveSource.zone === 'library') {
+        faceDown = !(state.libraryRevealed && moveSource.index === 0);
+      }
       setActiveBfCard(null);
     } else {
       const bf = state.battlefield.find(b => b.instanceId === moveSource.instanceId);

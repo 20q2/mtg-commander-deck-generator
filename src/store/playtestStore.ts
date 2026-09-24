@@ -54,6 +54,14 @@ interface PlaytestState {
    * cast, so guessing it would be wrong exactly when it mattered.
    */
   commanderTax: number;
+  /**
+   * Future Sight / Oracle of Mul Daya: play with the top card of your library
+   * turned face up. A mode rather than a one-off action, so it lives in game
+   * state and the library pile renders its top card face up for as long as
+   * it's on. Left out of snapshotOf() on purpose — undoing a draw shouldn't
+   * also un-reveal the deck, since nothing you undo turned it on.
+   */
+  libraryRevealed: boolean;
   log: LogEntry[];
   history: PlaytestSnapshot[];
   modal: Modal;
@@ -200,6 +208,8 @@ interface PlaytestActions {
   adjustLife: (delta: number) => void;
   /** Step commander tax by `delta` mana. Clamped at zero. */
   adjustCommanderTax: (delta: number) => void;
+  /** Turn the top card of the library face up (and back down again). */
+  toggleLibraryRevealed: () => void;
   nextTurn: () => void;
 
   moveCard: (args: MoveArgs) => void;
@@ -354,6 +364,7 @@ const initial: PlaytestState = {
   life: STARTING_LIFE,
   turn: 1,
   commanderTax: 0,
+  libraryRevealed: false,
   log: [],
   history: [],
   modal: null,
@@ -823,6 +834,21 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       history: pushHistory(state.history, snapshotOf(state)),
       commanderTax,
       log: [...state.log, makeLogEntry(`Commander tax is +${commanderTax}`, 'system')],
+    };
+  }),
+
+  // No history push: this changes what you can see, not what's on the table,
+  // and an undo that flipped the deck back over would look like a bug.
+  toggleLibraryRevealed: () => set(state => {
+    const libraryRevealed = !state.libraryRevealed;
+    return {
+      libraryRevealed,
+      log: [...state.log, makeLogEntry(
+        libraryRevealed
+          ? 'Playing with the top card of your library revealed'
+          : 'The top card of your library is face down again',
+        'system',
+      )],
     };
   }),
 

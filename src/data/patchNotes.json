@@ -1,5 +1,11 @@
 [
   {
+    "version": "1.3.40",
+    "notes": [
+      "Various playtester improvements"
+    ]
+  },
+  {
     "version": "1.3.39",
     "notes": [
       "A new and large undertaking... Play a real game against bot opponents in the playtest! This feature is still rather early in development, so feedback would be much appreciated!",      

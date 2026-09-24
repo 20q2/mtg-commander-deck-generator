@@ -39,6 +39,20 @@ export interface AppliedEffect {
   destroy: string[];
   destination: 'graveyard' | 'exile';
   lifeLoss: number;
+  /**
+   * Life the CASTER gains — credited by the store to the seat that cast this,
+   * never to the board it landed on.
+   *
+   * A drain is two events in one sentence: "each opponent loses X life AND YOU
+   * GAIN THAT MUCH". Only the loss was modelled, which quietly turned every
+   * Gray Merchant, Plague Belcher and Scarab God into a damage spell — a bot
+   * could drain you for eight from four life and still be at four.
+   *
+   * Separate from `lifeLoss` because the two are not the same number on every
+   * card, and because the loss is billed to the victim while this is paid to
+   * someone who may not be on the board the effect hit.
+   */
+  lifeGain?: number;
   /** Cards to discard at random from the player's hand. */
   discard: number;
   /**
@@ -70,7 +84,14 @@ export function describeEffect(effect: AppliedEffect, target: string): string {
   if (effect.discard > 0) {
     return `You discard ${effect.discard} card${effect.discard > 1 ? 's' : ''}`;
   }
-  if (effect.lifeLoss > 0) return `You lose ${effect.lifeLoss} life`;
+  if (effect.lifeLoss > 0) {
+    // Naming the gain matters on the stack: whether to counter a Gray Merchant
+    // is a different question at 12 life against a bot on 3 than it is if the
+    // swing is one-way.
+    return effect.lifeGain
+      ? `You lose ${effect.lifeLoss} life, they gain ${effect.lifeGain}`
+      : `You lose ${effect.lifeLoss} life`;
+  }
   return 'No effect';
 }
 
@@ -208,7 +229,10 @@ export function resolveEffect(
       // A scaled drain with nothing to count does nothing, and a bot should not
       // pay for it — an upkeep Scarab God trigger on an empty board is silent.
       if (amount <= 0) return null;
-      return { effect: { ...EMPTY, lifeLoss: amount }, target: 'you' };
+      // Both halves. What separates a drain from `damage` above is precisely
+      // that the caster gains it back, so the two cases would otherwise be the
+      // same code — and for a while they were the same behaviour.
+      return { effect: { ...EMPTY, lifeLoss: amount, lifeGain: amount }, target: 'you' };
     }
     case 'discard':
       if (board.handSize === 0) return null;

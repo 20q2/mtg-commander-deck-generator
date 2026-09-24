@@ -1,6 +1,6 @@
-import { keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
+import { resolveDamage, type Combatant } from '@/services/playtest/combat';
+import { playerCombatant } from '@/services/playtest/opponents/combatants';
 import { botKeywords, botPower, botToughness } from '@/services/playtest/opponents/stats';
-import { resolvePT } from '@/services/playtest/powerToughness';
 import type { Attacker, CombatState, Opponent } from '@/components/playtest/opponentTypes';
 import type { BattlefieldCard } from '@/components/playtest/types';
 
@@ -32,20 +32,6 @@ export interface IncomingCombat {
   blocks: Record<string, Combatant[]>;
   /** Names of the blocking creatures, for the death log lines. */
   blockerNames: Map<string, string>;
-}
-
-/** Flatten one of the player's battlefield cards, reading live P/T. */
-function playerCombatant(b: BattlefieldCard): Combatant {
-  const [p, t] = (resolvePT(b)?.modified ?? '0/0').split('/');
-  const power = parseInt(p, 10);
-  const toughness = parseInt(t, 10);
-  return {
-    instanceId: b.instanceId,
-    name: b.card.name,
-    power: Number.isNaN(power) ? 0 : power,
-    toughness: Number.isNaN(toughness) ? 0 : toughness,
-    keywords: keywordsOf(b.card, b.edit),
-  };
 }
 
 export function readIncomingCombat(

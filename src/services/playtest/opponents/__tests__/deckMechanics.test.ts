@@ -288,7 +288,7 @@ describe('devotion', () => {
     name: 'Gray Merchant of Asphodel', cmc: 5, mana_cost: '{3}{B}{B}',
     power: '2', toughness: '4', type_line: 'Creature — Zombie',
   });
-  const drainFrom = (extra: OpponentPermanent[]) => {
+  const drainEffects = (extra: OpponentPermanent[]) => {
     const { frames } = takeTurn(
       {
         ...bot({
@@ -301,8 +301,10 @@ describe('devotion', () => {
       },
       board(),
     );
-    return frames.flatMap(f => f.effects).reduce((n, e) => n + e.lifeLoss, 0);
+    return frames.flatMap(f => f.effects);
   };
+  const drainFrom = (extra: OpponentPermanent[]) =>
+    drainEffects(extra).reduce((n, e) => n + e.lifeLoss, 0);
 
   // Gray Merchant is on the battlefield when its own trigger resolves, so the
   // floor is the 2 its own {3}{B}{B} is worth — never 0, and never a flat 2
@@ -323,6 +325,18 @@ describe('devotion', () => {
       perm(card({ name: 'Rock', type_line: 'Artifact', mana_cost: '{2}' })),
       perm(card({ name: 'Elf', mana_cost: '{G}{G}' })),
     ])).toBe(2);
+  });
+
+  // The other half of the card — "each opponent loses X life AND YOU GAIN THAT
+  // MUCH". Only the loss was modelled, so a bot could drain you for five from
+  // four life and still be on four: the card that most often steals a game was
+  // playing as a worse Lava Spike.
+  it('pays the drain back to the caster as life', () => {
+    const effects = drainEffects([perm(card({ name: 'Two Pips', mana_cost: '{B}{B}' }))]);
+    const loss = effects.reduce((n, e) => n + e.lifeLoss, 0);
+    const gain = effects.reduce((n, e) => n + (e.lifeGain ?? 0), 0);
+    expect(loss).toBe(4);
+    expect(gain).toBe(loss);
   });
 });
 

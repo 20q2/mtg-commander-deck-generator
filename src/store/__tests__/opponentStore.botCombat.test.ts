@@ -92,6 +92,31 @@ describe('runAllTurns across seats', () => {
     // Allowed anyway — it's a sandbox — so the declaration still lands.
     expect(useOpponentStore.getState().declaration?.A).toEqual(['g1']);
   });
+  it('a Gray Merchant both bills you and heals the seat that cast it', async () => {
+    const swamps = Array.from({ length: 5 }, () =>
+      perm(card({ name: 'Swamp', type_line: 'Basic Land — Swamp', cmc: 0 })));
+    const gary = card({
+      name: 'Gray Merchant of Asphodel', cmc: 5, mana_cost: '{3}{B}{B}',
+      power: '2', toughness: '4', type_line: 'Creature — Zombie',
+    });
+    const seat = bot({
+      id: 'A', name: 'Seat A', life: 30, resistance: true, turnsTaken: 5,
+      battlefield: swamps, hand: [gary], library: [card({ name: 'Filler' })],
+    });
+    // 'auto' so the drain resolves inside the await instead of parking on a
+    // stack nobody is here to answer — this is about what lands, not priority.
+    usePlaytestSettings.setState({ animations: false, stackMode: 'auto' });
+    usePlaytestStore.setState({ life: 40 });
+    useOpponentStore.setState({ opponents: [seat], stack: [] });
+
+    await useOpponentStore.getState().runAllTurns();
+
+    // Devotion 2, off the Merchant's own {3}{B}{B}: basics have no pips.
+    expect(usePlaytestStore.getState().life).toBe(38);
+    expect(useOpponentStore.getState().opponents.find(o => o.id === 'A')!.life).toBe(32);
+    expect(usePlaytestStore.getState().log.map(l => l.text)).toContain('Seat A gains 2 life');
+  });
+
   it('a bot effect aimed at a rival lands on that rival, not on your stack', async () => {
     const murder = card({ name: 'Murder', type_line: 'Instant', cmc: 3 });
     const fatty = perm(card({ name: 'Fatty', cmc: 6, power: '6', toughness: '6' }));

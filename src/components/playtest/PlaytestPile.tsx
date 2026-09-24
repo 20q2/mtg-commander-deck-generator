@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Sparkles, BookOpen, Trash2, Crown, Shuffle, Minus, Plus } from 'lucide-react';
+import { Sparkles, BookOpen, Trash2, Crown, Shuffle, Minus, Plus, Eye } from 'lucide-react';
 import { useDroppable, useDraggable } from '@dnd-kit/core';
 import { Button } from '@/components/ui/button';
 import { usePlaytestStore } from '@/store/playtestStore';
@@ -42,6 +42,8 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
   const draw = usePlaytestStore(s => s.draw);
   const shuffle = usePlaytestStore(s => s.shuffle);
   const shuffleTick = usePlaytestStore(s => s.shuffleTick);
+  const libraryRevealed = usePlaytestStore(s => s.libraryRevealed);
+  const toggleLibraryRevealed = usePlaytestStore(s => s.toggleLibraryRevealed);
   const libraryTopPushTick = usePlaytestStore(s => s.libraryTopPushTick);
   const libraryDrawTick = usePlaytestStore(s => s.libraryDrawTick);
   const animations = usePlaytestSettings(s => s.animations);
@@ -105,6 +107,11 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
     disabled: cards.length === 0,
   });
   const top = cards[0];
+  // Future Sight mode turns the library's top card over. Every image on this
+  // pile reads `faceUp` rather than `spec.faceUp` so the card under a drag and
+  // the card sliding in on a push turn over with it — whatever ends up on top
+  // is the card that's revealed.
+  const faceUp = spec.faceUp || (spec.zone === 'library' && libraryRevealed);
   // While a push animates, render the base image from the frozen previous top
   // (undefined for first-card-into-empty-pile so the Icon shows behind).
   const baseTop = pushAnim ? animState.frozenTop : top;
@@ -112,7 +119,7 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
   const imgRef = useRef<HTMLDivElement | null>(null);
   const [hovered, setHovered] = useState(false);
   const magnified = useMagnifyHover(hovered);
-  const showPreview = magnified && spec.faceUp && top && !drag.isDragging;
+  const showPreview = magnified && faceUp && top && !drag.isDragging;
 
   const onClickPile = () => {
     if (cards.length === 0) return;
@@ -175,7 +182,7 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
           <>
           {drag.isDragging && cards.length > 1 && (
             <img
-              src={spec.faceUp ? getCardImageUrl(cards[1], 'small') : `${import.meta.env.BASE_URL}card-back.png`}
+              src={faceUp ? getCardImageUrl(cards[1], 'small') : `${import.meta.env.BASE_URL}card-back.png`}
               alt=""
               aria-hidden
               className="absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[6px]"
@@ -190,8 +197,8 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
           >
             {baseTop && (
               <img
-                src={spec.faceUp ? getCardImageUrl(baseTop, 'small') : `${import.meta.env.BASE_URL}card-back.png`}
-                alt={spec.faceUp ? baseTop.name : spec.label}
+                src={faceUp ? getCardImageUrl(baseTop, 'small') : `${import.meta.env.BASE_URL}card-back.png`}
+                alt={faceUp ? baseTop.name : spec.label}
                 className="w-full h-full object-cover pointer-events-none"
                 draggable={false}
               />
@@ -199,7 +206,7 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
             {pushAnim && (
               <img
                 key={pushAnim.tick}
-                src={spec.faceUp ? getCardImageUrl(top, 'small') : `${import.meta.env.BASE_URL}card-back.png`}
+                src={faceUp ? getCardImageUrl(top, 'small') : `${import.meta.env.BASE_URL}card-back.png`}
                 alt=""
                 aria-hidden
                 className={`absolute inset-0 w-full h-full object-cover pointer-events-none rounded-[6px] shadow-lg ${pushAnim.isFirst ? 'animate-soft-in' : 'animate-deal-in'}`}
@@ -245,6 +252,24 @@ export function PlaytestPile({ spec }: { spec: PileSpec }) {
           onClick={(e) => { e.stopPropagation(); shuffle(); }}
         >
           <Shuffle />
+        </Button>
+      )}
+      {/* A face-up library is unusual enough that it needs saying why: the eye
+          marks it as the deliberate mode it is rather than a card someone
+          left turned over, and doubles as the way back out of it. Opposite
+          corner from Shuffle so neither is a mis-tap for the other. */}
+      {spec.zone === 'library' && libraryRevealed && (
+        <Button
+          variant="secondary"
+          size="icon"
+          title="Top card of your library is revealed — click to turn it back down"
+          aria-label="Stop playing with the top card revealed"
+          aria-pressed
+          className="absolute top-0.5 left-0.5 z-10 h-7 w-7 md:h-5 md:w-5 rounded-md bg-blue-950/70 hover:bg-blue-900/90 text-blue-200 hover:text-blue-50 border border-blue-400/40 shadow-none [&_svg]:size-4 md:[&_svg]:size-3"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); toggleLibraryRevealed(); }}
+        >
+          <Eye />
         </Button>
       )}
       {showPreview && top && <MagnifiedPreview card={top} anchorRef={imgRef} />}

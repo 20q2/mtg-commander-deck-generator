@@ -10,7 +10,7 @@ import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { resolvePT, describeEdit } from '@/services/playtest/powerToughness';
 import { canBlock, keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
-import { botKeywords, botPower, botToughness, clearTempBoosts, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
+import { botPower, botToughness, clearTempBoosts, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
 import { buryPermanents } from '@/services/playtest/opponents/deaths';
 import {
   pickCardsToDiscard, pickPermanentsToGiveUp, type BotDecision,
@@ -18,6 +18,8 @@ import {
 import { registerUndoParticipant } from '@/store/undoBridge';
 import { chooseBlocks, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
+import { readPlayerCombat } from '@/services/playtest/opponents/outgoingCombat';
+import { botCombatant, playerCombatant } from '@/services/playtest/opponents/combatants';
 import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
 import { EMPTY as NO_EFFECT } from '@/services/playtest/opponents/evaluate';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
@@ -102,41 +104,15 @@ function cancelTurns() {
 }
 
 /**
- * Flatten one of the player's battlefield cards into a Combatant. Reads live
- * P/T through resolvePT so counters and stickers count — the same path the
- * blocker flattening in resolveCombat already uses.
+ * The log's note that a number was nudged by hand.
+ *
+ * Without it a line reading "You took 9" next to a board that adds up to 7 is
+ * indistinguishable from a bug, and the log is the thing you scroll back
+ * through when you are trying to work out what happened.
  */
-function playerCombatant(b: BattlefieldCard): Combatant {
-  const [p, t] = (resolvePT(b)?.modified ?? '0/0').split('/');
-  const power = parseInt(p, 10);
-  const toughness = parseInt(t, 10);
-  return {
-    instanceId: b.instanceId,
-    name: b.card.name,
-    power: Number.isNaN(power) ? 0 : power,
-    toughness: Number.isNaN(toughness) ? 0 : toughness,
-    keywords: keywordsOf(b.card, b.edit),
-  };
-}
-
-/**
- * The same, for a bot's permanent. `battlefield` is the whole board it is on,
- * because its stats depend on it: counters on the card, anthems from the rest.
- */
-function botCombatant(
-  p: OpponentPermanent,
-  battlefield: OpponentPermanent[],
-  graveyard: ScryfallCard[] = [],
-): Combatant {
-  return {
-    instanceId: p.instanceId,
-    name: p.card.name,
-    power: botPower(p, battlefield, graveyard),
-    toughness: botToughness(p, battlefield, graveyard),
-    // Not `keywordsOf`: a bot's creature can be granted keywords by its own
-    // board or graveyard, and blocking legality has to see them.
-    keywords: botKeywords(p, battlefield, graveyard),
-  };
+function adjustmentNote(mod: number): string {
+  if (mod === 0) return '';
+  return ` (adjusted ${mod > 0 ? '+' : '−'}${Math.abs(mod)})`;
 }
 
 /**
@@ -374,8 +350,14 @@ interface OpponentActions {
   /** Assign one of your creatures to block an attacker. */
   assignBlocker: (attackerId: string, blockerInstanceId: string) => void;
   removeBlocker: (attackerId: string, blockerInstanceId: string) => void;
-  /** Work out damage, kill what died, and let the bot's turn continue. */
-  resolveCombat: () => void;
+  /**
+   * Work out damage, kill what died, and let the bot's turn continue.
+   *
+   * `damageMod` shifts the damage that reaches your face by hand, for the
+   * anthems and static effects the engine cannot read off the cards. It is not
+   * applied to the creature fight — deaths still come from the printed numbers.
+   */
+  resolveCombat: (damageMod?: number) => void;
   /** Step into combat — opens every seat's strip as a drop target. */
   enterCombat: () => void;
   /** Back out. Anything declared is untapped and forgotten. */
@@ -397,8 +379,12 @@ interface OpponentActions {
    * Work out damage in your direction. Pass an opponent id to settle just that
    * fight — attacking three seats renders three Resolve buttons, and any one of
    * them used to resolve all three at once.
+   *
+   * `damageMod` shifts the damage that reaches that seat's face, and is only
+   * honoured alongside an id — it is one seat's hand adjustment, not a blanket
+   * one across every fight you happen to have open.
    */
-  resolvePlayerCombat: (opponentId?: string) => void;
+  resolvePlayerCombat: (opponentId?: string, damageMod?: number) => void;
   /** Throw away an unconfirmed declaration, untapping everything in it. */
   discardDeclaration: () => void;
   /** Let the top item resolve — its effect lands on your board. */
@@ -526,6 +512,17 @@ function applyEffect(effect: AppliedEffect, casterId: string) {
   }
 
   if (effect.lifeLoss > 0) playtest.adjustLife(-effect.lifeLoss);
+
+  // The paying half of a drain, credited to whoever cast it. It has to happen
+  // here rather than in the engine: the turn loop's `correct` treats the live
+  // store value as the authority on a bot's life precisely because the engine
+  // never writes it, so a gain written into a planned frame would be discarded
+  // one beat later.
+  if (effect.lifeGain) {
+    const caster = useOpponentStore.getState().opponents.find(o => o.id === casterId);
+    useOpponentStore.getState().adjustLife(casterId, effect.lifeGain);
+    if (caster) playtest.appendLog(`${caster.name} gains ${effect.lifeGain} life`, 'bot', [casterId]);
+  }
 
   // Straight to zero, through adjustLife so the defeat line and the banner
   // fire the same way they would from any other lethal damage.
@@ -709,7 +706,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     };
   }),
 
-  resolveCombat: () => {
+  resolveCombat: (damageMod = 0) => {
     const combat = get().combat;
     if (!combat) return;
     const playtest = usePlaytestStore.getState();
@@ -777,11 +774,20 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       if (toll.lifeLoss > 0) playtest.adjustLife(-toll.lifeLoss);
     }
 
-    if (outcome.damageToDefender > 0) {
-      playtest.appendLog(`You took ${outcome.damageToDefender} from ${combat.opponentName}`, 'bot', [combat.opponentId]);
-      playtest.adjustLife(-outcome.damageToDefender);
+    // The hand adjustment lands here and nowhere else: it is a correction to
+    // what reaches your face, not a rewrite of the creature fight above.
+    const dealt = Math.max(0, outcome.damageToDefender + damageMod);
+    if (dealt > 0) {
+      playtest.appendLog(
+        `You took ${dealt} from ${combat.opponentName}${adjustmentNote(damageMod)}`,
+        'bot', [combat.opponentId],
+      );
+      playtest.adjustLife(-dealt);
     } else {
-      playtest.appendLog(`${combat.opponentName}'s attack dealt no damage`, 'bot', [combat.opponentId]);
+      playtest.appendLog(
+        `${combat.opponentName}'s attack dealt no damage${adjustmentNote(damageMod)}`,
+        'bot', [combat.opponentId],
+      );
     }
 
     // Combat is over, so any until-end-of-turn pump on the attacking seat ends
@@ -987,7 +993,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     set({ declaration: null, playerCombat: { perOpponent } });
   },
 
-  resolvePlayerCombat: (only) => {
+  resolvePlayerCombat: (only, damageMod = 0) => {
     const playerCombat = get().playerCombat;
     if (!playerCombat) return;
     const playtest = usePlaytestStore.getState();
@@ -997,6 +1003,8 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const entries = Object.entries(playerCombat.perOpponent)
       .filter(([id]) => only === undefined || id === only);
     if (entries.length === 0) return;
+    // The adjustment belongs to the one fight whose button carried it.
+    const mod = only === undefined ? 0 : damageMod;
 
     const myDead: string[] = [];
     const theirDead: Record<string, string[]> = {};
@@ -1005,18 +1013,9 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       const opponent = get().opponents.find(o => o.id === opponentId);
       if (!opponent) continue;
 
-      const attackers = side.attackers
-        .map(id => playtest.battlefield.find(b => b.instanceId === id))
-        .filter((b): b is BattlefieldCard => !!b)
-        .map(playerCombatant);
-
-      const blocks: Record<string, Combatant[]> = {};
-      for (const attacker of attackers) {
-        blocks[attacker.instanceId] = (side.blocks[attacker.instanceId] ?? [])
-          .map(id => opponent.battlefield.find(p => p.instanceId === id))
-          .filter((p): p is OpponentPermanent => !!p)
-          .map(p => botCombatant(p, opponent.battlefield, opponent.graveyard));
-      }
+      // The same reader the Resolve button's number comes from, so the preview
+      // and the resolution cannot drift apart.
+      const { attackers, blocks } = readPlayerCombat(side, opponent, playtest.battlefield);
 
       // Same pure module the bot→player direction uses. It does not know or
       // care which side is defending.
@@ -1037,11 +1036,15 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       }
       theirDead[opponentId] = outcome.deadBlockers;
 
-      if (outcome.damageToDefender > 0) {
-        playtest.appendLog(`${opponent.name} took ${outcome.damageToDefender}`, 'bot', [opponentId]);
-        get().adjustLife(opponentId, -outcome.damageToDefender);
+      const dealt = Math.max(0, outcome.damageToDefender + mod);
+      if (dealt > 0) {
+        playtest.appendLog(`${opponent.name} took ${dealt}${adjustmentNote(mod)}`, 'bot', [opponentId]);
+        get().adjustLife(opponentId, -dealt);
       } else {
-        playtest.appendLog(`Your attack on ${opponent.name} dealt no damage`, 'bot', [opponentId]);
+        playtest.appendLog(
+          `Your attack on ${opponent.name} dealt no damage${adjustmentNote(mod)}`,
+          'bot', [opponentId],
+        );
       }
     }
 
@@ -1585,6 +1588,11 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         playtest.appendLog(`${caster.name} ${e.destination === 'exile' ? 'exiles' : 'destroys'} ${rival.name}'s ${names.join(', ')}`, 'bot', [caster.id, seatId]);
       }
       if (e.lifeLoss > 0) get().adjustLife(seatId, -e.lifeLoss);
+      // Paid to the caster, not the seat that lost the life — see AppliedEffect.
+      if (e.lifeGain) {
+        get().adjustLife(caster.id, e.lifeGain);
+        playtest.appendLog(`${caster.name} gains ${e.lifeGain} life`, 'bot', [caster.id]);
+      }
       // Discard against a hidden hand is not modelled; the bot's own tutor and
       // draw logic never sees a rival's hand either.
     };

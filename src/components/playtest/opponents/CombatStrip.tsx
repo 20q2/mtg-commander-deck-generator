@@ -1,12 +1,13 @@
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
-import { ArrowBigUp, HeartCrack, ShieldCheck, Sword, X } from 'lucide-react';
+import { ArrowBigUp, HeartCrack, Minus, Plus, ShieldCheck, Sword, X } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
 import { incomingDamage, readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
+import { outgoingDamage } from '@/services/playtest/opponents/outgoingCombat';
 import { isCreatureCard } from '@/services/playtest/opponents/stats';
 import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import { TargetArrow, type Point } from '@/components/playtest/TargetArrow';
@@ -49,11 +50,11 @@ const TURNED_CARD = 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2
 
 /**
  * How much of a seat the fight may take before its cards have to shrink, and
- * what sits under the attacker inside that share — the blocker slot and the
- * Resolve button, both fixed-height.
+ * what sits under the attacker inside that share — the blocker slot, the
+ * Resolve button and the damage nudge under it, all fixed-height.
  */
 const STRIP_HEIGHT_SHARE = 0.62;
-const STRIP_CHROME = 78;
+const STRIP_CHROME = 96;
 
 /**
  * The width the strip sizes its cards against.
@@ -215,14 +216,79 @@ function Declared({ instanceIds, seatWidth }: { instanceIds: string[]; seatWidth
   );
 }
 
+/**
+ * A hand nudge on the damage a resolution deals to a player.
+ *
+ * The engine only knows the power it can read off the cards. An anthem whose
+ * text it cannot parse, a pump spell you resolved by hand, a static effect on
+ * something wordy — none of it reaches the maths, and the alternative was
+ * backing out of combat to edit every attacker's P/T one at a time. This
+ * shifts the face damage instead. It deliberately does NOT touch the creature
+ * fight: who dies still comes from the numbers on the cards, because guessing
+ * at that from one total is worse than leaving it alone.
+ *
+ * Small, quiet, and directly under the button it modifies, so it reads as a
+ * footnote on the resolve rather than a second thing to decide.
+ */
+function DamageNudge({ mod, onChange, tone }: {
+  mod: number;
+  onChange: (next: number) => void;
+  /** Matches the strip it sits in: rose for their attack, violet for yours. */
+  tone: 'rose' | 'violet';
+}) {
+  const step = tone === 'rose'
+    ? 'border-rose-300/40 text-rose-100/70 hover:bg-rose-500/30 hover:text-rose-50'
+    : 'border-violet-300/40 text-violet-100/70 hover:bg-violet-500/30 hover:text-violet-50';
+  const active = tone === 'rose'
+    ? 'border-rose-300/70 bg-rose-500/25 text-rose-50'
+    : 'border-violet-300/70 bg-violet-500/25 text-violet-50';
+
+  return (
+    <div className="flex items-center gap-1 select-none">
+      <button
+        onClick={() => onChange(mod - 1)}
+        title="One less damage"
+        className={`w-5 h-4 rounded border inline-flex items-center justify-center transition-colors ${step}`}
+      >
+        <Minus className="w-2.5 h-2.5" />
+      </button>
+      <button
+        onClick={() => onChange(0)}
+        disabled={mod === 0}
+        title={mod === 0
+          ? 'Nudge the damage if an anthem or effect the engine cannot read is in play'
+          : 'Clear the adjustment'}
+        className={`px-1.5 h-4 rounded border text-[8px] font-bold uppercase tracking-wide tabular-nums leading-none transition-colors ${
+          mod === 0 ? 'border-transparent text-white/35' : active
+        }`}
+      >
+        {mod === 0 ? 'Adjust' : mod > 0 ? `+${mod}` : `−${-mod}`}
+      </button>
+      <button
+        onClick={() => onChange(mod + 1)}
+        title="One more damage"
+        className={`w-5 h-4 rounded border inline-flex items-center justify-center transition-colors ${step}`}
+      >
+        <Plus className="w-2.5 h-2.5" />
+      </button>
+    </div>
+  );
+}
+
 /** Confirmed attack: your attackers, the bot's blocks, and the Resolve button. */
 function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWidth: number }) {
   const playerCombat = useOpponentStore(s => s.playerCombat);
   const resolve = useOpponentStore(s => s.resolvePlayerCombat);
   const battlefield = usePlaytestStore(s => s.battlefield);
   const opponent = useOpponentStore(s => s.opponents.find(o => o.id === opponentId));
+  // Lives as long as this one fight does: the component is mounted on confirm
+  // and unmounted on resolve, so the nudge cannot leak into the next combat.
+  const [mod, setMod] = useState(0);
   const side = playerCombat?.perOpponent[opponentId];
   if (!side || !opponent) return null;
+
+  // Same reader `resolvePlayerCombat` uses, trample overflow and all.
+  const dealt = Math.max(0, outgoingDamage(side, opponent, battlefield) + mod);
 
   return (
     <>
@@ -265,13 +331,20 @@ function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWi
           </div>
         );
       })}
-      <button
-        onClick={() => resolve(opponentId)}
-        title={`Resolve your attack on ${opponent.name}`}
-        className="ml-auto shrink-0 px-2 h-6 rounded bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-bold"
-      >
-        Resolve
-      </button>
+      <div className="ml-auto shrink-0 flex flex-col items-end gap-0.5">
+        <button
+          onClick={() => resolve(opponentId, mod)}
+          title={dealt > 0
+            ? `Deal ${dealt} to ${opponent.name} and end the attack`
+            : `Everything is blocked — end your attack on ${opponent.name}`}
+          className="px-2 h-6 rounded bg-violet-600 hover:bg-violet-500 text-white text-[10px] font-bold inline-flex items-center gap-1"
+        >
+          <Sword className="w-2.5 h-2.5 shrink-0" />
+          Deal
+          <span className="text-xs leading-none tabular-nums">{dealt}</span>
+        </button>
+        <DamageNudge mod={mod} onChange={setMod} tone="violet" />
+      </div>
     </>
   );
 }
@@ -304,6 +377,8 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
   const assignBlocker = useOpponentStore(s => s.assignBlocker);
   const battlefield = usePlaytestStore(s => s.battlefield);
   const opponent = useOpponentStore(s => s.opponents.find(o => o.id === opponentId));
+  // Mounted for exactly one attack, so the nudge resets with it.
+  const [mod, setMod] = useState(0);
   if (!combat || combat.opponentId !== opponentId) return null;
 
   // Read the attack off the live board. An attacker you killed mid-combat
@@ -311,7 +386,8 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
   // `resolveDamage` will actually take off you — trample overflow included,
   // which the old "sum of unblocked power" quietly left out.
   const { live } = readIncomingCombat(combat, opponent, battlefield);
-  const incoming = incomingDamage(combat, opponent, battlefield);
+  const raw = incomingDamage(combat, opponent, battlefield);
+  const incoming = Math.max(0, raw + mod);
 
   const blocksOf = (a: Attacker) => combat.blocks[a.instanceId] ?? [];
   const piles = groupAttackers(live);
@@ -389,10 +465,12 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
           through — once you have blocked everything it goes quiet and green,
           because at that point the click is safe. */}
       <button
-        onClick={resolveCombat}
+        onClick={() => resolveCombat(mod)}
         title={incoming > 0
           ? `Take ${incoming} damage and end combat`
-          : 'Everything is blocked — end combat'}
+          : raw === 0
+            ? 'Everything is blocked — end combat'
+            : 'Your adjustment cancels the damage — end combat'}
         className={`relative w-full mt-0.5 h-9 rounded-md inline-flex items-center justify-center gap-2 font-bold shadow-lg transition-colors ${
           incoming > 0
             ? 'bg-rose-600 hover:bg-rose-500 text-white'
@@ -414,10 +492,17 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
         ) : (
           <>
             <ShieldCheck className="w-4 h-4 shrink-0" />
-            <span className="text-[10px] uppercase tracking-[0.14em]">All blocked · resolve</span>
+            <span className="text-[10px] uppercase tracking-[0.14em]">
+              {raw === 0 ? 'All blocked · resolve' : 'No damage · resolve'}
+            </span>
           </>
         )}
       </button>
+      {/* Under the button, in its own row, because it is a footnote on the
+          number above it and not a competing call to action. */}
+      <div className="w-full mt-0.5 flex justify-center">
+        <DamageNudge mod={mod} onChange={setMod} tone="rose" />
+      </div>
     </>
   );
 }

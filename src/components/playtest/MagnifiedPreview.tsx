@@ -57,7 +57,7 @@ export function MagnifiedPreview({ card, anchorRef, faceDown, side = 'top', widt
   useLayoutEffect(() => {
     const compute = () => {
       const el = anchorRef.current;
-      if (!el) return;
+      if (!el) return false;
       const r = el.getBoundingClientRect();
       const vw = window.innerWidth;
       const vh = window.innerHeight;
@@ -95,11 +95,33 @@ export function MagnifiedPreview({ card, anchorRef, faceDown, side = 'top', widt
         left: clamp(left, VIEWPORT_PAD, maxLeft),
         top: clamp(top, VIEWPORT_PAD, maxTop),
       });
+      return true;
     };
-    compute();
+
+    /*
+     * The anchor is not reliably attached on the commit that mounts this
+     * preview. Its owners compose the anchor ref with an inline callback (drag
+     * ref + drop ref + local ref, rebuilt every render), and React detaches and
+     * reattaches a ref whose function identity changed — while a child's layout
+     * effect runs BEFORE the parent host element's ref goes back on. So the
+     * first compute can read null, and since nothing recomputes until a scroll
+     * or a resize, the preview then renders nothing for as long as it is open.
+     *
+     * One frame later the commit is finished and the ref is back, so a retry is
+     * all it takes. Kept as a fallback rather than the normal path so the usual
+     * case still positions before the first paint.
+     *
+     * StrictMode masked this the whole time: in dev it runs every effect twice,
+     * and the second pass always found the anchor — the previews only ever
+     * failed in production builds.
+     */
+    let raf = 0;
+    if (!compute()) raf = requestAnimationFrame(() => { compute(); });
+
     window.addEventListener('scroll', compute, true);
     window.addEventListener('resize', compute);
     return () => {
+      cancelAnimationFrame(raf);
       window.removeEventListener('scroll', compute, true);
       window.removeEventListener('resize', compute);
     };

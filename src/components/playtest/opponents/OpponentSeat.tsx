@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import {
-  BookOpen, Crown, Gavel, GripHorizontal, Heart, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
+  BookOpen, Crown, Gavel, GripHorizontal, Heart, Mountain, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
 } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
@@ -125,7 +125,28 @@ export function OpponentSeat({
   const zoneWidth = Math.round(Math.max(14, width * ZONE_WIDTH_FRACTION * scale));
 
   const landPiles = useMemo(() => pileUp(rows.lands), [rows.lands]);
-  const landWidth = landWidthFor(width, landPiles, scale);
+  /**
+   * The first row that has anything in it — creatures if there are any, and
+   * whatever else they have out if there aren't. This is the row a short seat
+   * has to show before it shows any mana, so it is served first and the lands
+   * get what's left.
+   */
+  const topRow = UPPER_ROWS.find(r => rows[r.key].length > 0);
+  const topRowHeight = topRow
+    ? Math.round(rowWidth(width, topRow.scale * scale) * CARD_ASPECT)
+    : 0;
+  const landRoom = height === undefined
+    ? Infinity
+    : height - SEAT_CHROME - (inCombat ? COMBAT_CHROME : 0)
+      - Math.round(zoneWidth * CARD_ASPECT) - topRowHeight;
+  const landWidth = landWidthFor(width, landPiles, scale, landRoom);
+  /**
+   * Too little room left for a land to be a card rather than a coloured
+   * smear. The row says how much mana there is instead, which is the only
+   * thing you were reading off it at that size anyway, and costs one line.
+   */
+  const landsCollapsed = landWidth < LAND_MIN_WIDTH;
+  const untappedLands = landPiles.reduce((n, p) => n + (p.top.tapped ? 0 : p.count), 0);
 
   return (
     <div
@@ -294,8 +315,27 @@ export function OpponentSeat({
           of them and each one — turned ninety degrees, so wider than it is
           tall — took a line to itself and the mana was taller than the board
           it paid for. Given the full width and shrunk to fit it, a land row
-          costs one line however many lands are on it. */}
-      {landPiles.length > 0 && (
+          costs one line however many lands are on it.
+
+          Shrunk far enough and it stops being cards: a seat dragged short
+          hands its height to the row of cards above this one, and once a land
+          would be drawn narrower than it is recognisable the row says what it
+          is worth instead. Untapped is the half you were reading anyway —
+          which of these lands can still pay for something. */}
+      {landPiles.length > 0 && landsCollapsed && (
+        <div
+          className="relative z-10 mt-1 shrink-0 flex items-center gap-1 px-0.5 text-[10px] leading-4 text-muted-foreground"
+          aria-label="Lands"
+          title={landPiles.map(p => (p.count > 1 ? `${p.count}× ` : '') + p.top.card.name + (p.top.tapped ? ' (tapped)' : '')).join(', ')}
+        >
+          <Mountain className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
+          <span className="truncate">
+            {landPiles.reduce((n, p) => n + p.count, 0)} lands
+            <span className={untappedLands > 0 ? 'text-emerald-300/80' : ''}> · {untappedLands} untapped</span>
+          </span>
+        </div>
+      )}
+      {landPiles.length > 0 && !landsCollapsed && (
         <div
           // No overflow rule on purpose: an `overflow-x` scroller would clip
           // the y axis too, and the ×N pile badge and the destroy button both
@@ -938,9 +978,12 @@ type RowKey = 'creatures' | 'others' | 'lands';
  * number suggests — which is what pays for the seat being allowed to grow to
  * its board instead of scrolling inside a cap.
  *
- * Only the wrapping rows are zoomed. The land row is already clamped to a
- * single line by `landWidthFor`, so shrinking it buys no height and only costs
- * legibility on the row that is hardest to read already.
+ * Only the wrapping rows are zoomed. The land row is clamped to a single line
+ * by `landWidthFor` instead, so a blanket zoom on it would only cost
+ * legibility on the row that is hardest to read already. It does still give
+ * height back when a seat is dragged short enough to need it — that is
+ * `landWidthFor`'s `room`, which shrinks the row only when the row of cards
+ * above it would otherwise be the thing that shrank.
  */
 const BOARD_ZOOM = 0.75;
 
@@ -961,6 +1004,26 @@ const LAND_SCALE = 0.10;
 /** The seat's own padding (`p-1.5`), and the gap between cards in a row (`gap-1`). */
 const SEAT_PADDING = 12;
 const ROW_GAP = 4;
+
+/**
+ * Everything a seat spends height on that is neither a board row nor the
+ * lands: its own padding, the header, the margins between the rows, the
+ * board's net padding, and an idle combat strip. Plus what an OPEN strip
+ * costs on top of that.
+ *
+ * Estimates, and deliberately so — they decide the point at which the land
+ * row starts giving its height back to the board, and being a few pixels out
+ * moves that point by a few pixels. Nothing reads them as a real measurement.
+ */
+const SEAT_CHROME = 48;
+const COMBAT_CHROME = 76;
+
+/**
+ * The width below which a land stops being a card you can recognise. Under
+ * this the row collapses to its count, which is both more useful and a line
+ * high instead of a card high.
+ */
+const LAND_MIN_WIDTH = 18;
 
 /**
  * How far the board shrinks while this seat is in combat. The strip's cards
@@ -1003,13 +1066,22 @@ function rowWidth(seatWidth: number, scale: number): number {
  *
  * A tapped land is turned ninety degrees, so it spends its own height on
  * width — `CARD_ASPECT` units of the row instead of one.
+ *
+ * `room` is the height left for the row after the seat has served the row of
+ * cards above it, and it is the only thing allowed to push a land below the
+ * 14px floor — at which point the caller stops drawing cards at all. An
+ * auto-sized seat passes Infinity: it grows to its contents, so there is
+ * nothing to ration and the width rules above are the whole story.
  */
-function landWidthFor(seatWidth: number, piles: PermanentPile[], scale: number): number {
+function landWidthFor(
+  seatWidth: number, piles: PermanentPile[], scale: number, room = Infinity,
+): number {
   const max = rowWidth(seatWidth, LAND_SCALE * scale);
-  if (piles.length === 0) return max;
+  const byHeight = room / CARD_ASPECT;
+  if (piles.length === 0) return Math.min(max, byHeight);
   const units = piles.reduce((n, p) => n + (p.top.tapped ? CARD_ASPECT : 1), 0);
   const avail = seatWidth - SEAT_PADDING - ROW_GAP * (piles.length - 1);
-  return Math.round(Math.max(14, Math.min(max, avail / units)));
+  return Math.round(Math.max(0, Math.min(Math.max(14, Math.min(max, avail / units)), byHeight)));
 }
 
 /**

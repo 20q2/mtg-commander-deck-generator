@@ -297,7 +297,7 @@ export function AttackButton({ chip = false }: { chip?: boolean }) {
       size="sm"
       className={`${
         chip ? CHIP : 'h-8 md:h-6 px-2 text-[11px] rounded-none border border-y-0 gap-1'
-      } bg-violet-600 hover:bg-violet-500 border-violet-300/50 text-white font-bold`}
+      } bg-rose-600 hover:bg-rose-500 border-rose-300/50 text-white font-bold`}
       onClick={confirmAttack}
       title={`Confirm the attack — ${count} creature${count === 1 ? '' : 's'} across every seat`}
     >
@@ -484,6 +484,8 @@ export function ZoneActionsMenu({ zone, onDone }: { zone: ActionZone; onDone: ()
   const openModal = usePlaytestStore(s => s.openModal);
   const emptyZoneInto = usePlaytestStore(s => s.emptyZoneInto);
   const shufflePile = usePlaytestStore(s => s.shufflePile);
+  const libraryRevealed = usePlaytestStore(s => s.libraryRevealed);
+  const toggleLibraryRevealed = usePlaytestStore(s => s.toggleLibraryRevealed);
   const count = usePlaytestStore(s => s.zones[zone].length);
 
   // One amount drives every deck action — pick N once, then choose what to do
@@ -508,6 +510,19 @@ export function ZoneActionsMenu({ zone, onDone }: { zone: ActionZone; onDone: ()
               to notice which rows carry a number. */}
           <div className="h-px bg-border/60 my-1" />
           <Button variant="ghost" size="sm" className={row} onClick={() => run(() => shufflePile('library'))}><Shuffle className="w-3 h-3 mr-2" />Shuffle</Button>
+          {/* A mode, not an action: it stays on until you turn it off, so it
+              keeps the menu open and reads its own state back to you. */}
+          <Button
+            variant="ghost" size="sm"
+            className={`${row} ${libraryRevealed ? 'text-blue-300 hover:text-blue-200' : ''}`}
+            aria-pressed={libraryRevealed}
+            onClick={toggleLibraryRevealed}
+            title="Future Sight, Oracle of Mul Daya, Vizier of the Menagerie">
+            <Eye className="w-3 h-3 mr-2" />Top card revealed
+            <span className={`ml-auto text-[10px] font-medium ${libraryRevealed ? 'text-blue-300' : 'text-muted-foreground'}`}>
+              {libraryRevealed ? 'On' : 'Off'}
+            </span>
+          </Button>
           <Button variant="ghost" size="sm" className={row} disabled={count === 0}
             onClick={() => run(() => openModal({ kind: 'zoneViewer', zone: 'library' }))}
             title="Demonic Tutor, Rampant Growth, any fetch">
