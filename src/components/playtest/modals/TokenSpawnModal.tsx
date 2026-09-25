@@ -83,7 +83,7 @@ export function TokenSpawnModal() {
       <div className="px-5 py-3 border-b border-border/40">
         <Input
           autoFocus
-          placeholder="Filter tokens…"
+          placeholder={hasEmblems ? 'Filter…' : 'Filter tokens…'}
           value={q}
           onChange={e => setQ(e.target.value)}
         />

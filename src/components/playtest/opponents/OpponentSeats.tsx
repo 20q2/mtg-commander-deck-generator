@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   AlignHorizontalSpaceBetween, Bot, Check, Columns3, LayoutPanelLeft,
   LayoutTemplate, PanelsLeftRight, Play, Plus,
@@ -112,7 +112,6 @@ export function OpponentSeats() {
   const autoTurns = usePlaytestSettings(s => s.opponentAutoTurns);
   const viewportWidth = useViewportWidth();
   const isDesktop = useMediaQuery('(min-width: 768px)');
-  const bandRef = useSeatBandMeasure(opponents.length + pending.length);
   const [positions, setPositions] = useState<SeatPositions>(loadPositions);
   const [sizes, setSizes] = useState<SeatSizes>(loadSizes);
   /**
@@ -323,7 +322,6 @@ export function OpponentSeats() {
     const w = Math.min(360, viewportWidth - 24);
     return (
       <div
-        ref={bandRef}
         className="absolute top-1.5 inset-x-1.5 z-30 flex items-start gap-2 overflow-x-auto pb-1 snap-x"
       >
         {opponents.map(o => (
@@ -357,10 +355,9 @@ export function OpponentSeats() {
 
   return (
     <>
-      {/* The auto row — and the only thing measured for seatBandHeight, since a
-          seat dragged elsewhere should not push arriving cards down. */}
+      {/* The auto row. Nothing measures it: the seats are an overlay and the
+          player's board is laid out as if they were not there. */}
       <div
-        ref={bandRef}
         className="flex absolute top-1.5 inset-x-1.5 z-30 justify-center items-start gap-2 pointer-events-none"
       >
         {inRow.map(({ o }) => (
@@ -493,39 +490,6 @@ const LAYOUT_ICON: Record<SeatLayoutKind, typeof Columns3> = {
   rail: LayoutPanelLeft,
   flank: PanelsLeftRight,
 };
-
-/**
- * Publish the auto row's rendered height so arriving cards can snap below it.
- * The seats are opaque and always on, so without this every creature you cast
- * would land underneath them and look like it had vanished.
- *
- * Only the row is measured. A seat dragged into the middle of the table is
- * somewhere you put it deliberately, and having it shove every future card
- * down the board would be worse than the occlusion.
- */
-function useSeatBandMeasure(opponentCount: number) {
-  const ref = useRef<HTMLDivElement | null>(null);
-  const setSeatBandHeight = usePlaytestStore(s => s.setSeatBandHeight);
-
-  useEffect(() => {
-    if (opponentCount === 0) {
-      setSeatBandHeight(0);
-      return;
-    }
-    const el = ref.current;
-    if (!el) return;
-    const update = () => setSeatBandHeight(el.getBoundingClientRect().height);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => {
-      ro.disconnect();
-      setSeatBandHeight(0);
-    };
-  }, [opponentCount, setSeatBandHeight]);
-
-  return ref;
-}
 
 /** Seat width tracks the window, so a resize has to re-render the row. */
 function useViewportWidth(): number {

@@ -90,10 +90,6 @@ interface PlaytestState {
   // Pins only ever name cards already in the deck, so no card data is stored here.
   trialPins: TrialPin[];
   battlefieldRect: { width: number; height: number };     // updated by Battlefield component on mount/resize
-  // Measured height of the opponent seats overlaying the top of the canvas.
-  // Arriving cards snap below it so nothing lands underneath them. 0 when no
-  // bots are seated.
-  seatBandHeight: number;
   /**
    * While a card is being dragged over the hand, the row position it would
    * land at. The hand fan parts around it so you can see where the card is
@@ -177,7 +173,6 @@ interface PlaytestActions {
   reset: () => void;
   exit: () => void;                                        // clears all state (for unmount)
   setBattlefieldRect: (w: number, h: number) => void;
-  setSeatBandHeight: (h: number) => void;
   setHandDropFanPos: (pos: number | null) => void;
   setHandLanding: (landing: { index: number; x: number; y: number } | null) => void;
 
@@ -380,7 +375,6 @@ const initial: PlaytestState = {
   battlefieldRect: { width: 0, height: 0 },
   stackFlight: null,
   stackedDrag: false,
-  seatBandHeight: 0,
   handDropFanPos: null,
   handLanding: null,
   mulliganCount: 0,
@@ -573,29 +567,6 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   exit: () => set({ ...initial }),
 
   setBattlefieldRect: (width, height) => set({ battlefieldRect: { width, height } }),
-  setSeatBandHeight: (h) => set(state => {
-    if (h === state.seatBandHeight) return {};
-    // The seats are opaque and grow as the bots develop. A card that arrived
-    // just under the old band edge is now under a seat — invisible, and
-    // ungrabbable when you want to attack with it. When the band grows, walk
-    // anything it has grown over down to the first free slot below it. Only
-    // downwards, only when it grows: shrinking leaves your layout alone.
-    if (h <= state.seatBandHeight || state.battlefield.length === 0) return { seatBandHeight: h };
-    const { width: cw, height: ch } = CARD_SIZES[usePlaytestSettings.getState().cardSize];
-    const rect = canvasRect(state);
-    const top = h + 8;
-    const battlefield = [...state.battlefield];
-    let moved = false;
-    for (let i = 0; i < battlefield.length; i++) {
-      const b = battlefield[i];
-      if (b.y >= top) continue;
-      const others = battlefield.filter((_, j) => j !== i);
-      const slot = findArrivalSlot(others, b.x, top, rect.width, rect.height, false, cw, ch);
-      battlefield[i] = { ...b, x: slot.x, y: slot.y };
-      moved = true;
-    }
-    return moved ? { seatBandHeight: h, battlefield } : { seatBandHeight: h };
-  }),
   setHandDropFanPos: (handDropFanPos) => set(s => (
     s.handDropFanPos === handDropFanPos ? {} : { handDropFanPos }
   )),
@@ -961,7 +932,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       if (target.arrived) {
         const { width: cw, height: ch } = CARD_SIZES[usePlaytestSettings.getState().cardSize];
         const rect = canvasRect(state);
-        const snapped = snapArrival(card, x, y, rect.height, ch, state.seatBandHeight);
+        const snapped = snapArrival(card, x, y, rect.height, ch);
         const slot = findArrivalSlot(
           next.battlefield,
           snapped.x,

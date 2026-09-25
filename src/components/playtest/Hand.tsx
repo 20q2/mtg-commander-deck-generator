@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useDndContext, useDraggable, useDroppable } from '@dnd-kit/core';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { usePlaytestSettings } from '@/store/playtestSettingsStore';
+import { usePlaytestSettings, clampHandScale, HAND_SCALE_MIN, HAND_SCALE_MAX } from '@/store/playtestSettingsStore';
 import { getCardImageUrl, getCardBackFaceUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { PlaytestCardMenu, type CardMenuTarget } from '@/components/playtest/PlaytestCardMenu';
 import { PlaytestActionsBar, ZoneSearch, HandActionsButton } from '@/components/playtest/PlaytestActionsBar';
@@ -27,6 +27,7 @@ export function Hand() {
   const rowRef = useRef<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [rowWidth, setRowWidth] = useState(0);
+  const { scale, handleProps, dragging } = useHandResize(isDesktop);
 
   /**
    * Publish this bar's height so the side strip's stack panel can line its top
@@ -63,7 +64,7 @@ export function Hand() {
   }, []);
 
   const display = sortedHand(hand, sort);
-  const overlap = computeOverlap(display.length, rowWidth);
+  const overlap = computeOverlap(display.length, rowWidth, scale);
   const { flip, flight, flightLanded, endFlight } = useHandMotion(hand, sort);
 
   const { setNodeRef: setDropRef, isOver } = useDroppable({
@@ -88,8 +89,19 @@ export function Hand() {
   return (
     <div
       ref={node => { setDropRef(node); rootRef.current = node; }}
-      className="border-t border-border/50 bg-card/30 px-2 sm:px-4 py-2 sm:py-3 flex flex-col"
+      className="relative border-t border-border/50 bg-card/30 px-2 sm:px-4 py-2 sm:py-3 flex flex-col"
+      style={{
+        // Every width in this bar is a multiple of one number, so the drag
+        // handle only has to move that number and the row — cards, piles, the
+        // spacers that keep the action bar centred — resizes as a unit.
+        '--pt-hand-card-w': `calc(clamp(80px, 11vw, 130px) * ${scale})`,
+        // The pile columns carry a 24px button and a 4px gap the command pile
+        // doesn't, and a 5:7 pile spends 1.4px of height per px of width — so
+        // 28px of button stack is exactly 20px of width, at any scale.
+        '--pt-hand-pile-w': 'max(40px, calc(var(--pt-hand-card-w) - 20px))',
+      } as React.CSSProperties}
     >
+      {isDesktop && <HandResizeHandle {...handleProps} dragging={dragging} />}
       {/* Toolbar row mirrors the hand row's three-column layout below so the
           action buttons center over the hand fan, not over the whole bar. The
           hairline under it separates the controls from the cards they act on.
@@ -145,8 +157,11 @@ export function Hand() {
             on the table now (<TurnChips />), beside Untap. */}
         {isDesktop && (
           <div className="flex items-center gap-2 shrink-0" aria-hidden>
-            <div className="shrink-0" style={{ width: 'clamp(80px, 11vw, 130px)' }} />
-            <div className="shrink-0" style={{ width: 'clamp(190px, 25vw, 300px)' }} />
+            <div className="shrink-0" style={{ width: 'var(--pt-hand-card-w)' }} />
+            {/* Two full pile columns, a half-width Exile and the two 8px gaps
+                between them — spelled out rather than eyeballed with a clamp,
+                so the action bar stays centred at every hand size. */}
+            <div className="shrink-0" style={{ width: 'calc(var(--pt-hand-pile-w) * 2.5 + 16px)' }} />
           </div>
         )}
       </div>
@@ -158,7 +173,7 @@ export function Hand() {
       <div className="flex items-end gap-1 sm:gap-2 min-h-[140px] sm:min-h-[160px] md:min-h-0">
         {/* Desktop: Command pile on the left. Mobile: zones float on the battlefield. */}
         {isDesktop && (
-          <div className="shrink-0" style={{ width: 'clamp(80px, 11vw, 130px)' }}>
+          <div className="shrink-0" style={{ width: 'var(--pt-hand-card-w)' }}>
             <PlaytestPile spec={PILES[0]} />
           </div>
         )}
@@ -207,15 +222,15 @@ export function Hand() {
                 is on the pile itself, under right-click. The other piles hang
                 from the bottom of the row, so this column is bottom-aligned
                 too and the buttons stack above. */}
-            <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, calc(11vw - 20px), 110px)' }}>
+            <div className="flex flex-col gap-1" style={{ width: 'var(--pt-hand-pile-w)' }}>
               <ZoneSearch zone="library" className="w-full" />
               <PlaytestPile spec={PILES[1]} />
             </div>
-            <div className="flex flex-col gap-1" style={{ width: 'clamp(60px, calc(11vw - 20px), 110px)' }}>
+            <div className="flex flex-col gap-1" style={{ width: 'var(--pt-hand-pile-w)' }}>
               <ZoneSearch zone="graveyard" className="w-full" />
               <PlaytestPile spec={PILES[2]} />
             </div>
-            <div className="self-start flex flex-col gap-1" style={{ width: 'clamp(30px, calc(5.5vw - 10px), 55px)' }}>
+            <div className="self-start flex flex-col gap-1" style={{ width: 'calc(var(--pt-hand-pile-w) / 2)' }}>
               <ZoneSearch zone="exile" className="w-full" compact />
               <PlaytestPile spec={PILES[3]} />
             </div>
@@ -224,6 +239,141 @@ export function Hand() {
       </div>
       <PlaytestCardMenu target={menu} onClose={() => setMenu(null)} />
       {flight && <HandFlight flight={flight} landed={flightLanded} onDone={endFlight} />}
+    </div>
+  );
+}
+
+/** A hand card is 5:7, so this much height per 1.0 of scale. */
+const CARD_ASPECT = 7 / 5;
+
+/** One notch of the keyboard resize, and of nothing else. */
+const HAND_SCALE_STEP = 0.1;
+
+/**
+ * The hand can grow until it would take more than half the table. The stored
+ * cap is a flat number; this one moves with the window, so a short laptop
+ * screen can't end up with a hand bar and no battlefield.
+ */
+function maxScaleForViewport(): number {
+  const h = typeof window !== 'undefined' ? window.innerHeight : 900;
+  return Math.max(HAND_SCALE_MIN, Math.min(HAND_SCALE_MAX, (h * 0.5) / (baseCardWidth() * CARD_ASPECT)));
+}
+
+interface HandResize {
+  scale: number;
+  dragging: boolean;
+  handleProps: {
+    onPointerDown: (e: React.PointerEvent) => void;
+    onPointerMove: (e: React.PointerEvent) => void;
+    onPointerUp: (e: React.PointerEvent) => void;
+    onPointerCancel: (e: React.PointerEvent) => void;
+    onDoubleClick: () => void;
+    onKeyDown: (e: React.KeyboardEvent) => void;
+  };
+}
+
+/**
+ * Drag the bar's top edge to resize the hand.
+ *
+ * The pointer moves `scale`, not a height: the bar has no height of its own —
+ * it is as tall as its cards are wide times the card ratio — so a px delta is
+ * converted to a scale delta once, on grab, and the edge tracks the cursor
+ * from there.
+ *
+ * The live value is kept in local state during the drag and only written to
+ * settings on release, so a drag doesn't spend a localStorage write per frame.
+ */
+function useHandResize(enabled: boolean): HandResize {
+  const stored = usePlaytestSettings(s => s.handScale);
+  const setHandScale = usePlaytestSettings(s => s.setHandScale);
+  const [live, setLive] = useState<number | null>(null);
+  const liveRef = useRef<number | null>(null);
+  const drag = useRef<{ pointerId: number; startY: number; startScale: number; pxPerScale: number } | null>(null);
+
+  const clamp = (v: number) => Math.min(maxScaleForViewport(), clampHandScale(v));
+  const setLiveScale = (v: number) => { liveRef.current = v; setLive(v); };
+  const commit = (v: number) => { liveRef.current = null; setLive(null); setHandScale(v); };
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const startScale = clamp(stored);
+    drag.current = {
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      startScale,
+      pxPerScale: baseCardWidth() * CARD_ASPECT,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setLiveScale(startScale);
+  };
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    // Up grows the bar, so the edge stays under the cursor that grabbed it.
+    setLiveScale(clamp(d.startScale + (d.startY - e.clientY) / d.pxPerScale));
+  };
+
+  const endDrag = (e: React.PointerEvent) => {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.pointerId) return;
+    drag.current = null;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    commit(liveRef.current ?? d.startScale);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const step =
+      e.key === 'ArrowUp' ? HAND_SCALE_STEP :
+      e.key === 'ArrowDown' ? -HAND_SCALE_STEP :
+      null;
+    if (step === null && e.key !== 'Home') return;
+    e.preventDefault();
+    setHandScale(e.key === 'Home' ? 1 : clamp(stored + (step as number)));
+  };
+
+  return {
+    // Mobile lays the row out on a min-height instead of on card width, and has
+    // no piles in it to resize — so the stored scale simply doesn't apply there.
+    scale: enabled ? clamp(live ?? stored) : 1,
+    dragging: live !== null,
+    handleProps: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp: endDrag,
+      onPointerCancel: endDrag,
+      onDoubleClick: () => setHandScale(1),
+      onKeyDown,
+    },
+  };
+}
+
+/**
+ * The grab strip, sitting on the seam between table and hand. It hangs fully
+ * ABOVE the bar's top border rather than straddling it: the toolbar buttons
+ * are flush against that border, and a strip that overlapped them would eat
+ * clicks aimed at Untap.
+ */
+function HandResizeHandle({ dragging, ...handlers }: HandResize['handleProps'] & { dragging: boolean }) {
+  return (
+    <div
+      {...handlers}
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize hand"
+      tabIndex={0}
+      title="Drag to resize the hand · double-click to reset"
+      className="group absolute inset-x-0 -top-[7px] h-[7px] z-30 flex items-center justify-center cursor-ns-resize"
+    >
+      <span
+        aria-hidden
+        className={`h-[3px] w-16 rounded-full transition-opacity duration-150 ${
+          dragging
+            ? 'bg-primary opacity-100'
+            : 'bg-foreground/40 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100'
+        }`}
+      />
     </div>
   );
 }
@@ -404,15 +554,23 @@ function HandFlight({ flight, landed, onDone }: { flight: Flight; landed: boolea
   );
 }
 
-// Compute card overlap so the hand row always fits within rowWidth. Mirrors the
-// `width: clamp(80px, 11vw, 130px)` rule on HandCard — we estimate cardW the
-// same way so overlap math reflects the rendered size. A negative return value
-// means a gap (no overlap); the row keeps a max 2px gap until cards no longer
-// fit, then overlap kicks in as needed.
+/**
+ * The unscaled width of a hand card, mirroring the `clamp(80px, 11vw, 130px)`
+ * that `--pt-hand-card-w` is built from. The overlap math and the resize drag
+ * both need it in JS, ahead of layout.
+ */
+function baseCardWidth(): number {
+  const vw = typeof window !== 'undefined' ? window.innerWidth : 1000;
+  return Math.max(80, Math.min(130, vw * 0.11));
+}
+
+// Compute card overlap so the hand row always fits within rowWidth. A negative
+// return value means a gap (no overlap); the row keeps a max 2px gap until
+// cards no longer fit, then overlap kicks in as needed.
 const MIN_GAP_PX = 2;
-function computeOverlap(total: number, rowWidth: number): number {
+function computeOverlap(total: number, rowWidth: number, scale: number): number {
   if (total <= 1) return 0;
-  const cardW = Math.max(80, Math.min(130, typeof window !== 'undefined' ? window.innerWidth * 0.11 : 110));
+  const cardW = baseCardWidth() * scale;
   if (rowWidth <= 0) return -MIN_GAP_PX;
   // Minimum overlap to fit all cards in the row: total*cardW - (N-1)*overlap = rowWidth.
   const required = Math.ceil((total * cardW - rowWidth) / (total - 1));
@@ -602,7 +760,7 @@ function HandCard({ card, indexInHand, fanIndex, overlap, hoveredFanIndex, flipp
     transition: flipFrom || isDragging || dealing
       ? 'none'
       : 'transform 220ms cubic-bezier(0.2, 0.9, 0.25, 1)',
-    width: 'clamp(80px, 11vw, 130px)',
+    width: 'var(--pt-hand-card-w)',
     cursor: isDragging ? 'grabbing' : 'pointer',
     // Hidden rather than unmounted while its copy flies in: the slot has to
     // keep its width or the row would close up and reopen as the card lands.

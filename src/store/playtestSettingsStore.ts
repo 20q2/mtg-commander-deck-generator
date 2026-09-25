@@ -110,6 +110,16 @@ interface Settings {
   opponentAutoTurns: boolean;
   /** How much of a bot's turn stops and waits for you. See `StackMode`. */
   stackMode: StackMode;
+  /**
+   * How big the hand bar is, as a multiplier on its natural card width. Set by
+   * dragging the bar's top edge; 1 is the size it has always been.
+   *
+   * A scale rather than a pixel height because the bar has no height of its
+   * own — it is a row of cards and piles, and its height is whatever their
+   * width times the 5:7 card ratio comes to. Storing the height would mean
+   * inverting that on every read, and it would stop tracking the viewport.
+   */
+  handScale: number;
 }
 
 interface SettingsActions {
@@ -125,6 +135,7 @@ interface SettingsActions {
   setOpponentResistanceDefault: (v: boolean) => void;
   setOpponentAutoTurns: (v: boolean) => void;
   setStackMode: (mode: StackMode) => void;
+  setHandScale: (scale: number) => void;
 }
 
 const defaults: Settings = {
@@ -141,7 +152,17 @@ const defaults: Settings = {
   opponentResistanceDefault: true,
   opponentAutoTurns: true,
   stackMode: 'targeted',
+  handScale: 1,
 };
+
+/** Small enough that the piles stay legible, big enough to fill half the table. */
+export const HAND_SCALE_MIN = 0.6;
+export const HAND_SCALE_MAX = 2;
+
+export function clampHandScale(scale: number): number {
+  if (!Number.isFinite(scale)) return 1;
+  return Math.min(HAND_SCALE_MAX, Math.max(HAND_SCALE_MIN, scale));
+}
 
 /**
  * How much of a bot's turn stops and waits for you.
@@ -222,6 +243,7 @@ function load(): Settings {
       cardPreviewExplicit: true,
       opponentPreviewExplicit: true,
       logFilter: { ...ALL_LOG_CATEGORIES_ON, ...(parsed.logFilter ?? {}) },
+      handScale: clampHandScale(parsed.handScale ?? defaults.handScale),
     };
   } catch {
     return defaults;
@@ -251,6 +273,11 @@ export const usePlaytestSettings = create<Settings & SettingsActions>((set, get)
   setOpponentResistanceDefault: (opponentResistanceDefault) => { set({ opponentResistanceDefault }); save({ ...get(), opponentResistanceDefault }); },
   setOpponentAutoTurns: (opponentAutoTurns) => { set({ opponentAutoTurns }); save({ ...get(), opponentAutoTurns }); },
   setStackMode: (stackMode) => { set({ stackMode }); save({ ...get(), stackMode }); },
+  setHandScale: (raw) => {
+    const handScale = clampHandScale(raw);
+    set({ handScale });
+    save({ ...get(), handScale });
+  },
   toggleLogCategory: (category) => {
     const next: LogFilter = { ...get().logFilter, [category]: !get().logFilter[category] };
     set({ logFilter: next });

@@ -245,11 +245,13 @@ export function OpponentSeat({
 
           The vh ceiling is a backstop for a pathological board — a goblin deck
           can hold sixty-eight permanents — not a working limit. It used to be
-          38vh, which ordinary boards hit routinely. Three things make the room
-          affordable: identical cards pile into one counted card, BOARD_ZOOM
-          draws the wrapping rows smaller, and `setSeatBandHeight` walks any of
-          the player's own cards that the grown band covers down to a free slot
-          — so growing downwards no longer buries their battlefield.
+          38vh, which ordinary boards hit routinely. Two things make the room
+          affordable: identical cards pile into one counted card, and BOARD_ZOOM
+          draws the wrapping rows smaller. A third used to: the band pushed the
+          player's own cards down as it grew. That is gone — a seat is an
+          overlay now and the player's board ignores it entirely — so a seat
+          that grows tall is a seat to shorten or drag, not a thing that
+          rearranges somebody else's table.
 
           Either way the header, lands, zones and combat strip stay pinned —
           shortening a seat should cost you the least useful rows, not the life
