@@ -9,6 +9,7 @@ import type { ScryfallCard, DetectedCombo, LoadPhase } from '@/types';
 import { useStore } from '@/store';
 import { trackEvent } from '@/services/analytics';
 import { CardTypeIcon, ManaText } from '@/components/ui/mtg-icons';
+import { BuyCardChip } from '@/components/ui/BuyLinks';
 
 type CardType = 'Commander' | 'Creature' | 'Planeswalker' | 'Battle' | 'Instant' | 'Sorcery' | 'Artifact' | 'Enchantment' | 'Land';
 
@@ -888,7 +889,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
           )}
           <p className="text-white/70 text-sm">{faceType}</p>
           {getCardPrice(displayCard, currency) && (
-            <p className="text-white/50 text-xs mt-1">{sym}{getCardPrice(displayCard, currency)}</p>
+            <p className="text-white/70 text-xs mt-1">{sym}{getCardPrice(displayCard, currency)}</p>
           )}
           {isOwned && !cardOverride && (
             <p className="text-emerald-400 text-xs mt-1.5 flex items-center justify-center gap-1">
@@ -938,6 +939,10 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
               </svg>
               EDHREC
             </a>
+            <BuyCardChip
+              card={displayCard}
+              price={getCardPrice(displayCard, currency) ? `${sym}${getCardPrice(displayCard, currency)}` : null}
+            />
             {!hideMustInclude && canMustInclude && !canDirectAdd && (
               <button
                 onClick={() => handleAddToDeck(currentCardName)}

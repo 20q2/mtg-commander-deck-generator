@@ -1,7 +1,7 @@
 import type { ScryfallCard } from '@/types';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { isLand } from '@/components/playtest/utils';
-import { chooseResistancePlay, describeEffect, hasLiveTarget, pickTarget, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
+import { chooseResistancePlay, describeEffect, hasLiveTarget, pickTarget, resolveEverywhere, type AppliedEffect, type PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import {
   BOT_CYCLING,
   BOT_LANDFALL_EFFECTS,
@@ -16,9 +16,9 @@ import {
   lookupSelfEffect,
   specsOf,
 } from '@/services/playtest/opponents/effects';
-import type { BotEffectSpec, BotSelfSpec, TokenSpec } from '@/services/playtest/opponents/effects';
+import type { BotEffectSpec, BotSelfSpec, GraveyardCost, TokenSpec } from '@/services/playtest/opponents/effects';
 import { arrivesDead, botKeywords, botPower as livePower, botToughness as liveToughness, effectiveCost, hasHaste, isCreatureCard, isTokenCard, toPermanent, tokenMultiplier, typeLineOf } from '@/services/playtest/opponents/stats';
-import { applyTaps, devotionTo, genericCost, manaFrom, planPayment, requirementFor } from '@/services/playtest/opponents/mana';
+import { applyTaps, devotionTo, genericCost, graveyardManaCost, manaFrom, planPayment, requirementFor } from '@/services/playtest/opponents/mana';
 import { chooseAttackTarget, chooseAttackers, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { BOT_COMBOS, comboPiecesWanted, liveCombos } from '@/services/playtest/opponents/botCombos';
 import { pickSacrificeFodder } from '@/services/playtest/opponents/choices';
@@ -45,6 +45,16 @@ const EMPTY_EFFECT: AppliedEffect = {
 
 /** Backstop on the develop loop so a mana-flooded board can't spin forever. */
 const MAX_CASTS_PER_TURN = 5;
+
+/**
+ * The life total below which a bot starts taking the defensive mode of a card
+ * that offers one — see `only: 'lowLife'`.
+ *
+ * Eight is a quarter of a starting total and about one good attack: high
+ * enough that a bot under real pressure reaches for the shield, low enough
+ * that a healthy one never wastes its turn gaining two.
+ */
+const LOW_LIFE = 8;
 
 /** How many interaction spells a resisting bot casts in one turn. */
 const MAX_INTERACTION_PER_TURN = 2;
@@ -87,15 +97,16 @@ function isPermanent(card: ScryfallCard): boolean {
   );
 }
 
-/**
- * Tap sources to pay a bare number, for the registry costs that are one — a
- * cycling cost, a recursion cost, an activated ability. Colourless in both
- * senses: nothing here knows what colour the ability wanted, so it spends the
- * least flexible sources first and leaves the duals up for the spells that do.
- */
-function tapForMana(battlefield: OpponentPermanent[], amount: number): OpponentPermanent[] {
-  if (amount <= 0) return battlefield;
-  return applyTaps(battlefield, planPayment(battlefield, genericCost(amount)).taps);
+/** Which graveyard card an ability's cost eats, as a predicate. */
+function graveyardCostMatcher(cost: GraveyardCost): (card: ScryfallCard) => boolean {
+  switch (cost) {
+    case 'land':     return isLand;
+    case 'creature': return isCreatureCard;
+    case 'instantOrSorcery': return card => {
+      const t = getFrontFaceTypeLine(card).toLowerCase();
+      return t.includes('instant') || t.includes('sorcery');
+    };
+  }
 }
 
 /**
@@ -249,9 +260,12 @@ export function takeTurn(
     const selfDamage = etb + pendingDrain;
     // Read before the reset: the frame below is built after it.
     const drew = pendingDraws;
+    // Mana paid for this beat was spent before it: the lines go in front.
+    const paidWith = pendingManaLogs;
     pendingCreatures = 0;
     pendingDrain = 0;
     pendingDraws = 0;
+    pendingManaLogs = [];
     frames.push({
       opponent: {
         ...opp,
@@ -262,7 +276,7 @@ export function takeTurn(
         command: [...opp.command],
         battlefield: opp.battlefield.map(p => ({ ...p, counters: { ...p.counters } })),
       },
-      logs: etb > 0 ? [...logs, `${opp.name} deals ${etb} to you`] : logs,
+      logs: etb > 0 ? [...paidWith, ...logs, `${opp.name} deals ${etb} to you`] : [...paidWith, ...logs],
       effects,
       attackers,
       blurb,
@@ -305,6 +319,16 @@ export function takeTurn(
    * TurnFrame.drew for why this is counted rather than diffed.
    */
   let pendingDraws = 0;
+
+  /**
+   * Graveyard cards spent paying for mana since the last frame.
+   *
+   * Paying happens before the beat it pays for is built — a spell is paid for
+   * and only then cast — so these lines are held and read by `frame`, the same
+   * way the counters above are. Without them a land quietly vanished from the
+   * bot's graveyard with nothing in the log to say why.
+   */
+  let pendingManaLogs: string[] = [];
 
   /**
    * Kill some of the bot's own permanents — a wrath, a sacrifice — through
@@ -785,7 +809,8 @@ export function takeTurn(
 
   // Lands, rocks and unsick mana creatures.
   /** Untapped mana right now — recomputed after every spell, since paying taps. */
-  const availableMana = () => opp.battlefield.reduce((sum, p) => sum + manaFrom(p), 0);
+  const availableMana = () =>
+    opp.battlefield.reduce((sum, p) => sum + manaFrom(p, opp.graveyard), 0);
   /**
    * How the bot would pay for `card`, with `extra` generic on top for commander
    * tax. Plan before you mutate: the taps are battlefield indices, so a spell
@@ -794,7 +819,42 @@ export function takeTurn(
   const payFor = (card: ScryfallCard, extra = 0) => planPayment(
     opp.battlefield,
     requirementFor(card, effectiveCost(card, opp.battlefield) + extra),
+    opp.graveyard,
   );
+  /**
+   * Turn a plan's sources sideways and pay whatever they eat.
+   *
+   * Every payment goes through here rather than through `applyTaps` directly,
+   * because a source can cost more than a tap: Deathrite Shaman's mana ability
+   * exiles a land from the graveyard, so a bot that ramped off it three turns
+   * running should be three lands lighter. The lines land on the next frame —
+   * see `pendingManaLogs` — since paying happens before the beat is built.
+   */
+  const spendTaps = (taps: number[]) => {
+    for (const i of taps) {
+      const eats = graveyardManaCost(opp.battlefield[i].card);
+      if (!eats) continue;
+      const idx = opp.graveyard.findIndex(eats);
+      // Can't happen — `manaFrom` only counts the source while the graveyard
+      // has what it eats — but a source that cannot pay makes no mana either,
+      // so skipping is the right failure if it ever does.
+      if (idx < 0) continue;
+      const [fuel] = opp.graveyard.splice(idx, 1);
+      opp.exile.push(fuel);
+      pendingManaLogs.push(`${opp.name} exiles ${fuel.name} from their graveyard for mana`);
+    }
+    opp.battlefield = applyTaps(opp.battlefield, taps);
+  };
+  /**
+   * Pay a bare number, for the registry costs that are one — a cycling cost, a
+   * recursion cost, an activated ability. Colourless in both senses: nothing
+   * here knows what colour the ability wanted, so it spends the least flexible
+   * sources first and leaves the duals up for the spells that do.
+   */
+  const spendMana = (amount: number) => {
+    if (amount <= 0) return;
+    spendTaps(planPayment(opp.battlefield, genericCost(amount), opp.graveyard).taps);
+  };
   /** Can the bot make the colours? The develop loop still checks the total first. */
   const canPay = (card: ScryfallCard, extra = 0) => payFor(card, extra).paid;
   /**
@@ -817,7 +877,7 @@ export function takeTurn(
     const plan = payFor(commander, tax);
     if (plan.paid) {
       opp.command = opp.command.slice(1);
-      opp.battlefield = applyTaps(opp.battlefield, plan.taps);
+      spendTaps(plan.taps);
       opp.battlefield.push(toPermanent(commander));
       arrive(commander);
       opp.commanderCasts += 1;
@@ -876,7 +936,7 @@ export function takeTurn(
       opp.hand.splice(play.handIndex, 1);
       // Tap what it cost, so their board shows the spend — before the spell
       // lands, so a mana rock can't help pay for itself.
-      opp.battlefield = applyTaps(opp.battlefield, payFor(play.card).taps);
+      spendTaps(payFor(play.card).taps);
       if (play.staysOnBattlefield) {
         opp.battlefield.push(toPermanent(play.card));
         arrive(play.card);
@@ -947,7 +1007,7 @@ export function takeTurn(
     if (i < 0) continue;
     opp.hand.splice(i, 1);
     opp.graveyard.push(card);
-    opp.battlefield = tapForMana(opp.battlefield, cycle.cost);
+    spendMana(cycle.cost);
 
     const logs = [`${opp.name} cycles ${card.name}`];
     const label = applySpecs(specs);
@@ -980,7 +1040,7 @@ export function takeTurn(
     const i = opp.graveyard.findIndex(c => c === card);
     if (i < 0) continue;
     opp.graveyard.splice(i, 1);
-    opp.battlefield = tapForMana(opp.battlefield, rec.cost);
+    spendMana(rec.cost);
     opp.battlefield.push({ ...toPermanent(card), tapped: rec.tapped ?? false });
     arrive(card);
     frame([`${opp.name} returns ${card.name} from the graveyard`], [], [], card.name, undefined, undefined, { card, from: 'graveyard', onStack: true });
@@ -1027,7 +1087,7 @@ export function takeTurn(
     });
     if (bestIdx < 0) break;
     const spell = opp.hand.splice(bestIdx, 1)[0];
-    opp.battlefield = applyTaps(opp.battlefield, payFor(spell).taps);
+    spendTaps(payFor(spell).taps);
 
     // Pay any additional cost first, through the shared death path so the
     // sacrifice fires death triggers like any other death.
@@ -1069,13 +1129,25 @@ export function takeTurn(
   //
   // One activation per permanent per turn, most expensive affordable ability
   // first, so Rhys doubles the board when it can rather than making one elf.
+  // Modes of the same card cost the same, and there the registry order decides
+  // — see Deathrite Shaman, whose modes are written in the order a player
+  // reaches for them.
   for (const source of opp.battlefield.filter(p => lookupActivated(p.card.name).length > 0)) {
     const live = opp.battlefield.find(p => p.instanceId === source.instanceId);
     if (!live || live.tapped) continue;
+    // What it can pay with if the ability turns the source sideways: the
+    // source itself is out. Deathrite Shaman is both a mana ability and a
+    // tap ability, so on a board where it is the only mana left it would
+    // otherwise tap for the {B} that pays for its own {B}, {T}.
+    const manaWithoutSource = availableMana() - manaFrom(live, opp.graveyard);
     const options = lookupActivated(live.card.name)
-      .filter(a => a.cost <= availableMana())
+      .filter(a => a.cost <= (a.tapsSource ? manaWithoutSource : availableMana()))
       // A tap ability needs the permanent to have been there since upkeep.
       .filter(a => !(a.tapsSource && live.summoningSick))
+      // An ability that eats a card out of the graveyard is only live while
+      // one is there to eat — which is the whole of what makes a toolbox a
+      // toolbox: the graveyard decides which mode is legal.
+      .filter(a => !a.exiles || opp.graveyard.some(graveyardCostMatcher(a.exiles)))
       // A player-facing ability is worth paying for when it has a target; a
       // self ability when at least one of its specs would do something.
       .filter(a => a.effect
@@ -1085,33 +1157,61 @@ export function takeTurn(
       .filter(a => a.only !== 'behindOnLands' || behindOnLands())
       // A Gate to the Afterlife is only worth cashing in on a deep graveyard.
       .filter(a => a.only !== 'graveyardStocked' || opp.graveyard.filter(isCreatureCard).length >= 6)
+      // Stabilising is only a play when there is something to stabilise from.
+      .filter(a => a.only !== 'lowLife' || opp.life <= LOW_LIFE)
       .sort((a, b) => b.cost - a.cost);
     if (options.length === 0) continue;
 
     const ability = options[0];
-    // Pay before resolving, so the cost shows on their board either way.
-    opp.battlefield = tapForMana(opp.battlefield, ability.cost);
+    // The tap is part of the price and it is paid first, so the mana that
+    // pays the rest cannot come from the source that just turned sideways.
     if (ability.tapsSource) {
       opp.battlefield = opp.battlefield.map(p =>
         p.instanceId === live.instanceId ? { ...p, tapped: true } : p,
       );
     }
+    // Pay before resolving, so the cost shows on their board either way.
+    spendMana(ability.cost);
+    // The other half of the price: the card named by `exiles` leaves the
+    // graveyard for good. Said out loud, because which card went is the
+    // information a player needs to know what the mode was.
+    const costLogs: string[] = [];
+    if (ability.exiles) {
+      const idx = opp.graveyard.findIndex(graveyardCostMatcher(ability.exiles));
+      if (idx >= 0) {
+        const [fuel] = opp.graveyard.splice(idx, 1);
+        opp.exile.push(fuel);
+        costLogs.push(`${opp.name} exiles ${fuel.name} from their graveyard`);
+      }
+    }
     // The ability eats its source. A death like any other: through the shared
     // path, so a Reaper watching the Elder go still draws.
     const sacLogs = ability.sacrificesSelf ? bury([live.instanceId]) : [];
     if (ability.effect) {
-      const hit = pickTarget(ability.effect, boards(), effectScale(ability.effect));
-      if (hit) {
+      const spec = ability.effect;
+      // "Each opponent loses 2 life" is every seat, not the best one. Anything
+      // else picks the victim worth hitting.
+      const hits = spec.kind === 'drain' && spec.eachOpponent
+        ? resolveEverywhere(spec, boards(), effectScale(spec))
+        : [pickTarget(spec, boards(), effectScale(spec))].filter(
+            (h): h is { effect: AppliedEffect; target: string } => h !== null,
+          );
+      if (hits.length > 0) {
+        // "hits you" is wrong for an ability that touches nobody — the green
+        // half of a Deathrite is a bot buying itself two life, not an attack.
+        const what = spec.kind === 'gainLife'
+          ? `${opp.name} gains ${spec.amount} life`
+          : `${opp.name} hits ${hits.map(h => h.target).join(', ')}`;
         frame(
-          [`${opp.name} activates ${live.card.name}`, `${opp.name} hits ${hit.target}`, ...sacLogs],
-          [hit.effect], [], live.card.name, undefined,
-          { card: live.card, name: live.card.name, kind: 'ability', label: describeEffect(hit.effect, hit.target) },
+          [`${opp.name} activates ${live.card.name}`, ...costLogs, what, ...sacLogs],
+          hits.map(h => h.effect), [], live.card.name, undefined,
+          { card: live.card, name: live.card.name, kind: 'ability', label: describeEffect(hits[0].effect, hits[0].target) },
         );
       }
     } else {
       const label = applySpecs(specsOf({ spec: ability.spec ?? [] }));
       if (label) {
-        frame([`${opp.name} activates ${live.card.name}`, `${opp.name} ${label}`, ...sacLogs], [], [], label);
+        frame([`${opp.name} activates ${live.card.name}`, ...costLogs, `${opp.name} ${label}`, ...sacLogs], [], [], label);
       }
     }
   }
@@ -1157,7 +1257,7 @@ export function takeTurn(
     const ready = live.find(c => armed.has(c.id));
 
     if (ready) {
-      opp.battlefield = tapForMana(opp.battlefield, ready.mana);
+      spendMana(ready.mana);
       // The finisher leaves hand and is spent.
       for (const name of ready.inHand ?? []) {
         const i = opp.hand.findIndex(c => c.name === name);
@@ -1287,6 +1387,8 @@ export function takeTurn(
     for (const a of attackers) {
       const entry = lookupSelfEffect(a.card.name);
       if (entry?.timing !== 'attack') continue;
+      // Battalion: the trigger needs a crowd, and this swing may not be one.
+      if (entry.requiresAttackers && attackers.length < entry.requiresAttackers) continue;
       const label = applySpecs(specsOf(entry));
       if (label) {
         frame([`${opp.name}'s ${a.card.name} attacks`, `${opp.name} ${label}`], [], [], label);

@@ -146,13 +146,45 @@ function netManaFromText(text: string): number {
   return Math.max(0, produced - spent);
 }
 
-/** How much mana this permanent can make right now. */
-export function manaFrom(p: OpponentPermanent): number {
+/**
+ * Mana abilities that eat a card out of the graveyard, keyed by card name.
+ *
+ * Two reasons these can't be read off the text like everything else. The "Add"
+ * is not the first thing after the colon — Deathrite Shaman's mana mode reads
+ * "{T}: Exile target land card from a graveyard. Add one mana of any color." —
+ * so `netManaFromText` scores it zero and the best turn-one play in a Golgari
+ * deck sat on the board as a 1/2 that never did anything. And the ability is
+ * only live while the graveyard holds what it eats, which is a fact about the
+ * game state rather than about the card.
+ *
+ * `eats` also names the cost: the engine exiles the card the source ate, so a
+ * graveyard that has been drunk dry stops paying.
+ */
+export const GRAVEYARD_MANA: Record<string, { amount: number; eats: (card: ScryfallCard) => boolean }> = {
+  'Deathrite Shaman': { amount: 1, eats: isLand },
+};
+
+/** What `card`'s mana ability eats out of a graveyard, if it has one. */
+export function graveyardManaCost(card: ScryfallCard): ((c: ScryfallCard) => boolean) | null {
+  return GRAVEYARD_MANA[card.name]?.eats ?? null;
+}
+
+/**
+ * How much mana this permanent can make right now.
+ *
+ * `graveyard` is the bot's own, for the sources above. Left out it defaults to
+ * empty, which reads as "nothing to eat" — the honest answer for any caller
+ * that isn't tracking a graveyard.
+ */
+export function manaFrom(p: OpponentPermanent, graveyard: ScryfallCard[] = []): number {
   if (p.tapped) return 0;
   if (isLand(p.card)) return 1;
-  if ((p.card.produced_mana?.length ?? 0) === 0) return 0;
-  // A mana creature can't tap the turn it arrives.
+  // A mana creature can't tap the turn it arrives — checked before the
+  // graveyard sources, which are creatures to a card.
   if (isCreatureCard(p.card) && p.summoningSick) return 0;
+  const fuelled = GRAVEYARD_MANA[p.card.name];
+  if (fuelled) return graveyard.some(fuelled.eats) ? fuelled.amount : 0;
+  if ((p.card.produced_mana?.length ?? 0) === 0) return 0;
   return netManaFromText(p.card.oracle_text ?? '');
 }
 
@@ -192,10 +224,10 @@ interface Source {
   priority: number;
 }
 
-function sourcesOf(battlefield: OpponentPermanent[]): Source[] {
+function sourcesOf(battlefield: OpponentPermanent[], graveyard: ScryfallCard[]): Source[] {
   const out: Source[] = [];
   battlefield.forEach((p, index) => {
-    const amount = manaFrom(p);
+    const amount = manaFrom(p, graveyard);
     if (amount <= 0) return;
     out.push({
       index,
@@ -226,8 +258,10 @@ export interface ManaPlan {
 export function planPayment(
   battlefield: OpponentPermanent[],
   req: ManaRequirement,
+  /** The bot's graveyard, for the sources that eat one — see GRAVEYARD_MANA. */
+  graveyard: ScryfallCard[] = [],
 ): ManaPlan {
-  const untapped = sourcesOf(battlefield);
+  const untapped = sourcesOf(battlefield, graveyard);
   const taps: number[] = [];
   /** Mana already produced and unspent, as the colours it could still be. */
   const floating: number[] = [];

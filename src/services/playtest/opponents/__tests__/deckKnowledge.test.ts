@@ -352,3 +352,95 @@ describe('additional costs', () => {
     expect(r.final.hand.map(c => c.name)).toContain('Prize');
   });
 });
+
+/**
+ * A modal ability is only worth having if the bot picks the mode. Deathrite
+ * Shaman is the test case and the reason the machinery exists: three modes,
+ * each paid for by exiling a different kind of card out of a graveyard, and
+ * the graveyard decides which of them the bot can even reach for.
+ */
+describe('Deathrite Shaman', () => {
+  const SWAMP = () => card({ name: 'Swamp', type_line: 'Basic Land — Swamp', cmc: 0 });
+  const DRS = () => card({
+    name: 'Deathrite Shaman', type_line: 'Creature — Elf Shaman', cmc: 1,
+    mana_cost: '{B/G}', power: '1', toughness: '2', produced_mana: ['B', 'G', 'R', 'U', 'W'],
+  });
+  const BOLT = () => card({ name: 'Lightning Bolt', type_line: 'Instant', cmc: 1 });
+  const BEAR = () => card({ name: 'Grizzly Bears', type_line: 'Creature — Bear', cmc: 2, power: '2', toughness: '2' });
+  /** One black source, so the coloured half of a mode is payable. */
+  const shaman = (over: Partial<Opponent> = {}) =>
+    bot({ battlefield: [perm(DRS()), perm(SWAMP())], ...over });
+
+  it('activates nothing off an empty graveyard, and swings instead', () => {
+    const r = takeTurn(shaman(), board());
+    expect(logsOf(r.frames)).not.toContain('activates Deathrite Shaman');
+    expect(r.frames.flatMap(f => f.effects)).toEqual([]);
+    expect(logsOf(r.frames)).toContain('attacks you with Deathrite Shaman');
+  });
+
+  it('will not tap itself for the mana that pays for its own tap ability', () => {
+    // Its own mana mode is live — a land is in the yard — but it is the only
+    // untapped source on the board, and one permanent cannot tap twice.
+    const alone = bot({ battlefield: [perm(DRS())], graveyard: [SWAMP(), BOLT()] });
+    const r = takeTurn(alone, board());
+    expect(logsOf(r.frames)).not.toContain('activates Deathrite Shaman');
+    expect(r.final.exile).toHaveLength(0);
+  });
+
+  it('will not drain off a graveyard with no instant or sorcery in it', () => {
+    const r = takeTurn(shaman({ graveyard: [BEAR()] }), board());
+    expect(r.frames.flatMap(f => f.effects).every(e => e.lifeLoss === 0)).toBe(true);
+  });
+
+  it('exiles the instant it drained with, and gains nothing for it', () => {
+    const r = takeTurn(shaman({ graveyard: [BOLT()] }), board());
+    const effects = r.frames.flatMap(f => f.effects);
+    expect(effects.some(e => e.lifeLoss === 2)).toBe(true);
+    // "Each opponent loses 2 life" — the controller is not an opponent.
+    expect(effects.every(e => e.lifeGain === undefined)).toBe(true);
+    expect(r.final.graveyard.map(c => c.name)).not.toContain('Lightning Bolt');
+    expect(r.final.exile.map(c => c.name)).toContain('Lightning Bolt');
+  });
+
+  it('bills every seat, not the one worth hitting most', () => {
+    const rival = board({ seatId: 'b2', seatName: 'Rival', life: 40 });
+    const r = takeTurn(shaman({ graveyard: [BOLT()] }), board(), [], [rival]);
+    const losses = r.frames.flatMap(f => f.effects).filter(e => e.lifeLoss === 2);
+    expect(losses).toHaveLength(2);
+    expect(losses.filter(e => e.target?.seatId === 'b2')).toHaveLength(1);
+  });
+
+  it('exiles a creature to gain 2 only when it is the one under pressure', () => {
+    const healthy = takeTurn(shaman({ graveyard: [BEAR()] }), board());
+    expect(healthy.final.exile).toHaveLength(0);
+
+    const dying = takeTurn(shaman({ life: 6, graveyard: [BEAR()] }), board());
+    expect(dying.final.exile.map(c => c.name)).toContain('Grizzly Bears');
+    const gain = dying.frames.flatMap(f => f.effects).find(e => e.lifeGain === 2);
+    expect(gain).toBeDefined();
+    // Nothing is aimed at anybody: this one is not a stack item.
+    expect(gain?.lifeLoss).toBe(0);
+    expect(gain?.destroy).toEqual([]);
+  });
+
+  it('would rather drain than gain while its life total is healthy', () => {
+    const r = takeTurn(shaman({ graveyard: [BOLT(), BEAR()] }), board());
+    expect(r.final.exile.map(c => c.name)).toEqual(['Lightning Bolt']);
+  });
+
+  it('taps for the mana that casts a two-drop, eating a land out of its yard', () => {
+    const r = takeTurn(
+      shaman({ hand: [BEAR()], graveyard: [SWAMP()] }),
+      board(),
+    );
+    expect(names(r.final)).toContain('Grizzly Bears');
+    expect(r.final.graveyard.map(c => c.name)).not.toContain('Swamp');
+    expect(r.final.exile.map(c => c.name)).toContain('Swamp');
+    expect(logsOf(r.frames)).toContain('exiles Swamp from their graveyard for mana');
+  });
+
+  it('is not a mana source with no land in the graveyard', () => {
+    const r = takeTurn(shaman({ hand: [BEAR()], graveyard: [] }), board());
+    expect(names(r.final)).not.toContain('Grizzly Bears');
+  });
+});

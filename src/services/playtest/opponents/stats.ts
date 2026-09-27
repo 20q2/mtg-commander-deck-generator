@@ -9,6 +9,7 @@ import {
   type BotStaticSpec,
 } from '@/services/playtest/opponents/effects';
 import { keywordsOf, type CombatKeyword } from '@/services/playtest/combat';
+import { editedTypeLine } from '@/services/playtest/powerToughness';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 
 /**
@@ -100,24 +101,41 @@ function tempDelta(p: OpponentPermanent, key: 'power' | 'toughness'): number {
   return p.tempBoost?.[key] ?? 0;
 }
 
-/** What every anthem on the board adds to this one permanent. */
-export function anthemBonus(
+/**
+ * Every anthem currently pumping this permanent, named.
+ *
+ * Named rather than summed because the player has to be told: a 1/1 attacking
+ * as a 3/2 is unblockable-in-practice information, and "+1/+1 from Goblin
+ * Chieftain" is the difference between that reading as a rule and reading as a
+ * bug. `anthemBonus` is the sum of exactly this list, so the number on screen
+ * and its explanation cannot drift apart.
+ */
+export function anthemSources(
   p: OpponentPermanent,
   battlefield: OpponentPermanent[],
-): { power: number; toughness: number } {
-  let power = 0;
-  let toughness = 0;
+): { name: string; power: number; toughness: number }[] {
+  const out: { name: string; power: number; toughness: number }[] = [];
   for (const source of battlefield) {
     for (const spec of staticsOf(source.card.name)) {
       if (spec.kind !== 'anthem') continue;
       // Almost every lord says "OTHER creatures", so a source skips itself.
       if (source.instanceId === p.instanceId && !spec.includeSelf) continue;
       if (spec.subtype && !countsAs(typeLineOf(p), spec.subtype, battlefield)) continue;
-      power += spec.power;
-      toughness += spec.toughness;
+      out.push({ name: source.card.name, power: spec.power, toughness: spec.toughness });
     }
   }
-  return { power, toughness };
+  return out;
+}
+
+/** What every anthem on the board adds to this one permanent. */
+export function anthemBonus(
+  p: OpponentPermanent,
+  battlefield: OpponentPermanent[],
+): { power: number; toughness: number } {
+  return anthemSources(p, battlefield).reduce(
+    (acc, a) => ({ power: acc.power + a.power, toughness: acc.toughness + a.toughness }),
+    { power: 0, toughness: 0 },
+  );
 }
 
 /**
@@ -170,6 +188,97 @@ export function botToughness(
       + anthemBonus(p, battlefield).toughness
       + (p.edit ? 0 : dynamicBonus(p, battlefield, graveyard).toughness),
   );
+}
+
+/**
+ * The P/T the card itself shows.
+ *
+ * Deliberately blind to the edit, unlike `baseStat`. An edit is the loudest
+ * reason live and printed disagree, so reading the rewrite as if it were
+ * printed made a Frogified creature look untouched — `differs` came out false
+ * and the badge drew in the plain "nothing to see" black.
+ */
+function printedPT(p: OpponentPermanent): string {
+  const power = p.card.power ?? p.card.card_faces?.[0]?.power ?? '0';
+  const toughness = p.card.toughness ?? p.card.card_faces?.[0]?.toughness ?? '0';
+  return `${power}/${toughness}`;
+}
+
+/**
+ * What a bot's creature is right now, against what its card says, and why.
+ *
+ * The display half of `botPower`/`botToughness`, kept beside them so there is
+ * no second opinion about a creature's size. Every caller that draws a bot's
+ * creature uses this: a 1/1 Legion Loyalist attacking as a 3/2 because a lord
+ * and a Bushwhacker are on the board is a fact you have to be able to see
+ * BEFORE you decide what blocks it, and the only place a player looks for a
+ * creature's size is the corner of its card.
+ *
+ * `differs` is a string comparison against the printed text, so a `*` always
+ * counts as different — which is the point, since a star is not a size you
+ * can block against.
+ */
+export interface BotPT {
+  printed: string;
+  live: string;
+  differs: boolean;
+  /** Which kind of change dominates, for the badge's colour. */
+  reason: 'edit' | 'temp' | 'static';
+  /** The rewritten type line, when an edit changed it. */
+  typeLine: string | null;
+  /** One line per thing doing it, for the tooltip. */
+  sources: string[];
+}
+
+export function botPT(
+  p: OpponentPermanent,
+  battlefield: OpponentPermanent[],
+  graveyard: ScryfallCard[] = [],
+): BotPT | null {
+  if (!isCreatureCard(p.card) && !p.edit) return null;
+  const printed = printedPT(p);
+  const live = `${botPower(p, battlefield, graveyard)}/${botToughness(p, battlefield, graveyard)}`;
+
+  const sources: string[] = [];
+  if (p.edit) sources.push(`Rewritten as a ${p.edit.power}/${p.edit.toughness}`);
+  const counters = counterDelta(p);
+  if (counters !== 0) sources.push(`${counters > 0 ? '+' : '−'}${Math.abs(counters)}/${counters > 0 ? '+' : '−'}${Math.abs(counters)} in counters`);
+  for (const a of anthemSources(p, battlefield)) {
+    sources.push(`${a.name} +${a.power}/+${a.toughness}`);
+  }
+  if (p.tempBoost) {
+    const { power, toughness, keywords } = p.tempBoost;
+    const stats = power || toughness ? `+${power}/+${toughness}` : '';
+    const gained = keywords?.length ? `${stats ? ' and ' : ''}${keywords.join(', ')}` : '';
+    sources.push(`Until end of turn: ${stats}${gained}`);
+  }
+  if (!p.edit && BOT_DYNAMIC_STATS[p.card.name]) sources.push('Size is read off the board');
+
+  return {
+    printed,
+    live,
+    differs: printed !== live,
+    reason: p.edit ? 'edit' : p.tempBoost ? 'temp' : 'static',
+    typeLine: editedTypeLine(p.card, p.edit),
+    sources,
+  };
+}
+
+/**
+ * Keywords this creature has that its own card does not print.
+ *
+ * The other half of what a player cannot see. Legion Loyalist's battalion
+ * trigger hands first strike to a whole goblin board, and a first striker
+ * blocked by something that cannot kill it first takes no damage at all —
+ * which, unannounced, reads as the damage maths being broken.
+ */
+export function grantedKeywords(
+  p: OpponentPermanent,
+  battlefield: OpponentPermanent[],
+  graveyard: ScryfallCard[] = [],
+): CombatKeyword[] {
+  const printed = keywordsOf(p.card, p.edit);
+  return [...botKeywords(p, battlefield, graveyard)].filter(k => !printed.has(k));
 }
 
 /**

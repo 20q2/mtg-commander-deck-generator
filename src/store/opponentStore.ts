@@ -4,7 +4,7 @@ import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
 import { playCue, BOT_GAIN } from '@/services/playtest/playtestSound';
 import { slashCard } from '@/store/cardSlashStore';
-import { seatLifeAnchor, strikeAt, strikePacing } from '@/store/combatStrikes';
+import { lungeAt, seatLifeAnchor, strikePacing } from '@/store/combatStrikes';
 import { takeTurn } from '@/services/playtest/opponents/engine';
 import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/deckSources';
 import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
@@ -136,8 +136,6 @@ interface StrikeBeat {
   attackerId: string;
   /** Absent only if the card left your board between confirm and resolve. */
   card?: ScryfallCard;
-  /** `data-float-id` of the blocker it is fighting, or of the seat's life. */
-  targetFloatId: string;
   /** What this one creature takes off the seat — trample overflow included. */
   damage: number;
   deaths: StrikeDeath[];
@@ -407,7 +405,7 @@ interface OpponentActions {
    * anthems and static effects the engine cannot read off the cards. It is not
    * applied to the creature fight — deaths still come from the printed numbers.
    */
-  resolveCombat: (damageMod?: number) => void;
+  resolveCombat: (damageMod?: number) => Promise<void>;
   /** Step into combat — opens every seat's strip as a drop target. */
   enterCombat: () => void;
   /** Back out. Anything declared is untapped and forgotten. */
@@ -771,9 +769,13 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     };
   }),
 
-  resolveCombat: (damageMod = 0) => {
+  resolveCombat: async (damageMod = 0) => {
     const combat = get().combat;
     if (!combat) return;
+    // The button goes inert while a sequence runs, but a click landing in the
+    // same frame it re-renders would still get through — and an attack paid
+    // out twice takes the life total twice.
+    if (get().resolvingCombat) return;
     const playtest = usePlaytestStore.getState();
     const float = useFloatingText.getState().float;
 
@@ -785,84 +787,137 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     const { attackers, blocks, blockerNames: names } =
       readIncomingCombat(combat, opponent, playtest.battlefield);
 
-    // Every attacker died or left before you resolved. Nothing to work out, but
-    // the turn is still parked on this promise.
-    if (attackers.length === 0) {
-      playtest.appendLog(`${combat.opponentName}'s attack came to nothing`, 'bot', [combat.opponentId]);
+    /**
+     * Combat is over: any until-end-of-turn pump on the attacking seat ends
+     * with it, and the bot's turn — parked on this promise — moves on.
+     */
+    const finish = () => {
       set(s => ({
         combat: null,
         opponents: s.opponents.map(o => (o.id === combat.opponentId ? clearTempBoosts(o) : o)),
       }));
       combatResolver?.();
       combatResolver = null;
+    };
+
+    // Every attacker died or left before you resolved. Nothing to work out, but
+    // the turn is still parked on this promise.
+    if (attackers.length === 0) {
+      playtest.appendLog(`${combat.opponentName}'s attack came to nothing`, 'bot', [combat.opponentId]);
+      finish();
       return;
     }
 
     const outcome = resolveDamage(attackers, blocks);
-    const { deadAttackers, deadBlockers } = outcome;
+    const deadAttackers = new Set(outcome.deadAttackers);
+    const deadBlockers = new Set(outcome.deadBlockers);
+    /**
+     * One beat per attacker — the mirror of `resolvePlayerCombat`.
+     *
+     * The whole fight is worked out here, before any of it is applied, and the
+     * sequencing below only decides *when* each part of a settled result
+     * lands. Their attack used to arrive as a single frame — every death,
+     * every point of life and every graveyard move at once — which reads as
+     * damage happening to you rather than as creatures coming at you and
+     * hitting something.
+     */
+    const beats = attackers.map(a => {
+      const assigned = blocks[a.instanceId] ?? [];
+      return {
+        id: a.instanceId,
+        name: a.name,
+        damage: outcome.damageByAttacker[a.instanceId] ?? 0,
+        blockersDying: assigned.filter(b => deadBlockers.has(b.instanceId)).map(b => b.instanceId),
+        dies: deadAttackers.has(a.instanceId),
+      };
+    });
 
-    for (const id of deadBlockers) {
-      float('Dies', 'damage', id);
-      slashCard(id);
-      const killer = combat.attackers.find(a =>
-        (combat.blocks[a.instanceId] ?? []).includes(id),
-      );
-      playtest.appendLog(
-        `${names.get(id) ?? 'A creature'} died blocking ${killer?.card.name ?? 'an attacker'}`,
-        'bot', [combat.opponentId],
-      );
-    }
-    for (const id of deadAttackers) {
-      float('Dies', 'damage', id);
-      slashCard(id);
-      const attacker = attackers.find(a => a.instanceId === id);
-      playtest.appendLog(`${attacker?.name ?? 'An attacker'} died in combat`, 'bot', [combat.opponentId]);
-    }
+    const animate = usePlaytestSettings.getState().animations;
+    const pacing = strikePacing(beats.length);
+    // A reset, a new table or an undo abandons whatever is left of the
+    // sequence: in all three the board it was applying to has been thrown away.
+    const myRun = ++strikeRun;
+    const mine = () => myRun === strikeRun;
+    const pause = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-    for (const id of deadBlockers) {
-      playtest.moveCard({
-        source: { kind: 'battlefield', instanceId: id },
-        target: { kind: 'zone', zone: 'graveyard' },
-      });
-    }
-    if (deadAttackers.length > 0) {
-      // Read the toll off the pre-death board, then apply — one resolution,
-      // two projections, so the drain and the graveyard cannot disagree.
-      const before = get().opponents.find(o => o.id === combat.opponentId);
-      const toll = before ? deathToll(before, deadAttackers) : { lifeLoss: 0, logs: [] };
-      set(s => ({
-        opponents: s.opponents.map(o =>
-          o.id === combat.opponentId ? sendToGraveyard(o, deadAttackers) : o,
-        ),
-      }));
-      toll.logs.forEach(line => playtest.appendLog(line, 'bot', [combat.opponentId]));
-      if (toll.lifeLoss > 0) playtest.adjustLife(-toll.lifeLoss);
-    }
+    set({ resolvingCombat: true });
+    try {
+      /** One attacker's share of the result, applied as it connects. */
+      const applyBeat = (beat: (typeof beats)[number]) => {
+        playCue('hit');
+        for (const id of beat.blockersDying) {
+          float('Dies', 'damage', id);
+          slashCard(id);
+          playtest.appendLog(
+            `${names.get(id) ?? 'A creature'} died blocking ${beat.name}`,
+            'bot', [combat.opponentId],
+          );
+          playtest.moveCard({
+            source: { kind: 'battlefield', instanceId: id },
+            target: { kind: 'zone', zone: 'graveyard' },
+          });
+        }
+        if (beat.dies) {
+          float('Dies', 'damage', beat.id);
+          slashCard(beat.id);
+          playtest.appendLog(`${beat.name} died in combat`, 'bot', [combat.opponentId]);
+          // Read the toll off the pre-death board, then apply — one resolution,
+          // two projections, so the drain and the graveyard cannot disagree.
+          const before = get().opponents.find(o => o.id === combat.opponentId);
+          const toll = before ? deathToll(before, [beat.id]) : { lifeLoss: 0, logs: [] };
+          set(s => ({
+            opponents: s.opponents.map(o =>
+              o.id === combat.opponentId ? sendToGraveyard(o, [beat.id]) : o,
+            ),
+          }));
+          toll.logs.forEach(line => playtest.appendLog(line, 'bot', [combat.opponentId]));
+          if (toll.lifeLoss > 0) playtest.adjustLife(-toll.lifeLoss, { quiet: true });
+        }
+        // Quiet: the beats are the fight, and the one line under them is what
+        // the whole attack came to.
+        if (beat.damage > 0) playtest.adjustLife(-beat.damage, { quiet: true });
+      };
 
-    // The hand adjustment lands here and nowhere else: it is a correction to
-    // what reaches your face, not a rewrite of the creature fight above.
-    const dealt = Math.max(0, outcome.damageToDefender + damageMod);
-    if (dealt > 0) {
-      playtest.appendLog(
-        `You took ${dealt} from ${combat.opponentName}${adjustmentNote(damageMod)}`,
-        'bot', [combat.opponentId],
-      );
-      playtest.adjustLife(-dealt);
-    } else {
-      playtest.appendLog(
-        `${combat.opponentName}'s attack dealt no damage${adjustmentNote(damageMod)}`,
-        'bot', [combat.opponentId],
-      );
-    }
+      for (const beat of beats) {
+        if (!mine()) return;
+        if (animate) {
+          // The card in the strip leans down the screen at you and settles
+          // back. Thrown before the beat is applied so the damage lands on the
+          // frame it is furthest forward.
+          lungeAt(beat.id, 'player', pacing);
+          await pause(Math.min(pacing.impactMs, pacing.beatMs));
+          if (!mine()) return;
+        }
+        applyBeat(beat);
+        if (animate) await pause(Math.max(0, pacing.beatMs - pacing.impactMs));
+      }
+      if (!mine()) return;
 
-    // Combat is over, so any until-end-of-turn pump on the attacking seat ends
-    // with it — the survivors shrink back to their printed size.
-    set(s => ({
-      combat: null,
-      opponents: s.opponents.map(o => (o.id === combat.opponentId ? clearTempBoosts(o) : o)),
-    }));
-    combatResolver?.();
-    combatResolver = null;
+      // The hand adjustment lands here and nowhere else: it is a correction to
+      // what reaches your face, not a rewrite of the creature fight above. The
+      // beats already took off what the creatures dealt, so this is only the
+      // difference — which keeps the total exactly what the button promised.
+      const dealt = Math.max(0, outcome.damageToDefender + damageMod);
+      const correction = dealt - outcome.damageToDefender;
+      if (correction !== 0) playtest.adjustLife(-correction, { quiet: true });
+      if (dealt > 0) {
+        playtest.appendLog(
+          `You took ${dealt} from ${combat.opponentName}${adjustmentNote(damageMod)}`,
+          'bot', [combat.opponentId],
+        );
+      } else {
+        playtest.appendLog(
+          `${combat.opponentName}'s attack dealt no damage${adjustmentNote(damageMod)}`,
+          'bot', [combat.opponentId],
+        );
+      }
+
+      finish();
+    } finally {
+      // Only if the sequence is still ours: a cancel resets the flag along with
+      // everything else, and may have started a fresh fight since.
+      if (mine()) set({ resolvingCombat: false });
+    }
   },
 
   resolveStackTop: () => {
@@ -1129,11 +1184,6 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           opponentId,
           card: card?.card,
           attackerId: attacker.instanceId,
-          // A blocked creature swings at what stands in front of it, an
-          // unblocked one at the seat. Menace puts two bodies in the way and
-          // the lunge picks the first: one ghost per attacker, not one per
-          // pairing, because the attacker is what is taking the swing.
-          targetFloatId: assigned[0]?.instanceId ?? seatLifeAnchor(opponentId),
           damage: outcome.damageByAttacker[attacker.instanceId] ?? 0,
           deaths,
         });
@@ -1197,10 +1247,10 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       for (const beat of beats) {
         if (!mine()) return;
         if (animate) {
-          // Both ends are measured off the live board, so the ghost has to be
-          // thrown before the beat is applied: a blocker already buried has no
-          // box left to aim at.
-          if (beat.card) strikeAt(beat.attackerId, beat.card, beat.targetFloatId, pacing);
+          // Your creature leans up the screen at the seat it is attacking,
+          // from its slot in the strip. Thrown before the beat is applied so
+          // the damage lands on the frame it is furthest forward.
+          lungeAt(beat.attackerId, 'seat', pacing);
           await pause(Math.min(pacing.impactMs, pacing.beatMs));
           if (!mine()) return;
         }
@@ -1718,6 +1768,19 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     };
 
     /**
+     * Nothing in this effect touches the board it landed on — no permanent
+     * leaves, no life lost, no card discarded, and the game does not end.
+     *
+     * Only the caster got anything out of it, which is what the green half of
+     * a Deathrite Shaman is: two life for its controller and nothing for you.
+     * The stack is for things you might want to answer, so these do not go on
+     * it — a one-mana ability activated every turn would otherwise park the
+     * game on a window with nothing in it.
+     */
+    const harmless = (e: AppliedEffect) =>
+      !e.lethal && e.destroy.length === 0 && e.lifeLoss === 0 && e.discard === 0;
+
+    /**
      * An effect aimed at another seat. Both sides are bots, so it applies
      * at once — your stack is for things aimed at you.
      */
@@ -1981,8 +2044,19 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           // it; without, the item still shows for a beat, so the panel is a
           // record of what hit you either way.
           const toRivals = f.effects.filter(e => e.target);
-          const toYou = f.effects.filter(e => !e.target);
+          // An effect with your name on it that takes nothing from you: a bot
+          // gaining life off its own ability. It resolves at once rather than
+          // parking the turn on a stack item you have no reason to answer.
+          const selfOnly = f.effects.filter(e => !e.target && harmless(e));
+          const toYou = f.effects.filter(e => !e.target && !harmless(e));
           for (const e of toRivals) applyRivalEffect(e, f.opponent);
+          for (const e of selfOnly) {
+            if (!e.lifeGain) continue;
+            get().adjustLife(f.opponent.id, e.lifeGain);
+            usePlaytestStore.getState().appendLog(
+              `${f.opponent.name} gains ${e.lifeGain} life`, 'bot', [f.opponent.id],
+            );
+          }
           if (toYou.length > 0) {
             await putOnStack({ ...f, effects: toYou }, step);
           } else if (usePlaytestSettings.getState().stackMode === 'everything' && f.moved?.onStack && before) {

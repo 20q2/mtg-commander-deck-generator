@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useAutoAnimate } from '@formkit/auto-animate/react';
-import { X, ChevronDown, ChevronUp, LayoutGrid, Grid3x3, Columns3, Network, Tag, List, Table2, Download, Filter, Copy, Check, ExternalLink, ZoomIn, Plus, Layers, Bookmark, Library } from 'lucide-react';
+import { X, ChevronDown, ChevronUp, LayoutGrid, Grid3x3, Columns3, Network, Tag, List, Table2, Download, Filter, Copy, Check, ExternalLink, ZoomIn, Plus, Layers, Bookmark, Library, ShoppingCart } from 'lucide-react';
 import type { ScryfallCard, UserCardList, DetectedCombo } from '@/types';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
 import { useStore } from '@/store';
@@ -18,6 +18,8 @@ import { tagsForOracleId, aggregateDeckTags, groupTagSlugs, type DeckTagCount } 
 import { isIgnoredTag } from '@/services/spellchroma/ignoredTags';
 import { useCardCombos } from './useCardCombos';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { buyCardUrl } from '@/services/affiliate/tcgplayer';
+import { trackEvent } from '@/services/analytics';
 
 type DeckView = 'cards' | 'list' | 'table' | 'text' | 'web';
 
@@ -841,6 +843,18 @@ export function CardTagPopoverContent({ card, count, tags, selected, noun = 'dec
             <a href={edhrecUrl} target="_blank" rel="noopener noreferrer" title="Open on EDHREC"
               className="flex-1 inline-flex items-center justify-center gap-1 h-7 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
               <ExternalLink className="w-3 h-3" /> EDHREC
+            </a>
+            {/* Cart glyph rather than the siblings' ExternalLink: this one costs money, and the
+                title carries the affiliate disclosure since the popover has no room for a line of it. */}
+            <a href={buyCardUrl(card)} target="_blank" rel="noopener noreferrer sponsored"
+              onClick={() => trackEvent('affiliate_buy_clicked', {
+                surface: 'spellchroma',
+                cardCount: 1,
+                totalPrice: price ? Number(price.replace(/[^0-9.]/g, '')) || null : null,
+              })}
+              title="Buy on TCGplayer — affiliate link, opens in a new tab"
+              className="flex-1 inline-flex items-center justify-center gap-1 h-7 rounded-md border border-border text-xs text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+              <ShoppingCart className="w-3 h-3" /> TCGplayer
             </a>
           </div>
           <div>

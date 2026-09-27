@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.3.43",
+    "notes": [
+      "New TCG Affiliate links! Show your support for the site by buying directly from your decklist or card preview",
+      "Github link expanded to a 'For Developers' page, giving the usual link to github as well as some dev focused info on how to deep link to various pages",
+      "Animation and other QoL improvements in playtest against bots"
+    ]
+  },
+  {
     "version": "1.3.42",
     "notes": [
       "Your own battlefield no longer shifts around when a bot's seat grows or shrinks — cards stay exactly where you put them"

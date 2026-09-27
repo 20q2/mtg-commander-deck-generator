@@ -103,6 +103,10 @@ export function describeEffect(effect: AppliedEffect, target: string): string {
       ? `You lose ${effect.lifeLoss} life, they gain ${effect.lifeGain}`
       : `You lose ${effect.lifeLoss} life`;
   }
+  // Nothing was aimed at you and they got life out of it — Deathrite Shaman's
+  // green mode. Worth a line: it is the difference between a bot that is
+  // stabilising and one that did nothing this turn.
+  if (effect.lifeGain) return `They gain ${effect.lifeGain} life`;
   return 'No effect';
 }
 
@@ -283,11 +287,20 @@ export function resolveEffect(
       // A scaled drain with nothing to count does nothing, and a bot should not
       // pay for it — an upkeep Scarab God trigger on an empty board is silent.
       if (amount <= 0) return null;
-      // Both halves. What separates a drain from `damage` above is precisely
-      // that the caster gains it back, so the two cases would otherwise be the
-      // same code — and for a while they were the same behaviour.
-      return { effect: { ...EMPTY, lifeLoss: amount, lifeGain: amount }, target: 'you' };
+      // Both halves, unless the card only prints one. What separates a drain
+      // from `damage` above is precisely that the caster gains it back, so the
+      // two cases would otherwise be the same code — and for a while they were
+      // the same behaviour.
+      return {
+        effect: { ...EMPTY, lifeLoss: amount, lifeGain: spec.noGain ? undefined : amount },
+        target: 'you',
+      };
     }
+    case 'gainLife':
+      // Nobody is targeted, so every board resolves it identically and
+      // `pickTarget` lands on the player's — which leaves the effect with no
+      // `target`, and the store credits the life to whoever activated it.
+      return { effect: { ...EMPTY, lifeGain: spec.amount }, target: 'themselves' };
     case 'discard':
       if (board.handSize === 0) return null;
       return { effect: { ...EMPTY, discard: spec.count }, target: 'your hand' };
@@ -333,16 +346,18 @@ export function pickTarget(
 }
 
 /**
- * A sweeper hits every seat. One effect per board it does anything to, the
- * player's first, rival copies carrying their `target`.
+ * A sweeper hits every seat, and so does "each opponent loses 2 life". One
+ * effect per board it does anything to, the player's first, rival copies
+ * carrying their `target`.
  */
 export function resolveEverywhere(
   spec: BotEffectSpec,
   boards: PlayerBoardRead[],
+  scale = 1,
 ): { effect: AppliedEffect; target: string }[] {
   const out: { effect: AppliedEffect; target: string }[] = [];
   for (const board of boards) {
-    const hit = resolveEffect(spec, board);
+    const hit = resolveEffect(spec, board, scale);
     if (!hit) continue;
     if (board.seatId) {
       const name = board.seatName ?? 'a rival';

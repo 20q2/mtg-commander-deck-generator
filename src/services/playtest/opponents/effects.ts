@@ -48,8 +48,35 @@ export type BotEffectSpec =
    * Gray Merchant. Same reasoning: pinned at its floor of 2 it was a five-mana
    * Shock, when the whole reason a mono-black deck plays it is that by the time
    * it lands the board has made it a Lava Axe.
+   *
+   * `eachOpponent` bills every seat rather than the one worth hitting most.
+   * That is what "each opponent loses 2 life" says, and at a four-player table
+   * it is three times the card. Opt-in, because the default pick-a-victim
+   * behaviour is right for the drains that really are single-target.
+   *
+   * `noGain` is for the half-drains: Deathrite Shaman's black mode takes two
+   * off each opponent and gives its controller nothing. Without it the bot
+   * quietly gained life the card does not give it.
    */
-  | { kind: 'drain'; amount: number; perSubtype?: string; perDevotion?: DevotionColor }
+  | {
+      kind: 'drain';
+      amount: number;
+      perSubtype?: string;
+      perDevotion?: DevotionColor;
+      eachOpponent?: boolean;
+      noGain?: boolean;
+    }
+  /**
+   * The bot gains life and nobody else is touched.
+   *
+   * It lives with the player-facing effects rather than the self ones because
+   * a bot's life total is the store's to write — the engine's own frames are
+   * snapshots planned before you got to respond, so anything they said about
+   * life would clobber the burn you just pointed at them. `AppliedEffect`
+   * already carries a `lifeGain` that the store credits to the caster, and
+   * this is the spec that produces one on its own.
+   */
+  | { kind: 'gainLife'; amount: number }
   /** Discard at random from the player's hand. */
   | { kind: 'discard'; count: number };
 
@@ -288,6 +315,17 @@ export interface BotSelfEntry {
   /** A 'combat' source that taps to do this — Krenko does, Rabblemaster does not. */
   tapsSource?: boolean;
   /**
+   * Battalion and friends: an 'attack' trigger that only fires when the seat
+   * swung with at least this many creatures, counting the source.
+   *
+   * Worth checking rather than assuming, because the ability it hands out is
+   * usually first strike — and a first striker its blocker cannot kill first
+   * takes no damage at all. A trigger that fires when it should not therefore
+   * does not merely overstate the bot's board, it silently eats the blocker
+   * the player put in front of it.
+   */
+  requiresAttackers?: number;
+  /**
    * An additional cost paid on cast. 'creature' sacrifices the bot's cheapest
    * creature — Diabolic Intent — and the card is held while there is nothing
    * to sacrifice, because a bot casting it onto an empty board on turn three
@@ -310,15 +348,16 @@ export const BOT_SELF_EFFECTS: Record<string, BotSelfEntry> = {
    * "Battalion — whenever this and at least two other creatures attack,
    * creatures you control gain first strike and trample until end of turn."
    *
-   * The battalion count is not checked. It fires only when Loyalist itself
-   * attacks, and a goblin deck swinging with Loyalist is essentially never
-   * swinging alone — so the condition is met in practice and testing it would
-   * buy nothing. First strike across a goblin swarm is the card: it turns
-   * every even trade into a free one.
+   * First strike across a goblin swarm is the card: it turns every even trade
+   * into a free one. Which is exactly why the count is now checked — granting
+   * it off a two-creature swing does not just overstate the board, it makes
+   * the bot's attacker survive a block that should have killed it, with
+   * nothing on screen to say why.
    */
   'Legion Loyalist':      {
     spec: { kind: 'pump', power: 0, toughness: 0, keywords: ['firstStrike', 'trample'] },
     timing: 'attack',
+    requiresAttackers: 3,
   },
   /*
    * "Kicker {R}. When this enters, if it was kicked, creatures you control get
@@ -597,6 +636,21 @@ export interface BotActivatedEntry {
   /** The ability eats its own source — a Sakura-Tribe Elder cashing itself in. */
   sacrificesSelf?: boolean;
   /**
+   * A card the ability exiles from the graveyard as a cost.
+   *
+   * Two things at once, and both were missing. It GATES the ability — a
+   * Deathrite Shaman with no instant or sorcery in a graveyard cannot pick its
+   * black mode, and a bot that fired it anyway was drinking from an empty cup
+   * on turn two. And it is PAID: the card named here leaves the graveyard for
+   * exile, so the fuel runs out the way it does at a real table.
+   *
+   * 'a graveyard' on these cards means any graveyard. Only the bot's own is
+   * modelled — the engine has no read of yours, and no way to move a card out
+   * of it if it did — which is the honest shortcut here: in the decks that
+   * play these cards the bot's own yard is where the fuel is anyway.
+   */
+  exiles?: GraveyardCost;
+  /**
    * Hold the ability until it is worth using.
    *
    * 'behindOnLands' is for the ramp-on-legs creatures. A player keeps a
@@ -608,9 +662,23 @@ export interface BotActivatedEntry {
    * the yard is deep — Gate to the Afterlife's real condition is six creature
    * cards in the graveyard, and a bot that ignored it would trade its Gate for
    * a God-Pharaoh's Gift with nothing to reanimate.
+   *
+   * 'lowLife' is for the mode you only reach for when you are the one under
+   * pressure. Gaining two at 40 is not a play; gaining two at 6 can be the
+   * turn. It also settles the tie between two modes of the same card — see
+   * Deathrite Shaman, where the choice between draining and gaining is
+   * exactly "who is closer to dying".
    */
-  only?: 'behindOnLands' | 'graveyardStocked';
+  only?: 'behindOnLands' | 'graveyardStocked' | 'lowLife';
 }
+
+/**
+ * What an ability eats out of the graveyard to pay for itself.
+ *
+ * The three Deathrite Shaman modes, which is also every shape the engine has
+ * needed so far: a land, a creature card, or an instant or sorcery.
+ */
+export type GraveyardCost = 'land' | 'creature' | 'instantOrSorcery';
 
 export const BOT_ACTIVATED: Record<string, BotActivatedEntry[]> = {
   // Both of Rhys's abilities. With six mana up it doubles the board instead of
@@ -651,12 +719,33 @@ export const BOT_ACTIVATED: Record<string, BotActivatedEntry[]> = {
   ],
 
   // ── Golgari ──
-  // Three modes; the one that matters to you is "{B}, {T}: exile an instant or
-  // sorcery from a graveyard, each opponent loses 2." A one-drop that bills you
-  // two a turn forever, and until activated abilities could reach the player it
-  // was a 1/2 that never did anything.
+  /*
+   * Three modes, and the card is the CHOICE between them — it is played as a
+   * toolbox, not as a drain that happens to be on a body:
+   *
+   *   {T}: exile a land from a graveyard → add one mana of any colour.
+   *   {B}, {T}: exile an instant or sorcery → each opponent loses 2.
+   *   {G}, {T}: exile a creature card → you gain 2.
+   *
+   * Only the middle one was written down, unconditionally: the bot drained you
+   * for 2 every turn whatever was in the graveyard, exiled nothing, and gained
+   * 2 life the card does not give it. It could not ramp — the mana mode is in
+   * GRAVEYARD_MANA in mana.ts, since a source of mana is not an ability the
+   * main phase activates — and it could not stabilise.
+   *
+   * All three now, each gated on the card it eats. The order here settles a
+   * tie between two modes that cost the same: gaining comes first but only
+   * fires under 'lowLife', so a healthy bot drains and a bot that is being
+   * killed reaches for the other half of its own card.
+   */
   'Deathrite Shaman': [
-    { cost: 1, effect: { kind: 'drain', amount: 2 }, tapsSource: true },
+    { cost: 1, effect: { kind: 'gainLife', amount: 2 }, tapsSource: true, exiles: 'creature', only: 'lowLife' },
+    {
+      cost: 1,
+      effect: { kind: 'drain', amount: 2, eachOpponent: true, noGain: true },
+      tapsSource: true,
+      exiles: 'instantOrSorcery',
+    },
   ],
 
   // ── Eternal Might ──

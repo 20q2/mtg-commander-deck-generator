@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom';
+
 /** Shared site footer — attribution + support/feedback links. */
 export function SiteFooter() {
   return (
@@ -24,14 +26,9 @@ export function SiteFooter() {
             EDHREC
           </a>
           {' · '}
-          <a
-            href="https://github.com/20q2/mtg-commander-deck-generator"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-primary hover:underline"
-          >
-            GitHub
-          </a>
+          <Link to="/developers" className="text-primary hover:underline">
+            For Developers
+          </Link>
           {' · '}
           Support me on{' '}
           <a
@@ -64,6 +61,9 @@ export function SiteFooter() {
             WotC Fan Content Policy
           </a>
           . Not approved/endorsed by Wizards. Portions © Wizards of the Coast LLC.
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground/70">
+          Card purchase links are TCGplayer affiliate links — we may earn a commission at no extra cost to you.
         </p>
       </div>
     </footer>

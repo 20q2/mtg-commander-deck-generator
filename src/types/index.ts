@@ -24,6 +24,8 @@ export interface ScryfallCard {
   /** True when this printing is a reprint — guards released_at from reading a late printing as "new". */
   reprint?: boolean;
   edhrec_rank?: number;
+  /** TCGplayer product id for this printing — lets purchase links land on the product page. */
+  tcgplayer_id?: number;
   image_uris?: {
     small: string;
     normal: string;

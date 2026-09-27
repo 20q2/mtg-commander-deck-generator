@@ -7,8 +7,9 @@ import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { botPower, botToughness } from '@/services/playtest/opponents/stats';
+import { botPT, grantedKeywords, type BotPT } from '@/services/playtest/opponents/stats';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
+import { GrantedKeywords, KEYWORD_LABEL, PTBadge, TypeBadge } from '@/components/playtest/CardBadges';
 import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import { boxOf, captureBox, useCardFlights } from '@/components/playtest/CardFlight';
 import { seatLifeAnchor } from '@/store/combatStrikes';
@@ -21,6 +22,7 @@ import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
 import type { CastZone, Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 import type { ResizeAxis, SeatSize } from '@/components/playtest/opponents/OpponentSeats';
 import { CARD_ASPECT } from '@/components/playtest/types';
+import type { CombatKeyword } from '@/services/playtest/combat';
 import type { ScryfallCard } from '@/types';
 
 /**
@@ -1210,28 +1212,32 @@ function OpponentPermanentCard({
   const showPreview = useMagnifyHover(hovered, 'opponent');
   const animations = usePlaytestSettings(s => s.animations);
   const counters = Object.entries(permanent.counters).filter(([, v]) => v > 0);
-  // A P/T pill appears for the two things that make a creature's size something
-  // other than what is printed on it: a rewrite, and an until-end-of-turn pump.
-  // Worth computing only then — read through botPower/botToughness so counters
-  // and anthems are in the number too, not just the edit's or the pump's own
-  // values. A string keeps the selector's equality cheap.
-  const restatedPT = useOpponentStore(s => {
-    if (!permanent.edit && !permanent.tempBoost) return null;
+  /*
+   * What this creature actually is right now, and what its card says.
+   *
+   * Every reason its size can differ, not just the two it carries itself: a
+   * rewrite, an until-end-of-turn pump, counters, and the lords standing next
+   * to it. An anthem used to be the one modifier with nothing on screen at
+   * all, which is exactly the one a player needs before deciding what to block
+   * — a 1/1 Goblin swinging as a 3/2 reads as the maths being broken.
+   *
+   * Serialised through the selector so its equality stays a string comparison;
+   * a fresh object every render would re-render every permanent on every store
+   * write.
+   */
+  const ptJson = useOpponentStore(s => {
     const opp = s.opponents.find(o => o.id === opponentId);
     if (!opp) return null;
-    return `${botPower(permanent, opp.battlefield, opp.graveyard)}/${botToughness(permanent, opp.battlefield, opp.graveyard)}`;
+    const pt = botPT(permanent, opp.battlefield, opp.graveyard);
+    if (!pt) return null;
+    const granted = grantedKeywords(permanent, opp.battlefield, opp.graveyard);
+    if (!pt.differs && granted.length === 0 && !pt.typeLine) return null;
+    return JSON.stringify({ pt, granted });
   });
-  /*
-   * Which of the two it is, when a creature is both. The edit wins the colour,
-   * matching `resolvePT` on your own side of the table: being Frogified is the
-   * louder fact about a creature than being a point bigger this turn.
-   *
-   * Amber for a rewrite, emerald for a pump — emerald because that is already
-   * what a +1/+1 counter wears below, and "temporarily bigger" and
-   * "permanently bigger" should not read as unrelated ideas.
-   */
-  const boostOnly = !permanent.edit && !!permanent.tempBoost;
-  const pumpKeywords = permanent.tempBoost?.keywords ?? [];
+  const shown = useMemo(
+    () => (ptJson ? (JSON.parse(ptJson) as { pt: BotPT; granted: CombatKeyword[] }) : null),
+    [ptJson],
+  );
 
   // Theft: drag this down onto your battlefield to take it.
   const drag = useDraggable({
@@ -1382,23 +1388,47 @@ function OpponentPermanentCard({
         </span>
       )}
 
-      {restatedPT && (
-        <span
-          className={`absolute -bottom-1 -right-1 px-1 rounded-[3px] text-white text-[9px] font-bold leading-4 tabular-nums shadow ring-1 ring-black/50 pointer-events-none ${
-            boostOnly ? 'bg-emerald-600' : 'bg-amber-600'
+      {shown && (
+        /*
+         * Glued to the card rather than to its footprint: the box is the
+         * rotated shape a tapped permanent occupies, and a badge pinned to
+         * that would slide off the art the moment the creature attacked.
+         * Same width, same rotation, so the numbers ride on the card.
+         */
+        <div
+          className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-transform duration-200 ${
+            permanent.tapped ? 'rotate-90' : ''
           }`}
-          title={
-            boostOnly
-              ? `Until end of turn${pumpKeywords.length > 0 ? ` · gains ${pumpKeywords.join(', ')}` : ''}`
-              : `Edited${permanent.edit?.loseAbilities ? ' · loses all abilities' : ''}`
-          }
+          style={{ width, height: cardHeight }}
         >
-          {restatedPT}{!boostOnly && permanent.edit?.loseAbilities ? ' ⊘' : ''}
-        </span>
+          {/* Drawn whenever anything is changing this creature, even when the
+              change is abilities only: the colour is the signal that the card
+              is not telling you the whole truth, and the tooltip says how. */}
+          <PTBadge
+            value={shown.pt.live}
+            cardWidth={width}
+            tone={shown.pt.reason === 'edit' ? 'edited' : shown.pt.reason === 'temp' ? 'boosted' : 'counters'}
+            abilitiesLost={!!permanent.edit?.loseAbilities}
+            title={[
+              `${permanent.card.name} is a ${shown.pt.live}`,
+              ...shown.pt.sources,
+              ...(shown.granted.length > 0
+                ? [`Gains ${shown.granted.map(k => KEYWORD_LABEL[k]).join(', ')}`]
+                : []),
+            ].join(' · ')}
+          />
+          {shown.pt.typeLine && (
+            <TypeBadge typeLine={shown.pt.typeLine} cardWidth={width} />
+          )}
+          <GrantedKeywords keywords={shown.granted} cardWidth={width} />
+        </div>
       )}
 
       {counters.length > 0 && (
-        <div className="absolute inset-x-0 bottom-0 flex flex-wrap justify-center gap-0.5 pointer-events-none">
+        // Left-aligned, and only across the half of the card the P/T badge does
+        // not own: centred, a counter chip landed straight on top of the
+        // restated numbers and the card read "+1 3".
+        <div className="absolute left-0 bottom-0 max-w-[55%] flex flex-wrap justify-start gap-0.5 pointer-events-none">
           {counters.map(([type, n]) => (
             <span
               key={type}

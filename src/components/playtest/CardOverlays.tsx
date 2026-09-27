@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { resolvePT } from '@/services/playtest/powerToughness';
+import { editedTypeLine, resolvePT } from '@/services/playtest/powerToughness';
 import { TextSticker } from '@/components/playtest/TextSticker';
+import { PTBadge, TypeBadge } from '@/components/playtest/CardBadges';
 import type { BattlefieldCard as BfCard } from '@/components/playtest/types';
 
 export const COUNTER_COLOR: Record<string, string> = {
@@ -125,6 +126,9 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
   const pt = resolvePT(card);
   // Only worth showing when it differs from what's printed on the art.
   const showPT = pt !== null && (pt.modified !== pt.base || pt.overridden);
+  // The other half of a rewrite: being a 0/4 and being a Treefolk are one
+  // change to the creature, so they are drawn as one change to the card.
+  const typeLine = editedTypeLine(card.card, card.edit);
 
   return (
     <>
@@ -179,66 +183,15 @@ export function CardOverlays({ card, cardWidth, cardHeight, interactive = true, 
         ),
       )}
 
+      {typeLine && <TypeBadge typeLine={typeLine} cardWidth={cardWidth} />}
+
       {showPT && pt && (
         <PTBadge
           value={pt.modified}
           cardWidth={cardWidth}
-          edited={pt.edited}
+          tone={pt.edited ? 'edited' : 'counters'}
           abilitiesLost={!!card.edit?.loseAbilities}
         />
-      )}
-    </>
-  );
-}
-
-/**
- * The modified P/T, sitting directly on top of the printed one. These percentages
- * track the P/T box of the modern card frame, so it lands right at every card size.
- *
- * Deliberately NOT counter-rotated, unlike the counters and stickers. Those are
- * labels you read, so they stay upright; this one is impersonating printed text,
- * so it has to turn with the card and stay glued over the value it replaces.
- */
-function PTBadge({
-  value, cardWidth, edited = false, abilitiesLost = false,
-}: {
-  value: string;
-  cardWidth: number;
-  /** A rewritten creature reads amber; counters and stickers keep the fuchsia. */
-  edited?: boolean;
-  abilitiesLost?: boolean;
-}) {
-  const fontSize = Math.max(9, Math.round(cardWidth * 0.088));
-  return (
-    <>
-      <div
-        className="absolute z-30 pointer-events-none"
-        style={{ right: '4.5%', bottom: '3.4%', width: '25%', height: '8%' }}
-      >
-        <span
-          className={`flex items-center justify-center w-full h-full rounded-[3px] text-white font-bold tabular-nums ring-1 ring-black/50 shadow-[0_1px_4px_rgba(0,0,0,0.8)] ${
-            edited ? 'bg-amber-600' : 'bg-fuchsia-600'
-          }`}
-          style={{ fontSize }}
-        >
-          {value}
-        </span>
-      </div>
-      {abilitiesLost && (
-        // Sits just left of the P/T box, in the same amber, so "no abilities"
-        // reads at a glance without crowding the numbers.
-        <div
-          className="absolute z-30 pointer-events-none"
-          style={{ right: '31%', bottom: '3.4%', width: '9%', height: '8%' }}
-          title="Loses all abilities"
-        >
-          <span
-            className="flex items-center justify-center w-full h-full rounded-[3px] bg-amber-600 text-white font-bold ring-1 ring-black/50 shadow-[0_1px_4px_rgba(0,0,0,0.8)]"
-            style={{ fontSize }}
-          >
-            ⊘
-          </span>
-        </div>
       )}
     </>
   );

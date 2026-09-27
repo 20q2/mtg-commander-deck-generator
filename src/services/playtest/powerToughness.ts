@@ -1,5 +1,6 @@
-import { isDoubleFacedCard } from '@/services/scryfall/client';
+import { getFrontFaceTypeLine, isDoubleFacedCard } from '@/services/scryfall/client';
 import type { BattlefieldCard, CardEdit } from '@/components/playtest/types';
+import type { ScryfallCard } from '@/types';
 
 /** A sticker written as "8/8" (or "-1/-1") replaces the printed P/T entirely. */
 const PT_STICKER = /^\s*(-?\d+)\s*\/\s*(-?\d+)\s*$/;
@@ -72,6 +73,20 @@ export function resolvePT(card: BattlefieldCard): ResolvedPT | null {
     overridden: !!override || !!card.edit,
     edited: !!card.edit,
   };
+}
+
+/**
+ * The type line an edit has actually rewritten, or null if it left it alone.
+ *
+ * The rule both sides of the table draw the amber type bar from, because the
+ * edit dialog seeds its field with the card's own type line: an edit that only
+ * moved the numbers still carries a `typeLine`, and painting "Creature —
+ * Goblin Soldier" over "Creature — Goblin Soldier" is an alarm about nothing.
+ */
+export function editedTypeLine(card: ScryfallCard, edit?: CardEdit): string | null {
+  const next = edit?.typeLine?.trim();
+  if (!next) return null;
+  return next === getFrontFaceTypeLine(card).trim() ? null : next;
 }
 
 /**

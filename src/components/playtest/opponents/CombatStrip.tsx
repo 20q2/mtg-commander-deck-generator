@@ -6,13 +6,15 @@ import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
+import { GrantedKeywords, PTBadge, TypeBadge } from '@/components/playtest/CardBadges';
 import { incomingDamage, readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
 import { outgoingDamage } from '@/services/playtest/opponents/outgoingCombat';
-import { isCreatureCard } from '@/services/playtest/opponents/stats';
+import { botPT, grantedKeywords, isCreatureCard, type BotPT } from '@/services/playtest/opponents/stats';
 import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import { TargetArrow, type Point } from '@/components/playtest/TargetArrow';
 import { CARD_ASPECT, type BattlefieldCard } from '@/components/playtest/types';
 import type { Attacker } from '@/components/playtest/opponentTypes';
+import type { CombatKeyword } from '@/services/playtest/combat';
 import type { ScryfallCard } from '@/types';
 
 /**
@@ -299,7 +301,14 @@ function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWi
         const blockerIds = side.blocks[id] ?? [];
         return (
           <div key={id} className="shrink-0 flex flex-col items-center gap-0.5">
-            <div className="relative" data-attack-copy={id} style={turnedBox(cardW(seatWidth, COMBAT_SCALE))}>
+            <div
+              className="relative"
+              // Two jobs, two names: where the arrow from your board lands, and
+              // the card that leans at the seat when the attack is paid out.
+              data-attack-copy={id}
+              data-attackers={id}
+              style={turnedBox(cardW(seatWidth, COMBAT_SCALE))}
+            >
               <img
                 src={getCardImageUrl(card.card, 'small')}
                 alt={card.card.name}
@@ -380,6 +389,9 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
   const animations = usePlaytestSettings(s => s.animations);
   const combat = useOpponentStore(s => s.combat);
   const resolveCombat = useOpponentStore(s => s.resolveCombat);
+  // The fight pays itself out one attacker at a time now, so there is a window
+  // in which the button is still on screen with the combat half applied.
+  const resolving = useOpponentStore(s => s.resolvingCombat);
   const removeBlocker = useOpponentStore(s => s.removeBlocker);
   const assignBlocker = useOpponentStore(s => s.assignBlocker);
   const battlefield = usePlaytestStore(s => s.battlefield);
@@ -397,6 +409,24 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
   const incoming = Math.max(0, raw + mod);
 
   const blocksOf = (a: Attacker) => combat.blocks[a.instanceId] ?? [];
+  /*
+   * What the attacker actually is, and what it has gained, read off the seat's
+   * live board — the same numbers `resolveDamage` is about to use.
+   *
+   * This is the moment the player has to know it. An attacker wearing a lord's
+   * anthem and first strike from its own attack trigger is a completely
+   * different fight from the 1/1 printed on its face, and deciding a block
+   * against the printed card is deciding it against the wrong creature.
+   */
+  const permOf = (a: Attacker) => opponent?.battlefield.find(p => p.instanceId === a.instanceId);
+  const ptOf = (a: Attacker): BotPT | null => {
+    const p = permOf(a);
+    return p && opponent ? botPT(p, opponent.battlefield, opponent.graveyard) : null;
+  };
+  const grantedOf = (a: Attacker): CombatKeyword[] => {
+    const p = permOf(a);
+    return p && opponent ? grantedKeywords(p, opponent.battlefield, opponent.graveyard) : [];
+  };
   const piles = groupAttackers(live);
   const total = live.length;
 
@@ -435,8 +465,10 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
             // A new blocker goes onto the next member with nothing in front of
             // it, so chumping a swarm one goblin at a time works as expected.
             attackerId={(members.find(m => blocksOf(m).length === 0) ?? top).instanceId}
+            attackerIds={members.map(m => m.instanceId)}
             card={top.card}
-            label={`${top.power}/${top.toughness}`}
+            pt={ptOf(top)}
+            granted={grantedOf(top)}
             count={members.length}
             blockedCount={blockedCount}
             blockerIds={blockerIds}
@@ -472,13 +504,14 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
           through — once you have blocked everything it goes quiet and green,
           because at that point the click is safe. */}
       <button
-        onClick={() => resolveCombat(mod)}
+        onClick={() => { void resolveCombat(mod); }}
+        disabled={resolving}
         title={incoming > 0
           ? `Take ${incoming} damage and end combat`
           : raw === 0
             ? 'Everything is blocked — end combat'
             : 'Your adjustment cancels the damage — end combat'}
-        className={`relative w-full mt-0.5 h-9 rounded-md inline-flex items-center justify-center gap-2 font-bold shadow-lg transition-colors ${
+        className={`relative w-full mt-0.5 h-9 rounded-md inline-flex items-center justify-center gap-2 font-bold shadow-lg transition-colors disabled:opacity-60 disabled:cursor-default ${
           incoming > 0
             ? 'bg-rose-600 hover:bg-rose-500 text-white'
             : 'bg-emerald-700 hover:bg-emerald-600 text-emerald-50'
@@ -524,12 +557,17 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
  * up to a strip is a long haul, and aiming down at your own board is short.
  */
 function AttackerSlot({
-  attackerId, card, label, blockerIds, onRemoveBlocker, battlefield, onAssign, seatWidth,
-  count = 1, blockedCount = 0, flyFrom = null, flyRotated = false, flyOrder = 0,
+  attackerId, attackerIds, card, pt, granted, blockerIds, onRemoveBlocker, battlefield, onAssign,
+  seatWidth, count = 1, blockedCount = 0, flyFrom = null, flyRotated = false, flyOrder = 0,
 }: {
   attackerId: string;
+  /** Every attacker this one slot stands for — see `data-attackers` below. */
+  attackerIds: string[];
   card: ScryfallCard;
-  label: string;
+  /** Its size as it stands, against what the card prints. Null if it left the board. */
+  pt: BotPT | null;
+  /** Keywords it has that the card does not print — first strike, trample, deathtouch. */
+  granted: CombatKeyword[];
   blockerIds: string[];
   onRemoveBlocker: (instanceId: string) => void;
   battlefield: BattlefieldCard[];
@@ -655,6 +693,11 @@ function AttackerSlot({
     >
       <div
         ref={ref}
+        // The card that leans forward when this attack is paid out. Every
+        // attacker the slot stands for is listed, because a pile of identical
+        // goblins is one card on screen and any of them may be the one
+        // connecting.
+        data-attackers={attackerIds.join(' ')}
         className="relative"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
@@ -666,9 +709,30 @@ function AttackerSlot({
           className="rounded-[2px] shadow"
           style={{ width: cardW(seatWidth, COMBAT_SCALE) }}
         />
-        <span className="absolute bottom-0 right-0 px-1 rounded-tl bg-black/85 text-white text-[10px] font-bold tabular-nums">
-          {label}
-        </span>
+        {pt && (
+          <PTBadge
+            value={pt.live}
+            cardWidth={cardW(seatWidth, COMBAT_SCALE)}
+            // Unmodified it is still the printed number, so it stays the plain
+            // black corner it has always been: the colour means "this is not
+            // what the card says", and a colour on every attacker means nothing.
+            tone={
+              !pt.differs ? 'plain'
+              : pt.reason === 'edit' ? 'edited'
+              : pt.reason === 'temp' ? 'boosted'
+              : 'counters'
+            }
+            title={
+              pt.differs
+                ? `${card.name} is a ${pt.live} — ${pt.sources.join(' · ')}`
+                : `${card.name} is a ${pt.live}`
+            }
+          />
+        )}
+        {pt?.typeLine && (
+          <TypeBadge typeLine={pt.typeLine} cardWidth={cardW(seatWidth, COMBAT_SCALE)} />
+        )}
+        <GrantedKeywords keywords={granted} cardWidth={cardW(seatWidth, COMBAT_SCALE)} />
         {count > 1 && (
           <span
             className="absolute top-0 left-0 px-1 rounded-br bg-rose-600 text-white text-[10px] font-bold tabular-nums shadow"

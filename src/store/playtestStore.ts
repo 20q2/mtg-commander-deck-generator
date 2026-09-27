@@ -201,7 +201,8 @@ interface PlaytestActions {
 
   untapAll: () => void;
   setLife: (n: number) => void;
-  adjustLife: (delta: number) => void;
+  /** `quiet` skips the log line — for callers that write their own. */
+  adjustLife: (delta: number, opts?: { quiet?: boolean }) => void;
   /** Step commander tax by `delta` mana. Clamped at zero. */
   adjustCommanderTax: (delta: number) => void;
   /** Turn the top card of the library face up (and back down again). */
@@ -774,7 +775,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     log: [...state.log, makeLogEntry(`Life set to ${n}`, 'life')],
   })),
 
-  adjustLife: (delta) => {
+  adjustLife: (delta, opts) => {
     // Pops "−4" off the life counter. Fired here rather than at the call sites so
     // combat, drain and the toolbar buttons all get it for free.
     floatDelta(delta, 'player-life');
@@ -792,7 +793,10 @@ export const usePlaytestStore = create<Store>((set, get) => ({
         life,
         log: [
           ...state.log,
-          makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} life (now ${life})`, 'life'),
+          // A caller paying an attack out one creature at a time writes its own
+          // summary line, and does not want a running commentary under it —
+          // ten goblins should not be ten entries plus the total.
+          ...(opts?.quiet ? [] : [makeLogEntry(`${delta >= 0 ? '+' : ''}${delta} life (now ${life})`, 'life')]),
           ...(died ? [makeLogEntry('You have been defeated', 'life')] : []),
         ],
       };

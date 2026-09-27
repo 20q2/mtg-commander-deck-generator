@@ -4,6 +4,9 @@ How the Inspector's **Copy link** button turns a whole deck into a URL, and how 
 end turns it back into a deck. There is no backend involved at any point: **the link *is* the
 storage.**
 
+The public developer-facing version of this doc is the **For Developers** page at `/developers`
+([`DevelopersPage.tsx`](../src/pages/DevelopersPage.tsx)) — keep the two in step when the format changes.
+
 Read this before touching [`src/services/share/deckLink.ts`](../src/services/share/deckLink.ts)
 or any of the shared-load paths: [`AnalyzePage.tsx`](../src/pages/AnalyzePage.tsx),
 [`PlaytestLandingPage.tsx`](../src/pages/PlaytestLandingPage.tsx), and

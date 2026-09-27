@@ -42,7 +42,8 @@ export type AnalyticsEventType =
   | 'strategy_selected'
   | 'card_group_commander_selected'
   | 'shared_deck_opened'
-  | 'shared_deck_saved';
+  | 'shared_deck_saved'
+  | 'affiliate_buy_clicked';
 
 export interface AnalyticsEventMetadata {
   commander_searched: { query: string; resultCount: number };
@@ -116,6 +117,8 @@ export interface AnalyticsEventMetadata {
   shared_deck_opened: { cardCount: number; hasCommander: boolean };
   /** A shared-deck preview was saved into My Decks. */
   shared_deck_saved: { cardCount: number };
+  /** `cardCount` is 1 for a single-card link, the number of cards in the cart for a whole-deck buy. */
+  affiliate_buy_clicked: { surface: 'deck' | 'card_preview' | 'spellchroma'; cardCount: number; totalPrice: number | null };
   /** An inspector analyzer tab became active (overview/roles/mana/tempo/optimize/bracket/cost/lift). */
   inspector_tab_viewed: { tab: string };
   analyze_cta_clicked: { from: 'builder' | 'list-deck' | 'generate-lane-auto' };

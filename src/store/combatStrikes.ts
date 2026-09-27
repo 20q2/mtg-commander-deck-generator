@@ -1,6 +1,4 @@
-import { useCardFlights, STRIKE_MS } from '@/components/playtest/CardFlight';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
-import type { ScryfallCard } from '@/types';
 
 /**
  * Combat, paced out one creature at a time.
@@ -10,22 +8,27 @@ import type { ScryfallCard } from '@/types';
  * had happened was to read the log afterwards. The fight was over before it was
  * legible.
  *
- * So each attacker gets a beat of its own. A ghost of the card lunges at what
- * it is fighting — its blocker, or the seat's life total when nothing is in the
- * way — and the damage, the death and the sound all land on the frame it
- * arrives. The board state is unchanged by any of this; the beats only decide
- * *when* the store applies each part of a resolution it has already worked out.
+ * So each attacker gets a beat of its own: the card leans into its attack where
+ * it stands in the combat strip, and the damage, the death and the sound all
+ * land on the frame it is furthest forward. The board state is unchanged by any
+ * of this; the beats only decide *when* the store applies each part of a
+ * resolution it has already worked out.
  *
- * Nothing here is allowed to be load-bearing. A ghost that cannot be measured —
- * a seat folded away on a phone, a card scrolled off — simply does not fly, and
- * the beat applies its damage on schedule regardless. See `strikeAt`.
+ * It used to throw a ghost of the card across the table at whatever it was
+ * fighting. That read as the creature LEAVING the fight — chasing a life
+ * counter that lives up in the toolbar, nowhere near the board — when what a
+ * swing actually looks like is a creature leaning at you and settling back.
+ *
+ * Nothing here is allowed to be load-bearing. A card that cannot be found — a
+ * seat folded away on a phone, a strip scrolled off — simply does not move, and
+ * the beat applies its damage on schedule regardless. See `lungeAt`.
  */
 
 /**
- * Where in the flight the hit lands. Matches the impact keyframe in
- * `strikeFrames`, and the two have to move together: this is the number the
- * store waits out before taking the life off, and a mismatch shows up as
- * damage that lands early or a ghost that has already bounced.
+ * Where in the lunge the hit lands. Matches the forward keyframe in `lungeAt`,
+ * and the two have to move together: this is the number the store waits out
+ * before taking the life off, and a mismatch shows up as damage that lands
+ * while the card is still winding up.
  */
 const IMPACT_FRACTION = 0.82;
 
@@ -41,14 +44,19 @@ const SEQUENCE_BUDGET_MS = 1500;
 const MIN_BEAT_MS = 55;
 /** Nor does a lunge get faster than this, or there is nothing to see. */
 const MIN_STRIKE_MS = 130;
+/**
+ * And never slower. A five-creature attack is five of these end to end, so a
+ * lunge has to be over about as fast as a real one.
+ */
+const LUNGE_MS = 260;
 
 export interface StrikePacing {
   /** Gap between one attacker's lunge and the next's. */
   beatMs: number;
   /** How long after a lunge starts that it connects. */
   impactMs: number;
-  /** Flight time handed to the layer, so impact lands on `impactMs`. */
-  flightMs: number;
+  /** The lunge's own travel time, so contact lands on `impactMs`. */
+  lungeMs: number;
 }
 
 /**
@@ -61,8 +69,8 @@ export function strikePacing(count: number): StrikePacing {
     MIN_BEAT_MS,
     Math.min(FULL_BEAT_MS, count > 0 ? SEQUENCE_BUDGET_MS / count : FULL_BEAT_MS),
   );
-  const flightMs = Math.max(MIN_STRIKE_MS, Math.min(STRIKE_MS, beatMs / IMPACT_FRACTION));
-  return { beatMs, impactMs: flightMs * IMPACT_FRACTION, flightMs };
+  const lungeMs = Math.max(MIN_STRIKE_MS, Math.min(LUNGE_MS, beatMs / IMPACT_FRACTION));
+  return { beatMs, impactMs: lungeMs * IMPACT_FRACTION, lungeMs };
 }
 
 /** The `data-float-id` a seat's life total answers to. */
@@ -71,68 +79,85 @@ export function seatLifeAnchor(opponentId: string): string {
 }
 
 /**
- * The live rect of whatever answers to a `data-float-id`.
+ * The card standing for an attacker in a combat strip.
  *
- * Deliberately not `boxOf` from the flight layer: that drops the height,
- * because a zone flight lands on a pile of cards and a card's height follows
- * from its width. A strike aims at two very differently shaped things — a
- * blocker, which is a card, and a life total, which is a small pill — so it
- * needs to know how tall the target actually is to hit the middle of it.
+ * `~=` rather than `=` because the strip collapses identical attackers into one
+ * slot: fifty-two goblins are one card with a count on it, and every one of
+ * them has to be able to find the card that is standing in for it.
  */
-function anchorRect(floatId: string): { x: number; y: number; width: number; height: number } | null {
+function attackerCard(instanceId: string): HTMLElement | null {
   if (typeof document === 'undefined') return null;
-  const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(floatId) : floatId;
-  const el = document.querySelector<HTMLElement>(`[data-float-id="${escaped}"]`);
-  if (!el) return null;
-  const r = el.getBoundingClientRect();
-  if (r.width === 0) return null;
-  return { x: r.left, y: r.top, width: r.width, height: r.height };
+  const escaped = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(instanceId) : instanceId;
+  return document.querySelector<HTMLElement>(`[data-attackers~="${escaped}"]`);
 }
 
 /**
- * Throw a ghost of `card` from the attacker at whatever it is fighting.
+ * A creature leaning into its attack, where it stands.
  *
- * Both ends are measured off the live DOM at the moment of the beat, which is
- * why this must be called while the attacker and its target are both still on
- * the board — a blocker measured after it has been buried has no box left. The
- * ghost is a copy: combat relocates nothing, so the real card must not appear
- * to move.
+ * A short wind-up away from the defender, a shove towards them that peaks on
+ * the frame the damage lands, and back to rest. The real element animates
+ * rather than a copy of it, which it can do because the card ends exactly
+ * where it began: combat relocates nothing, and nothing here may leave a
+ * transform behind on a card that has to keep sitting in a flex row.
  *
- * Returns whether anything actually flew, which callers may use for logging but
- * must never gate state on.
+ * `towards` is a side of the table rather than a measured target. The obvious
+ * thing — aim at what is being hit — is wrong for the commonest case: an
+ * unblocked attacker is hitting a life total, and life totals are drawn in the
+ * toolbar and the seat headers, so the creatures would lunge AWAY from the
+ * player they are attacking to chase a number at the top of the screen.
+ *
+ * Returns whether anything actually moved, which callers may use for logging
+ * but must never gate state on.
  */
-export function strikeAt(
-  attackerInstanceId: string,
-  card: ScryfallCard,
-  targetFloatId: string,
+export function lungeAt(
+  instanceId: string,
+  towards: 'player' | 'seat',
   pacing: StrikePacing,
 ): boolean {
   if (!usePlaytestSettings.getState().animations) return false;
 
-  const from = anchorRect(attackerInstanceId);
-  const to = anchorRect(targetFloatId);
-  if (!from || !to) return false;
+  const el = attackerCard(instanceId);
+  if (!el) return false;
+  const box = el.getBoundingClientRect();
+  // The card's long side, not its height: your attackers are drawn turned
+  // sideways in the strip and theirs are not, and measuring the box would give
+  // the two sides of the table visibly different lunges for the same card.
+  const span = Math.max(box.width, box.height);
+  if (span === 0) return false;
 
-  useCardFlights.getState().launch([
-    {
-      card,
-      from: { x: from.x, y: from.y, width: from.width },
-      // The ghost keeps the attacker's own size and is merely aimed at the
-      // middle of the target. Landing at the target's width instead would
-      // shrink a creature to a chip against a life pill on the very frame it
-      // is supposed to hit hardest — and blow a token up against a big card.
-      //
-      // Centre on centre, so the impact reads at the thing being hit rather
-      // than at a corner of it. The flight layer positions by top-left.
-      to: {
-        x: to.x + to.width / 2 - from.width / 2,
-        y: to.y + to.height / 2 - from.height / 2,
-        width: from.width,
+  // Down the screen at the player, up it at the seat. Scaled off the card so a
+  // strip zoomed small nudges small — and capped, because past about a third of
+  // a card the lunge stops reading as a lean and starts reading as a jump.
+  const dir = towards === 'player' ? 1 : -1;
+  const reach = dir * Math.max(7, Math.min(24, Math.round(span * 0.17)));
+  const wind = -dir * Math.max(2, Math.round(Math.abs(reach) * 0.3));
+
+  // Long enough to have a recovery in it: the beat is over at `impactMs`, and
+  // the settle back plays out under the next creature's wind-up.
+  const duration = Math.round(pacing.lungeMs * 1.5);
+  const hit = pacing.impactMs / duration;
+
+  el.animate(
+    [
+      { transform: 'translate3d(0,0,0) scale(1)', offset: 0 },
+      // The wind-up is what sells it. Without it the card simply slides, and
+      // there is no moment the eye can read as the decision to attack.
+      {
+        transform: `translate3d(0,${wind}px,0) scale(0.99)`,
+        offset: Math.max(0.04, hit * 0.45),
+        easing: 'cubic-bezier(0.3, 0, 0.2, 1)',
       },
-      delay: 0,
-      duration: pacing.flightMs,
-      strike: true,
-    },
-  ]);
+      {
+        transform: `translate3d(0,${reach}px,0) scale(1.07)`,
+        offset: hit,
+        easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)',
+      },
+      { transform: 'translate3d(0,0,0) scale(1)', offset: 1 },
+    ],
+    // `fill: none` deliberately: the card must be back under the layout's
+    // control the instant this is over, or a strip that re-flows around it
+    // leaves it sitting a few pixels out of its own slot.
+    { duration, easing: 'ease-out', fill: 'none' },
+  );
   return true;
 }

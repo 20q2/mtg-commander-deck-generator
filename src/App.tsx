@@ -18,6 +18,7 @@ import { MigratePage } from '@/pages/MigratePage';
 import { PlaytestPage } from '@/pages/PlaytestPage';
 import { PlaytestLandingPage } from '@/pages/PlaytestLandingPage';
 import { CommunityPollPage } from '@/pages/CommunityPollPage';
+import { DevelopersPage } from '@/pages/DevelopersPage';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
 import { loadUserLists } from '@/hooks/useUserLists';
@@ -739,6 +740,7 @@ function App() {
         <Route path="/decks/*" element={<Layout><ListsPage /></Layout>} />
         <Route path="/lists/*" element={<Layout><ListsPage /></Layout>} />
         <Route path="/migrate" element={<Layout><MigratePage /></Layout>} />
+        <Route path="/developers" element={<Layout><DevelopersPage /></Layout>} />
         <Route path="/community-poll" element={<Layout><CommunityPollPage /></Layout>} />
         <Route path="/community-poll/admin" element={<Layout><CommunityPollPage admin /></Layout>} />
         <Route path="/playtest" element={<Layout><PlaytestLandingPage /></Layout>} />

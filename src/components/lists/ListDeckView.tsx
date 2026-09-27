@@ -7,7 +7,7 @@ import { SpellChromaIcon } from '@/components/spellchroma/SpellChromaIcon';
 import { InspectorIcon } from '@/components/analyze/InspectorIcon';
 import { useStore } from '@/store';
 import { getCardsByNames, getCardByName, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard, normalizeCardNameKey } from '@/services/scryfall/client';
-import { ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
+import { ManaCost } from '@/components/ui/mtg-icons';
 import { fetchCommanderCombos, fetchColorIdentityCombos, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { DeckDisplay, CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
@@ -43,6 +43,7 @@ import { AddCardsPanel } from '@/components/deck/AddCardsPanel';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
+import { useActionToast, ActionToast } from '@/components/ui/action-toast';
 import { trackEvent } from '@/services/analytics';
 import type { UserCardList, ScryfallCard, GeneratedDeck, DeckStats, DetectedCombo, EDHRECCombo, LoadPhase, SerializedEnrichment } from '@/types';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -683,6 +684,15 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
     [generatedDeck],
   );
 
+  // Bottom-right confirmation toast. `showActionToast` keeps the original positional signature so
+  // the 17 existing call sites read unchanged; the state and the portal render now come from the
+  // shared hook, which was extracted from this very component and then never adopted here.
+  const { toast: actionToast, success: toastSuccess, error: showErrorToast, dismiss: dismissActionToast } = useActionToast();
+  const showActionToast = useCallback(
+    (message: string, onUndo?: () => void, cardType?: string) => toastSuccess(message, { onUndo, cardType }),
+    [toastSuccess],
+  );
+
   // A share link carries the whole decklist in its fragment, so this needs no backend.
   // It points back at the deck view rather than the Inspector: a link reopens the
   // surface it was made on. `categories` excludes the commanders, which is exactly what
@@ -702,11 +712,17 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
       await navigator.clipboard.writeText(url);
       setShareState('copied');
       setShareErrorMsg(null);
+      showActionToast('Link copied to clipboard');
       trackEvent('share_link_copied', { tab: 'deck-view', cardCount: allDeckCards.length });
       setTimeout(() => setShareState('idle'), 2000);
     } catch (e) {
       console.error('[ListDeckView] share link failed', e);
       setShareState('error');
+      showErrorToast(
+        e instanceof DeckLinkError && e.reason === 'too-large'
+          ? 'This deck is too large to share as a link.'
+          : 'Could not copy the share link.',
+      );
       setShareErrorMsg(
         e instanceof DeckLinkError && e.reason === 'too-large'
           ? 'This deck is too large to share as a link.'
@@ -714,16 +730,18 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
       );
       setTimeout(() => setShareState('idle'), 3000);
     }
-  }, [allDeckCards, generatedDeck]);
+  }, [allDeckCards, generatedDeck, showActionToast, showErrorToast]);
 
   // Sits beside Export in the deck toolbar. Owned decks only: a shared preview is already
   // at a shareable URL, and its own banner carries the actions.
   const shareLabel = shareState === 'copied' ? 'Link copied'
     : shareState === 'error' ? (shareErrorMsg ?? 'Could not copy the share link')
     : 'Copy a link to this deck';
-  // Labelled so it reads as "share" rather than an export/upload glyph; the label swaps to the
-  // outcome after a click and settles back. Background matches the Inspect/SpellChroma/Playtest
-  // row rather than the shadcn `outline` variant, whose solid `bg-background` reads as a black chip.
+  // Icon-only to keep the toolbar short. The outcome of a click therefore has to live in the glyph
+  // itself — an emerald check on success, a red share glyph on failure — since there is no longer a
+  // label to swap. The tooltip and aria-label still carry the wording for hover and screen readers.
+  // Background matches the Inspect/SpellChroma/Playtest row rather than the shadcn `outline`
+  // variant, whose solid `bg-background` reads as a black chip.
   const shareButton = unsaved ? undefined : (
     // No `title` attribute: it would fire the native tooltip alongside this one.
     <TooltipProvider delayDuration={200}>
@@ -734,14 +752,11 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
             onClick={handleCopyShareLink}
             disabled={allDeckCards.length === 0}
             aria-label={shareLabel}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground text-sm whitespace-nowrap transition-colors disabled:opacity-50 disabled:pointer-events-none"
+            className="flex items-center justify-center h-9 w-9 rounded-lg border border-border bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 disabled:pointer-events-none"
           >
             {shareState === 'copied'
               ? <Check className="w-4 h-4 shrink-0 text-emerald-400" />
               : <Share className={`w-4 h-4 shrink-0 ${shareState === 'error' ? 'text-red-400' : ''}`} />}
-            <span className={shareState === 'copied' ? 'text-emerald-400' : shareState === 'error' ? 'text-red-400' : ''}>
-              {shareState === 'copied' ? 'Copied' : shareState === 'error' ? 'Failed' : 'Share'}
-            </span>
           </button>
         </TooltipTrigger>
         <TooltipContent side="bottom">{shareLabel}</TooltipContent>
@@ -896,8 +911,6 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
   }, [generatedDeck, customization.currency]);
   const priceSym = customization.currency === 'EUR' ? '€' : '$';
 
-  // Action toast with undo (for add/remove cards)
-  const [actionToast, setActionToast] = useState<{ message: string; onUndo?: () => void; kind?: 'success' | 'error'; cardType?: string } | null>(null);
   const [deckSizeNoticeDismissedAt, setDeckSizeNoticeDismissedAt] = useState<number | null>(null);
   // Split open / mounted so the drawer can play its CSS slide-out before unmounting.
   const [trimDialogOpen, setTrimDialogOpen] = useState(false);
@@ -988,28 +1001,12 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
     setMustIncludeDrawerOpen(false);
     setTimeout(() => setMustIncludeDrawerMounted(false), 320);
   }, []);
-  const actionToastTimer = useRef<ReturnType<typeof setTimeout>>();
   const onRemoveCardsRef = useRef(onRemoveCards);
   onRemoveCardsRef.current = onRemoveCards;
   const onAddCardsRef = useRef(onAddCards);
   onAddCardsRef.current = onAddCards;
   const onRemoveFromBoardRef = useRef(onRemoveFromBoard);
   onRemoveFromBoardRef.current = onRemoveFromBoard;
-  const showActionToast = useCallback((message: string, onUndo: () => void, cardType?: string) => {
-    clearTimeout(actionToastTimer.current);
-    setActionToast({ message, onUndo, kind: 'success', cardType });
-    actionToastTimer.current = setTimeout(() => setActionToast(null), 4000);
-  }, []);
-  const showErrorToast = useCallback((message: string) => {
-    clearTimeout(actionToastTimer.current);
-    setActionToast({ message, kind: 'error' });
-    actionToastTimer.current = setTimeout(() => setActionToast(null), 4000);
-  }, []);
-  const handleUndoAction = useCallback(() => {
-    if (!actionToast?.onUndo) return;
-    actionToast.onUndo();
-    setActionToast(null);
-  }, [actionToast]);
 
   // Wrapped remove handler that shows toast with undo. Callers (DeckDisplay,
   // ComboDisplay wrappers) are responsible for pushing the matching 'remove'
@@ -2853,6 +2850,7 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
           onSetMaybeboard={onSetMaybeboard}
           savedList
           shareAction={shareButton}
+          onCopyShareLink={unsaved ? undefined : handleCopyShareLink}
           headerBulkAdd={onAddCards ? (
             <div className="relative" ref={headerBulkAddRef}>
               <button
@@ -3165,21 +3163,7 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
       </div>
 
       {/* Action toast with undo */}
-      {actionToast && createPortal(
-        <div className={`fixed bottom-6 right-6 z-[999] px-4 py-2 ${actionToast.kind === 'error' ? 'bg-rose-500/90' : 'bg-emerald-500/90'} text-white text-sm rounded-lg shadow-lg animate-fade-in flex items-center gap-2`}>
-          {actionToast.cardType && <CardTypeIcon type={actionToast.cardType} size="sm" className="shrink-0" />}
-          {actionToast.message}
-          {actionToast.onUndo && (
-            <button
-              onClick={handleUndoAction}
-              className="underline underline-offset-2 hover:text-white/80 transition-colors cursor-pointer px-1 py-0.5"
-            >
-              Undo
-            </button>
-          )}
-        </div>,
-        document.body,
-      )}
+      <ActionToast toast={actionToast} onDismiss={dismissActionToast} />
 
       {/* Trim deck dialog */}
       {trimDialogMounted && generatedDeck && list.deckSize && list.commanderName && onMoveToMaybeboard && (
