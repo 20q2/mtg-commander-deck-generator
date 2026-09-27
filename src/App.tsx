@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { BrowserRouter, Routes, Route, useLocation, Link, Navigate } from 'react-router-dom';
-import { Settings, Sparkles, Layers, Library, BarChart3, MessageSquare, Package, Boxes } from 'lucide-react';
+import { Settings, Sparkles, Layers, Library, BarChart3, MessageSquare, Package, Boxes, Menu, Swords } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import patchNotes from '@/data/patchNotes.json';
 import { HomePage } from '@/pages/HomePage';
@@ -246,9 +246,12 @@ function Layout({ children }: { children: React.ReactNode }) {
   const isAnalyzeHub = location.pathname === '/analyze' || location.pathname === '/analyze/';
   const isCreatePage = location.pathname === '/' || location.pathname.startsWith('/build/') || location.pathname.startsWith('/build-from-deck/') || location.pathname === '/brew' || location.pathname.startsWith('/brew/');
   const isSpellChromaPage = location.pathname === '/spellchroma';
+  // The playtest splash paints a grid backdrop across its <main>, so that main has
+  // to fill the region down to the footer rather than shrink-wrap its content.
+  const isPlaytestLanding = location.pathname === '/playtest' || location.pathname === '/playtest/';
 
   // True while the one-time Community-Poll nudge is visible — drives a gentle
-  // ring on the version button it points at, so the nudge's arrow has a target.
+  // ring on the "More" button it points at, so the nudge's arrow has a target.
   const [pollNudgeActive, setPollNudgeActive] = useState(false);
 
   const [eaEnabled, setEaEnabled] = useState(() => localStorage.getItem('ea-features-enabled') === 'true');
@@ -367,23 +370,72 @@ function Layout({ children }: { children: React.ReactNode }) {
         <header className="border-b border-border/50 bg-card/80 backdrop-blur-md sm:sticky sm:top-0 z-40">
           <div className="container mx-auto px-4 py-4">
             <div className="flex items-center justify-between">
-              <Link
-                to="/"
-                onClick={() => reset()}
-                className="flex items-center gap-3 hover:opacity-80 transition-opacity text-left"
-              >
-                <img
-                  src={`${import.meta.env.BASE_URL}logo.png`}
-                  alt="ManaFoundry - EDH Deck Builder"
-                  className="w-10 h-10 rounded-xl shadow-lg"
-                />
+              {/* Logo and wordmark are two separate home links so the version button can
+                  sit on the wordmark's baseline — a <button> can't be nested inside an <a>,
+                  and hanging it off the end of the whole brand block left it stranded past
+                  the tagline. Its popover keeps EA Features + patch notes; navigation moved
+                  to the "More" menu on the right. */}
+              <div className="flex items-center gap-3">
+                <Link
+                  to="/"
+                  onClick={() => reset()}
+                  className="shrink-0 hover:opacity-80 transition-opacity"
+                  aria-label="ManaFoundry home"
+                >
+                  <img
+                    src={`${import.meta.env.BASE_URL}logo.png`}
+                    alt="ManaFoundry - EDH Deck Builder"
+                    className="w-10 h-10 rounded-xl shadow-lg"
+                  />
+                </Link>
                 <div>
-                  <h1 className="text-lg sm:text-xl font-bold">ManaFoundry</h1>
+                  <div className="flex items-baseline gap-1.5">
+                    <Link
+                      to="/"
+                      onClick={() => reset()}
+                      className="hover:opacity-80 transition-opacity text-left"
+                    >
+                      <h1 className="text-lg sm:text-xl font-bold">ManaFoundry</h1>
+                    </Link>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      className="text-xs text-muted-foreground/50 hover:text-muted-foreground transition-colors cursor-pointer px-1 py-0.5 rounded-md hover:bg-accent"
+                      aria-label={`Version ${__APP_VERSION__} — patch notes`}
+                    >
+                      v{__APP_VERSION__}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="bottom" align="start" className="w-80 max-h-80 overflow-y-auto p-3 text-xs">
+                    <button
+                      onClick={toggleEaFeatures}
+                      className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors mb-2"
+                    >
+                      <Sparkles className={`w-3.5 h-3.5 ${eaEnabled ? 'text-purple-400' : 'text-muted-foreground'}`} />
+                      <span className={`text-sm ${eaEnabled ? 'text-purple-400' : ''}`}>EA Features</span>
+                      {eaEnabled && <span className="ml-auto text-[10px] text-purple-400/70 font-medium">ON</span>}
+                    </button>
+                    <div className="border-t border-border/50 pt-3">
+                      <p className="font-semibold text-sm text-foreground mb-2">Patch Notes</p>
+                      {patchNotes.map((entry, i) => (
+                        <div key={entry.version} className={i > 0 ? 'mt-3 pt-3 border-t border-border/50' : ''}>
+                          <p className="font-medium text-foreground/80 mb-1">v{entry.version}</p>
+                          <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
+                            {entry.notes.map((note, j) => (
+                              <li key={j}>{note}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                  </div>
                   <p className="hidden sm:block text-xs text-muted-foreground">
                     Casting smarter Commander decks
                   </p>
                 </div>
-              </Link>
+              </div>
               <div className="flex items-center gap-3">
                 <nav className="hidden sm:flex items-center gap-3">
                   {import.meta.env.DEV && (
@@ -479,57 +531,48 @@ function Layout({ children }: { children: React.ReactNode }) {
                     )}
                   </Link>
                 </nav>
+                {/* "More" — destinations that don't earn a top-level nav slot.
+                    Also the target the poll nudge points at (data-poll-nudge-anchor). */}
                 <Popover>
                   <PopoverTrigger asChild>
                     <button
+                      type="button"
                       data-poll-nudge-anchor=""
-                      className={`text-xs transition-colors cursor-pointer px-1.5 py-0.5 rounded-md ${
+                      aria-label="More"
+                      className={`transition-colors cursor-pointer px-2 py-1 rounded-md flex items-center gap-1.5 ${
                         pollNudgeActive
                           ? 'text-violet-300 ring-1 ring-violet-400/60 bg-violet-400/10 animate-pulse'
-                          : 'text-muted-foreground/50 hover:text-muted-foreground'
+                          : 'text-muted-foreground/70 hover:text-foreground hover:bg-accent'
                       }`}
                     >
-                      v{__APP_VERSION__}
+                      <Menu className="w-5 h-5 sm:w-4 sm:h-4" />
+                      <span className="hidden sm:inline text-sm">More</span>
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent side="bottom" align="end" className="w-80 max-h-80 overflow-y-auto p-3 text-xs">
+                  <PopoverContent side="bottom" align="end" className="w-52 p-1.5">
+                    <Link
+                      to="/playtest"
+                      className="w-full text-left flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-accent transition-colors"
+                    >
+                      <Swords className="w-4 h-4 text-violet-300/90" />
+                      <span className="text-sm font-medium">Playtest</span>
+                    </Link>
+                    <Link
+                      to="/community-poll"
+                      className="w-full text-left flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-accent transition-colors"
+                    >
+                      <MessageSquare className="w-4 h-4 text-violet-300/90" />
+                      <span className="text-sm font-medium">Community Poll</span>
+                    </Link>
                     {import.meta.env.DEV && (
                       <Link
                         to="/metrics"
-                        className="sm:hidden w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors mb-1 text-amber-500/90"
+                        className="sm:hidden w-full text-left flex items-center gap-2.5 px-2.5 py-2 rounded-md hover:bg-accent transition-colors text-amber-500/90"
                       >
-                        <BarChart3 className="w-3.5 h-3.5" />
-                        <span className="text-sm">Metrics</span>
+                        <BarChart3 className="w-4 h-4" />
+                        <span className="text-sm font-medium">Metrics</span>
                       </Link>
                     )}
-                    <Link
-                      to="/community-poll"
-                      className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors mb-1"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5 text-violet-300/90" />
-                      <span className="text-sm">Community Poll</span>
-                    </Link>
-                    <button
-                      onClick={toggleEaFeatures}
-                      className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors mb-2"
-                    >
-                      <Sparkles className={`w-3.5 h-3.5 ${eaEnabled ? 'text-purple-400' : 'text-muted-foreground'}`} />
-                      <span className={`text-sm ${eaEnabled ? 'text-purple-400' : ''}`}>EA Features</span>
-                      {eaEnabled && <span className="ml-auto text-[10px] text-purple-400/70 font-medium">ON</span>}
-                    </button>
-                    <div className="border-t border-border/50 pt-3">
-                      <p className="font-semibold text-sm text-foreground mb-2">Patch Notes</p>
-                      {patchNotes.map((entry, i) => (
-                        <div key={entry.version} className={i > 0 ? 'mt-3 pt-3 border-t border-border/50' : ''}>
-                          <p className="font-medium text-foreground/80 mb-1">v{entry.version}</p>
-                          <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
-                            {entry.notes.map((note, j) => (
-                              <li key={j}>{note}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
-                    </div>
                   </PopoverContent>
                 </Popover>
               </div>
@@ -540,8 +583,10 @@ function Layout({ children }: { children: React.ReactNode }) {
         {/* Grow the page region so the footer is pushed to the bottom on short pages
             (e.g. the brew fork/node) instead of floating mid-screen. Keep this a plain block
             (just flex-1) — making it `flex flex-col` turns page roots into flex items, and a
-            `max-w-… mx-auto` root then shrink-wraps to content (its width swaps with content). */}
-        <div className="flex-1">
+            `max-w-… mx-auto` root then shrink-wraps to content (its width swaps with content).
+            Pages whose root paints a full-region background opt into the flex column instead,
+            which is what lets their own `flex-1` actually stretch to the footer. */}
+        <div className={`flex-1${isPlaytestLanding ? ' flex flex-col' : ''}`}>
           {children}
         </div>
 

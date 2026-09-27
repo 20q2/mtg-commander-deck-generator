@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { fetchMetrics } from '@/services/analytics';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { Loader2, BarChart3, Users, Wand2, Calendar, AlertCircle, Globe, Sliders, Zap, ChevronDown, List, Server, TrendingUp, FlaskConical, Microscope, Sparkles, Gamepad2 } from 'lucide-react';
+import { Loader2, BarChart3, Users, Wand2, Calendar, AlertCircle, Globe, Sliders, Zap, ChevronDown, List, Server, TrendingUp, FlaskConical, Microscope, Sparkles, Gamepad2, ShoppingCart } from 'lucide-react';
 
 
 interface FeatureAdoption {
@@ -32,6 +32,27 @@ interface ListActivity {
   excludeToggles: number;
 }
 
+/** TCGplayer affiliate link usage — the "when" and "where" behind the raw click count. */
+interface AffiliateUsage {
+  clicks: number;
+  /** Deck buy dialogs opened. Card links have no dialog, so this is the deck cart's numerator. */
+  opens: number;
+  uniqueClickers: number;
+  surfaceCounts: Record<string, number>;
+  routeCounts: Record<string, number>;
+  deviceCounts: Record<string, number>;
+  regionCounts: Record<string, number>;
+  scopeCounts: Record<string, number>;
+  /** Keyed by UTC hour-of-day, "00".."23". */
+  hourOfDayCounts: Record<string, number>;
+  dailyCounts: Record<string, number>;
+  valueBuckets: Record<string, number>;
+  cartValueTotal: number;
+  cartValueCount: number;
+  deckCardTotal: number;
+  deckCartCount: number;
+}
+
 interface MetricsSummary {
   totalEvents: number;
   uniqueUserCount: number;
@@ -52,6 +73,7 @@ interface MetricsSummary {
   inspectorTabCounts?: Record<string, number>;
   featureAdoption: FeatureAdoption;
   listActivity?: ListActivity;
+  affiliate?: AffiliateUsage;
   settingsCounts: Record<string, Record<string, number>>;
   dateRange: { from: string; to: string };
 }
@@ -105,7 +127,39 @@ const EVENT_LABELS: Record<string, string> = {
   // Poll nudge
   poll_nudge_shown: 'Poll Nudge Shown',
   poll_nudge_dismissed: 'Poll Nudge Dismissed',
+  // Affiliate
+  affiliate_buy_opened: 'Buy Dialogs Opened',
+  affiliate_buy_clicked: 'Affiliate Buy Clicks',
 };
+
+const AFFILIATE_SURFACE_LABELS: Record<string, string> = {
+  deck: 'Deck cart',
+  card_preview: 'Card preview chip',
+  spellchroma: 'SpellChroma popover',
+};
+
+const AFFILIATE_SCOPE_LABELS: Record<string, string> = {
+  full: 'Whole deck',
+  missing: "Only cards not owned",
+  single: 'Single card',
+};
+
+/** Routes are stored as the first path segment; these are the pages that can carry a buy link. */
+const AFFILIATE_ROUTE_LABELS: Record<string, string> = {
+  '/': 'Home',
+  '/build': 'Builder',
+  '/analyze': 'Inspector',
+  '/decks': 'My Decks',
+  '/lists': 'My Lists',
+  '/decks/shared': 'Shared deck',
+  '/spellchroma': 'SpellChroma',
+  '/collection': 'Collection',
+  '/build-from-deck': 'Optimize',
+  '/brew': 'Brew',
+  '/playtest': 'Playtest',
+};
+
+const AFFILIATE_VALUE_ORDER = ['<$5', '$5-20', '$20-50', '$50-100', '$100-250', '$250+'];
 
 // Inspector analyzer tabs are stored by internal TabKey; map to their UI labels.
 const INSPECTOR_TAB_LABELS: Record<string, string> = {
@@ -189,6 +243,21 @@ function sortSettingEntries(key: string, entries: [string, number][]): [string, 
 function utcToEst(utcHourKey: string): string {
   const d = new Date(utcHourKey + ':00:00Z');
   return d.toLocaleTimeString('en-US', { hour: 'numeric', timeZone: 'America/New_York' });
+}
+
+/**
+ * UTC hour-of-day bucket ("14") to the matching EST/EDT hour. Uses today's date so the offset
+ * follows daylight saving rather than being hardcoded, matching how `utcToEst` reads elsewhere.
+ */
+function utcHourToEstHour(utcHour: string): number {
+  const d = new Date(`${new Date().toISOString().slice(0, 10)}T${utcHour}:00:00Z`);
+  const h = Number(d.toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'America/New_York' }));
+  return Number.isNaN(h) ? 0 : h % 24;
+}
+
+function estHourLabel(hour: number): string {
+  const display = hour % 12 === 0 ? 12 : hour % 12;
+  return `${display}${hour < 12 ? 'am' : 'pm'}`;
 }
 
 function pct(n: number, total: number) {
@@ -298,6 +367,45 @@ function FunnelCard({
   );
 }
 
+/** Compact column chart for a fixed set of labelled slots (hour-of-day, day-of-range). */
+function MiniBarChart({ slots, height = 'h-28' }: { slots: { key: string; label: string; count: number }[]; height?: string }) {
+  const max = Math.max(...slots.map(s => s.count), 1);
+  if (!slots.some(s => s.count > 0)) {
+    return (
+      <div className={`${height} flex items-center justify-center`}>
+        <p className="text-sm text-muted-foreground">No clicks yet</p>
+      </div>
+    );
+  }
+  return (
+    <>
+      <div className={`flex items-end gap-[2px] ${height}`}>
+        {slots.map(s => (
+          <div
+            key={s.key}
+            className="flex-1 bg-primary/80 rounded-t-sm hover:bg-primary transition-colors group relative"
+            style={{
+              height: `${Math.max((s.count / max) * 100, s.count > 0 ? 0.5 : 0)}%`,
+              minHeight: s.count > 0 ? 3 : 0,
+            }}
+            title={`${s.label} — ${s.count}`}
+          >
+            <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-popover border border-border text-[10px] px-1.5 py-0.5 rounded shadow-sm opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none z-10">
+              <span className="font-medium">{s.count}</span>
+              <span className="text-muted-foreground ml-1">{s.label}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="flex justify-between text-[10px] text-muted-foreground mt-2">
+        <span>{slots[0]?.label}</span>
+        {slots.length > 4 && <span>{slots[Math.floor(slots.length / 2)]?.label}</span>}
+        <span>{slots[slots.length - 1]?.label}</span>
+      </div>
+    </>
+  );
+}
+
 export function MetricsPage() {
   usePageTitle('Metrics');
   if (window.location.hostname !== 'localhost') return null;
@@ -368,6 +476,7 @@ export function MetricsPage() {
     { key: 'list_created', label: 'Lists' },
     { key: 'inspector_tab_viewed', label: 'Inspector' },
     { key: 'spellchroma_viewed', label: 'SpellChroma' },
+    { key: 'affiliate_buy_clicked', label: 'Buy Clicks' },
   ];
 
   const sortedSlots: [string, number][] = (() => {
@@ -466,6 +575,46 @@ export function MetricsPage() {
     .filter(f => f.count > 0)
     .sort((a, b) => b.count - a.count);
   const maxFeatureUsage = featureUsage.length > 0 ? featureUsage[0].count : 1;
+
+  // Affiliate link usage. `af` is undefined until the Lambda carrying the aggregation is deployed,
+  // so every read below tolerates its absence rather than blanking the panel on an older backend.
+  const af = data?.affiliate;
+  const afClicks = af?.clicks ?? 0;
+  const rankedAffiliate = (counts: Record<string, number> | undefined, labels?: Record<string, string>) => {
+    const entries = Object.entries(counts ?? {}).sort(([, a], [, b]) => b - a);
+    return {
+      rows: entries.map(([key, count]) => ({ key, label: labels?.[key] ?? key, count })),
+      max: entries.length > 0 ? entries[0][1] : 1,
+    };
+  };
+  const afSurfaces = rankedAffiliate(af?.surfaceCounts, AFFILIATE_SURFACE_LABELS);
+  const afRoutes = rankedAffiliate(af?.routeCounts, AFFILIATE_ROUTE_LABELS);
+  const afScopes = rankedAffiliate(af?.scopeCounts, AFFILIATE_SCOPE_LABELS);
+  const afDevices = rankedAffiliate(af?.deviceCounts);
+  const afRegions = rankedAffiliate(af?.regionCounts);
+  const afValues = (() => {
+    const entries = Object.entries(af?.valueBuckets ?? {})
+      .sort(([a], [b]) => AFFILIATE_VALUE_ORDER.indexOf(a) - AFFILIATE_VALUE_ORDER.indexOf(b));
+    return { rows: entries, max: Math.max(...entries.map(([, v]) => v), 1) };
+  })();
+
+  // Hour-of-day, re-indexed into EST so the shape lines up with the rest of the dashboard's clock.
+  const afHourSlots = (() => {
+    const byEst = new Array(24).fill(0) as number[];
+    for (const [utcHour, count] of Object.entries(af?.hourOfDayCounts ?? {})) {
+      byEst[utcHourToEstHour(utcHour)] += count;
+    }
+    return byEst.map((count, hour) => ({ key: String(hour), label: `${estHourLabel(hour)} EST`, count }));
+  })();
+
+  const afDaySlots = Object.keys(data?.dailyCounts ?? {}).sort().map(day => ({
+    key: day,
+    label: day,
+    count: af?.dailyCounts?.[day] ?? 0,
+  }));
+
+  const afAvgCart = af && af.cartValueCount > 0 ? af.cartValueTotal / af.cartValueCount : 0;
+  const afAvgDeckCards = af && af.deckCartCount > 0 ? Math.round(af.deckCardTotal / af.deckCartCount) : 0;
 
   // Inspector per-tab usage (needs the inspectorTabCounts backend aggregation).
   const sortedInspectorTabs = data
@@ -939,6 +1088,169 @@ export function MetricsPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Affiliate Links — when and where the TCGplayer link is actually used */}
+          <Card className="bg-card/80 backdrop-blur-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <ShoppingCart className="w-4 h-4" />
+                Affiliate Links
+                <span className="text-xs font-normal text-muted-foreground ml-1">TCGplayer</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!af ? (
+                <p className="text-sm text-muted-foreground">
+                  Affiliate breakdown needs the updated analytics Lambda — deploy it to populate this panel.
+                </p>
+              ) : afClicks === 0 && af.opens === 0 ? (
+                <p className="text-sm text-muted-foreground">No affiliate link activity in this range</p>
+              ) : (
+                <div className="space-y-6">
+                  {/* Headline numbers */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-2xl font-bold tabular-nums">{afClicks.toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">Buy Clicks</p>
+                    </div>
+                    <div className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-2xl font-bold tabular-nums">{af.uniqueClickers.toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Unique Clickers
+                        {(data.uniqueUserCount ?? 0) > 0 && (
+                          <span className="ml-1">({pct(af.uniqueClickers, data.uniqueUserCount)} of users)</span>
+                        )}
+                      </p>
+                    </div>
+                    <div className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-2xl font-bold tabular-nums">
+                        ${Math.round(af.cartValueTotal).toLocaleString()}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Est. Cart Value
+                        {afAvgCart > 0 && <span className="ml-1">(~${afAvgCart.toFixed(2)} avg)</span>}
+                      </p>
+                    </div>
+                    <div className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-2xl font-bold tabular-nums">{afAvgDeckCards.toLocaleString()}</p>
+                      <p className="text-xs text-muted-foreground">Avg Cards / Deck Cart</p>
+                    </div>
+                  </div>
+
+                  {/* WHEN */}
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                        When — Hour of Day (EST)
+                      </p>
+                      <MiniBarChart slots={afHourSlots} />
+                    </div>
+                    <div className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                        When — Clicks per Day
+                      </p>
+                      <MiniBarChart slots={afDaySlots} />
+                    </div>
+                  </div>
+
+                  {/* WHERE */}
+                  <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                        Where — Affordance
+                      </p>
+                      <div className="space-y-3">
+                        {afSurfaces.rows.map(r => (
+                          <BarRow key={r.key} label={r.label} count={r.count} max={afSurfaces.max} total={afClicks} />
+                        ))}
+                        {afSurfaces.rows.length === 0 && <p className="text-xs text-muted-foreground">No data yet</p>}
+                      </div>
+                    </div>
+
+                    <div className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                        Where — Page
+                      </p>
+                      <div className="space-y-3">
+                        {afRoutes.rows.map(r => (
+                          <BarRow key={r.key} label={r.label} count={r.count} max={afRoutes.max} total={afClicks} />
+                        ))}
+                        {afRoutes.rows.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Needs the route dimension — only clicks recorded after this ships carry it.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                        Where — Device &amp; Region
+                      </p>
+                      <div className="space-y-3">
+                        {afDevices.rows.map(r => (
+                          <BarRow
+                            key={r.key}
+                            label={`${r.key === 'mobile' ? '📱' : '🖥️'} ${r.label}`}
+                            count={r.count}
+                            max={afDevices.max}
+                            total={afClicks}
+                          />
+                        ))}
+                        {afRegions.rows.length > 0 && afDevices.rows.length > 0 && (
+                          <div className="border-t border-border/50 pt-3" />
+                        )}
+                        {afRegions.rows.map(r => (
+                          <BarRow
+                            key={r.key}
+                            label={`${REGION_FLAGS[r.key] ?? '🌐'} ${r.label}`}
+                            count={r.count}
+                            max={afRegions.max}
+                            total={afClicks}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-muted/30 rounded-lg p-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                        What Left the Site
+                      </p>
+                      <div className="space-y-3">
+                        {afScopes.rows.map(r => (
+                          <BarRow key={r.key} label={r.label} count={r.count} max={afScopes.max} total={afClicks} />
+                        ))}
+                        {afValues.rows.length > 0 && (
+                          <p className="border-t border-border/50 pt-3 text-[10px] text-muted-foreground uppercase tracking-wide">
+                            Est. cart value
+                          </p>
+                        )}
+                        {afValues.rows.map(([bucket, count]) => (
+                          <BarRow key={bucket} label={bucket} count={count} max={afValues.max} />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Deck-cart follow-through. Card links have no dialog, so they are excluded on
+                      both sides — mixing them in would make the conversion look artificially high. */}
+                  {(af.opens > 0 || (af.surfaceCounts?.deck ?? 0) > 0) && (
+                    <div className="max-w-md">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                        Deck Cart Follow-Through
+                      </p>
+                      <Funnel
+                        steps={[
+                          { label: 'Buy dialog opened', count: af.opens },
+                          { label: 'Sent to TCGplayer', count: af.surfaceCounts?.deck ?? 0 },
+                        ]}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Activity Chart — full width */}
           <Card className="bg-card/80 backdrop-blur-sm">

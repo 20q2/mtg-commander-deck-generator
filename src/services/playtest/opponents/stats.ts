@@ -56,6 +56,15 @@ export function typeLineOf(p: OpponentPermanent): string {
   return p.edit?.typeLine ?? getFrontFaceTypeLine(p.card);
 }
 
+/**
+ * Is this permanent a creature as it stands? Reads `typeLineOf`, so a land you
+ * animated counts and a Lignified creature still does — the printed type line
+ * stopped being the answer the moment edits could rewrite it.
+ */
+export function isCreaturePermanent(p: OpponentPermanent): boolean {
+  return typeLineOf(p).toLowerCase().includes('creature');
+}
+
 function hasSubtype(typeLine: string, subtype: string): boolean {
   return typeLine.toLowerCase().includes(subtype.toLowerCase());
 }
@@ -459,5 +468,31 @@ export function toPermanent(card: ScryfallCard): OpponentPermanent {
     // Only creatures care, but tracking it uniformly keeps the attack step simple.
     summoningSick: true,
     counters: {},
+    // Set here rather than at each cast site for the same reason as the rest of
+    // this function: a Bone Shredder reanimated out of the graveyard rents
+    // itself out again, exactly as it did the first time.
+    echoDue: echoCostOf(card) !== null,
   };
+}
+
+/**
+ * The echo cost printed on a card, or null if it has none.
+ *
+ * Echo is the one upkeep cost in the bot pool that is a real decision — "you
+ * rent this creature for a turn" — and skipping it turned every echo card into
+ * a permanent the bot got to keep for free. It is read off the card rather
+ * than curated because the cost is printed in a fixed shape on every one of
+ * them, which is the same reason `keywordsOf` reads `card.keywords`.
+ *
+ * The keyword gate comes first so nothing else matching the word "echo" in a
+ * rules paragraph — a card NAMED Echo of Eons, a reminder line quoting the
+ * keyword — is mistaken for one. Pre-errata printings that never spelled the
+ * cost out mean "the same as its mana cost", which is what the fallback says.
+ */
+export function echoCostOf(card: ScryfallCard): string | null {
+  if (!(card.keywords ?? []).some(k => k.toLowerCase() === 'echo')) return null;
+  const text = card.oracle_text ?? card.card_faces?.[0]?.oracle_text ?? '';
+  const match = text.match(/Echo\s+((?:\{[^}]+\})+)/);
+  if (match) return match[1];
+  return (card.mana_cost ?? card.card_faces?.[0]?.mana_cost ?? '') || null;
 }

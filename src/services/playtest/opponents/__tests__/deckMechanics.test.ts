@@ -586,3 +586,86 @@ describe('deaths the engine causes itself', () => {
     expect(r.final.battlefield.map(p => p.card.name)).not.toContain('Solemn Simulacrum');
   });
 });
+
+/**
+ * Echo — the one upkeep cost in the pool that is a real decision.
+ *
+ * Untracked, it was not a cost at all: a Bone Shredder shot something down on
+ * turn four and was still standing there on turn twelve, which is a different
+ * and much better card than the one printed. What is asserted here is the
+ * decision, in both directions — a body worth the mana is kept, one that is
+ * not is let go — plus the thing that makes it a cost rather than an upkeep
+ * tax: it bills exactly once.
+ */
+describe('echo', () => {
+  const echoer = (o: {
+    name: string; cost: string; power: string; toughness: string; mana: string;
+  }) => card({
+    name: o.name, cmc: 3, power: o.power, toughness: o.toughness, mana_cost: o.mana,
+    type_line: 'Creature — Minion', keywords: ['Echo'],
+    oracle_text: `Echo ${o.cost} (At the beginning of your upkeep, if this came under your control since the beginning of your last upkeep, sacrifice it unless you pay its echo cost.)`,
+  });
+
+  /** Bone Shredder: a 1/1 whose trigger has already fired. Not worth {1}{B}{B}. */
+  const SHREDDER = () => echoer({
+    name: 'Bone Shredder', cost: '{1}{B}{B}', power: '1', toughness: '1', mana: '{2}{B}',
+  });
+  /** Uktabi Orangutan: a 2/2 body for {1}{G}. Worth keeping. */
+  const ORANGUTAN = () => echoer({
+    name: 'Uktabi Orangutan', cost: '{1}{G}', power: '2', toughness: '2', mana: '{2}{G}',
+  });
+  /** Its echo has a green pip in it, so Swamps will not do. */
+  const forests = (k: number) => Array.from({ length: k }, () =>
+    perm(card({ name: 'Forest', type_line: 'Basic Land — Forest', cmc: 0 })));
+
+  it('lets a body go that is not worth its echo cost', () => {
+    const shredder = perm(SHREDDER(), { echoDue: true });
+    const { final, frames } = takeTurn(
+      { ...bot({ battlefield: [shredder, ...lands(6)] }), turnsTaken: 4 },
+      board(),
+    );
+    expect(logsOf(frames)).toContain("doesn't pay echo and sacrifices Bone Shredder");
+    expect(final.battlefield.some(p => p.card.name === 'Bone Shredder')).toBe(false);
+    expect(final.graveyard.some(c => c.name === 'Bone Shredder')).toBe(true);
+  });
+
+  it('pays for a body that is worth it', () => {
+    const ape = perm(ORANGUTAN(), { echoDue: true });
+    const { final, frames } = takeTurn(
+      { ...bot({ battlefield: [ape, ...forests(6)] }), turnsTaken: 4 },
+      board(),
+    );
+    expect(logsOf(frames)).toContain('pays echo for Uktabi Orangutan');
+    expect(final.battlefield.some(p => p.card.name === 'Uktabi Orangutan')).toBe(true);
+  });
+
+  it('sacrifices one it cannot afford, however much it wants to keep it', () => {
+    const ape = perm(ORANGUTAN(), { echoDue: true });
+    const { final, frames } = takeTurn(
+      { ...bot({ battlefield: [ape] }), turnsTaken: 4 },
+      board(),
+    );
+    expect(logsOf(frames)).toContain("doesn't pay echo and sacrifices Uktabi Orangutan");
+    expect(final.battlefield.some(p => p.card.name === 'Uktabi Orangutan')).toBe(false);
+  });
+
+  it('bills once — a creature that paid is not asked again next turn', () => {
+    const ape = perm(ORANGUTAN(), { echoDue: true });
+    const first = takeTurn({ ...bot({ battlefield: [ape, ...forests(6)] }), turnsTaken: 4 }, board());
+    expect(first.final.battlefield.find(p => p.card.name === 'Uktabi Orangutan')?.echoDue).toBe(false);
+
+    const second = takeTurn({ ...first.final, turnsTaken: 5 }, board());
+    expect(logsOf(second.frames)).not.toContain('echo');
+    expect(second.final.battlefield.some(p => p.card.name === 'Uktabi Orangutan')).toBe(true);
+  });
+
+  it('leaves a creature with no echo alone', () => {
+    const teval = perm(TEVAL());
+    const { final, frames } = takeTurn(
+      { ...bot({ battlefield: [teval, ...lands(4)] }), turnsTaken: 4 },
+      board(),
+    );
+    expect(logsOf(frames)).not.toContain('echo');
+    expect(final.battlefield.some(p => p.card.name === 'Teval, the Balanced Scale')).toBe(true);
+  });
+});

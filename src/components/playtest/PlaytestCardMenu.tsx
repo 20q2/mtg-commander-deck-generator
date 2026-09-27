@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getCardsByIds, getFrontFaceTypeLine, isDoubleFacedCard } from '@/services/scryfall/client';
-import { isCreatureCard } from '@/services/playtest/opponents/stats';
+import { isCreatureNow } from '@/services/playtest/powerToughness';
 import { isEmblem } from '@/services/scryfall/extras';
 import type { ScryfallCard } from '@/types';
 import type { ZoneKey } from '@/components/playtest/types';
@@ -444,17 +444,21 @@ export function PlaytestCardMenu({ target, onClose }: Props) {
           <Item icon={<Type className="w-3.5 h-3.5" />} onClick={applySticker}>
             Add text sticker{bulkSuffix}
           </Item>
-          {isCreatureCard(bfCard.card) && (
-            <Item
-              icon={<Wand2 className="w-3.5 h-3.5" />}
-              onClick={() => {
-                onClose();
-                openModal({ kind: 'editCreature', target: { side: 'player', instanceId: bfCard.instanceId } });
-              }}
-            >
-              {bfCard.edit ? 'Edit creature…' : 'Make it something else…'}
-            </Item>
-          )}
+          {/* Offered on every permanent, not just creatures: animating a
+              Mutavault or a Blinkmoth Nexus is the same edit as Frogifying a
+              Goblin, and gating this row on the printed type line was the only
+              reason a land could not be turned into one. */}
+          <Item
+            icon={<Wand2 className="w-3.5 h-3.5" />}
+            onClick={() => {
+              onClose();
+              openModal({ kind: 'editCreature', target: { side: 'player', instanceId: bfCard.instanceId } });
+            }}
+          >
+            {bfCard.edit
+              ? 'Edit creature…'
+              : isCreatureNow(bfCard) ? 'Make it something else…' : 'Make it a creature…'}
+          </Item>
         </>
       )}
     </div>,

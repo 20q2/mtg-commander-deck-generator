@@ -1,6 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import type { Combatant } from '@/services/playtest/combat';
-import { costOf, lookupEffect, type BotEffectSpec } from '@/services/playtest/opponents/effects';
+import { costOf, lookupEffect, type BotEffectSpec, type TargetRestriction } from '@/services/playtest/opponents/effects';
 
 /** One of the player's battlefield cards, flattened to what a bot cares about. */
 export interface PlayerCardRead {
@@ -26,6 +26,15 @@ export interface PlayerCardRead {
   hexproof?: boolean;
   /** Survives "destroy" and lethal damage. Exile, edicts and -X/-X still get it. */
   indestructible?: boolean;
+  /**
+   * WUBRG letters, as Scryfall prints them. Empty or absent is colourless —
+   * which is a colour answer, not a missing one, so "nonblack" accepts it.
+   *
+   * Only the restricted removal reads this. It exists because a bot aiming
+   * Doom Blade at a black creature is not playing badly, it is playing a card
+   * that does not exist.
+   */
+  colors?: string[];
 }
 
 export interface PlayerBoardRead {
@@ -148,6 +157,23 @@ const destructible = (c: PlayerCardRead) => !c.indestructible;
 const killable = (c: PlayerCardRead) => targetable(c) && destructible(c);
 
 /**
+ * The printed "target ..." clause, as a predicate.
+ *
+ * Narrower than the protection checks above and for a different reason: those
+ * are about what the spell would accomplish, this is about whether it may be
+ * cast at all. A bot with nothing else to point a Doom Blade at holds it, the
+ * same way it holds one against a board of hexproof.
+ */
+const allowedBy = (r: TargetRestriction | undefined) => (c: PlayerCardRead) => {
+  if (!r) return true;
+  // Colourless satisfies every "non<colour>" clause, so an absent list passes.
+  if (r.notColors?.some(col => (c.colors ?? []).includes(col))) return false;
+  if (r.notArtifact && c.isArtifact) return false;
+  if (r.maxTotalPT !== undefined && c.power + c.toughness > r.maxTotalPT) return false;
+  return true;
+};
+
+/**
  * Biggest by power, commander breaking ties — commanders are the scarier card.
  *
  * `usable` narrows it to the creatures the effect asking could actually do
@@ -213,7 +239,10 @@ export function resolveEffect(
     case 'destroyCreature':
     case 'exileCreature': {
       // Exile answers an indestructible creature; destroy does not.
-      const usable = spec.kind === 'exileCreature' ? targetable : killable;
+      const answers = spec.kind === 'exileCreature' ? targetable : killable;
+      // ...and on top of that, whatever the card's own targeting clause allows.
+      const legal = allowedBy(spec.restrict);
+      const usable = (c: PlayerCardRead) => answers(c) && legal(c);
       const target = comboPieceToBreak(board, usable) ?? biggestCreature(board, usable);
       if (!target) return null;
       return {

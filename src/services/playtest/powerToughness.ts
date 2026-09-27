@@ -101,3 +101,46 @@ export function describeEdit(cardName: string, edit: CardEdit | null): string {
   const body = subtypes ? `a ${edit.power}/${edit.toughness} ${subtypes}` : `a ${edit.power}/${edit.toughness}`;
   return `${cardName} is ${body}${edit.loseAbilities ? ' with no abilities' : ''}`;
 }
+
+/**
+ * The type line a permanent answers to right now, rather than the one it was
+ * printed with: the edit's rewrite if it has one, otherwise the face that is
+ * currently showing.
+ *
+ * The player-side twin of `typeLineOf` on the bots' side. It exists because
+ * every "is this a creature" gate on your half of the table was asking
+ * `getFrontFaceTypeLine(card.card)` — so a Mutavault you had animated, or a
+ * Westvale Abbey you had flipped into Ormendahl, was still a land to the
+ * context menu, the attack arrow and the blocker check, while `resolvePT` and
+ * the bots' read of your board had already moved on.
+ */
+export function liveTypeLine(card: BattlefieldCard): string {
+  const edited = card.edit?.typeLine?.trim();
+  if (edited) return edited;
+  const c = card.card;
+  if (card.flipped && isDoubleFacedCard(c)) {
+    return c.card_faces?.[1]?.type_line ?? getFrontFaceTypeLine(c);
+  }
+  return getFrontFaceTypeLine(c);
+}
+
+/** Is this permanent a creature as it stands? The only question combat should ask. */
+export function isCreatureNow(card: BattlefieldCard): boolean {
+  return liveTypeLine(card).toLowerCase().includes('creature');
+}
+
+/**
+ * The same type line with `Creature` added to it — what a land becomes when you
+ * animate it. Seeds the edit dialog so "make this a creature" is a power and a
+ * toughness rather than retyping the whole line.
+ *
+ * Supertypes and the subtypes after the dash are both kept, because a Forest
+ * that stopped being a Forest would stop making green mana, and the amber type
+ * bar is the only place you'd notice.
+ */
+export function animatedTypeLine(typeLine: string): string {
+  if (typeLine.toLowerCase().includes('creature')) return typeLine;
+  const dash = typeLine.indexOf('—');
+  if (dash === -1) return `${typeLine.trim()} Creature`;
+  return `${typeLine.slice(0, dash).trim()} Creature ${typeLine.slice(dash)}`;
+}

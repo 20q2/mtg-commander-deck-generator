@@ -6,10 +6,13 @@ import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { getCardImageUrl } from '@/services/scryfall/client';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
-import { GrantedKeywords, PTBadge, TypeBadge } from '@/components/playtest/CardBadges';
-import { incomingDamage, readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
-import { outgoingDamage } from '@/services/playtest/opponents/outgoingCombat';
-import { botPT, grantedKeywords, isCreatureCard, type BotPT } from '@/services/playtest/opponents/stats';
+import { BLOCK_RELEVANT, FateTag, KeywordChips, PTBadge, TypeBadge, type PTTone } from '@/components/playtest/CardBadges';
+import { incomingOutcome, readIncomingCombat } from '@/services/playtest/opponents/incomingCombat';
+import { playerOutcome, readPlayerCombat } from '@/services/playtest/opponents/outgoingCombat';
+import { resolvePT } from '@/services/playtest/powerToughness';
+import { botPT, grantedKeywords, type BotPT } from '@/services/playtest/opponents/stats';
+import { isCreatureNow } from '@/services/playtest/powerToughness';
+import { keywordsOf } from '@/services/playtest/combat';
 import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import { TargetArrow, type Point } from '@/components/playtest/TargetArrow';
 import { CARD_ASPECT, type BattlefieldCard } from '@/components/playtest/types';
@@ -33,6 +36,34 @@ const BLOCKER_SCALE = 0.075;
 const MIN_CARD = 18;
 
 const cardW = (seatWidth: number, scale: number) => Math.round(Math.max(MIN_CARD, seatWidth * scale));
+
+/**
+ * One of your own creatures' live size, ready for the badge.
+ *
+ * The bot side has `botPT`, which reads anthems and temporary boosts off the
+ * seat's board; yours is simpler, because the only things that move a player's
+ * numbers are counters, stickers and an edit. But the strip needs both sides
+ * spoken in the same terms, or half a fight is annotated and half is not.
+ * Null for anything with no P/T at all.
+ */
+function playerPT(b: BattlefieldCard): { value: string; tone: PTTone } | null {
+  const pt = resolvePT(b);
+  if (!pt) return null;
+  const differs = pt.overridden || pt.modified !== pt.base;
+  return { value: pt.modified, tone: pt.edited ? 'edited' : differs ? 'counters' : 'plain' };
+}
+
+/** The badge colour for a bot creature's size, from what is doing it to it. */
+function botTone(pt: BotPT): PTTone {
+  if (!pt.differs) return 'plain';
+  return pt.reason === 'edit' ? 'edited' : pt.reason === 'temp' ? 'boosted' : 'counters';
+}
+
+/** What the tag on a doomed card says. Piles get a count, single cards a word. */
+function diesLabel(dying: number, total: number): string {
+  if (total === 1) return 'Dies';
+  return dying === total ? 'All die' : `${dying} die`;
+}
 
 /**
  * The box an attacker needs.
@@ -290,8 +321,14 @@ function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWi
   const side = playerCombat?.perOpponent[opponentId];
   if (!side || !opponent) return null;
 
-  // Same reader `resolvePlayerCombat` uses, trample overflow and all.
-  const dealt = Math.max(0, outgoingDamage(side, opponent, battlefield) + mod);
+  // Same reader `resolvePlayerCombat` uses, trample overflow and all - and,
+  // from the same pass, its verdict on who walks away from the fight.
+  const outcome = playerOutcome(readPlayerCombat(side, opponent, battlefield));
+  const dealt = Math.max(0, (outcome?.damageToDefender ?? 0) + mod);
+  const doomed = new Set([
+    ...(outcome?.deadAttackers ?? []),
+    ...(outcome?.deadBlockers ?? []),
+  ]);
 
   return (
     <>
@@ -299,6 +336,10 @@ function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWi
         const card = battlefield.find(b => b.instanceId === id);
         if (!card) return null;
         const blockerIds = side.blocks[id] ?? [];
+        const cw = cardW(seatWidth, COMBAT_SCALE);
+        const bw = cardW(seatWidth, BLOCKER_SCALE);
+        const pt = playerPT(card);
+        const dying = doomed.has(id);
         return (
           <div key={id} className="shrink-0 flex flex-col items-center gap-0.5">
             <div
@@ -307,35 +348,66 @@ function OutgoingResolve({ opponentId, seatWidth }: { opponentId: string; seatWi
               // the card that leans at the seat when the attack is paid out.
               data-attack-copy={id}
               data-attackers={id}
-              style={turnedBox(cardW(seatWidth, COMBAT_SCALE))}
+              style={turnedBox(cw)}
             >
               <img
                 src={getCardImageUrl(card.card, 'small')}
                 alt={card.card.name}
-                title={card.card.name}
+                // Everything the overlays say, in one tooltip: they are
+                // pointer-transparent, so the card under them stays hoverable.
+                title={[
+                  pt ? `${card.card.name} · ${pt.value}` : card.card.name,
+                  ...(dying ? ['dies in this fight'] : []),
+                ].join(' · ')}
                 draggable={false}
                 className={`${TURNED_CARD} rounded-[2px] shadow ${
-                  blockerIds.length === 0 ? 'ring-1 ring-emerald-400/70' : ''
+                  dying ? 'ring-1 ring-rose-400/80'
+                  : blockerIds.length === 0 ? 'ring-1 ring-emerald-400/70'
+                  : ''
                 }`}
-                style={{ width: cardW(seatWidth, COMBAT_SCALE) }}
+                style={{ width: cw }}
               />
+              {pt && (
+                // Turned with the card: the badge is impersonating the printed
+                // P/T box, and on an attacker that box is sideways.
+                <div
+                  className={`${TURNED_CARD} pointer-events-none`}
+                  style={{ width: cw, height: Math.round(cw * CARD_ASPECT) }}
+                >
+                  <PTBadge value={pt.value} cardWidth={cw} tone={pt.tone} />
+                </div>
+              )}
+              {/* Upright, unlike the badge: this is a label you read, not
+                  something printed on the card. */}
+              {dying && <FateTag label="Dies" cardWidth={cw} />}
             </div>
             <div className="flex gap-0.5 min-h-[26px] items-start">
               {blockerIds.length === 0 ? (
                 <span className="text-[7px] text-emerald-300 uppercase tracking-wide">through</span>
               ) : blockerIds.map(bid => {
                 const p = opponent.battlefield.find(x => x.instanceId === bid);
-                return p ? (
-                  <img
+                if (!p) return null;
+                const bpt = botPT(p, opponent.battlefield, opponent.graveyard);
+                const bDying = doomed.has(bid);
+                return (
+                  <span
                     key={bid}
-                    src={getCardImageUrl(p.card, 'small')}
-                    alt={p.card.name}
-                    title={`${p.card.name} blocks`}
-                    draggable={false}
-                    className="rounded-[2px]"
-                    style={{ width: cardW(seatWidth, BLOCKER_SCALE) }}
-                  />
-                ) : null;
+                    className="relative shrink-0"
+                    style={{ width: bw }}
+                    title={`${bpt ? `${p.card.name} · ${bpt.live}` : p.card.name} blocks${
+                      bDying ? ' and dies' : ''
+                    }`}
+                  >
+                    <img
+                      src={getCardImageUrl(p.card, 'small')}
+                      alt={p.card.name}
+                      draggable={false}
+                      className={`w-full rounded-[2px] ${bDying ? 'ring-1 ring-rose-400/80' : ''}`}
+                    />
+                    {bpt && <PTBadge value={bpt.live} cardWidth={bw} tone={botTone(bpt)} />}
+                    {bDying && <FateTag label="Dies" cardWidth={bw} />}
+                  </span>
+                );
               })}
             </div>
           </div>
@@ -404,9 +476,17 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
   // disappears from the strip, and the number on the button is what
   // `resolveDamage` will actually take off you — trample overflow included,
   // which the old "sum of unblocked power" quietly left out.
-  const { live } = readIncomingCombat(combat, opponent, battlefield);
-  const raw = incomingDamage(combat, opponent, battlefield);
+  const read = readIncomingCombat(combat, opponent, battlefield);
+  const { live } = read;
+  // One pass answers both questions the strip asks: what this costs you in
+  // life, and which creatures on either side are still standing after it.
+  const outcome = incomingOutcome(read);
+  const raw = outcome?.damageToDefender ?? 0;
   const incoming = Math.max(0, raw + mod);
+  const doomed = new Set([
+    ...(outcome?.deadAttackers ?? []),
+    ...(outcome?.deadBlockers ?? []),
+  ]);
 
   const blocksOf = (a: Attacker) => combat.blocks[a.instanceId] ?? [];
   /*
@@ -427,6 +507,22 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
     const p = permOf(a);
     return p && opponent ? grantedKeywords(p, opponent.battlefield, opponent.graveyard) : [];
   };
+  /*
+   * The card's own evasion, shown for the same reason the granted half is: at
+   * strip size the rules box is a grey smudge, so a Bone Shredder's flying —
+   * the one fact that decides which of your creatures may even be put in front
+   * of it — was written nowhere on screen.
+   *
+   * `keywordsOf` rather than `botKeywords`: this is deliberately the printed
+   * half only, and the granted half is already its own list above. A creature
+   * Frogified out of its abilities prints nothing, which `keywordsOf` handles.
+   */
+  const printedOf = (a: Attacker): CombatKeyword[] => {
+    const p = permOf(a);
+    if (!p) return [];
+    const has = keywordsOf(p.card, p.edit);
+    return BLOCK_RELEVANT.filter(k => has.has(k));
+  };
   const piles = groupAttackers(live);
   const total = live.length;
 
@@ -436,7 +532,7 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
   // way rather than explaining a job you've finished.
   const anyUnblocked = live.some(a => blocksOf(a).length === 0);
   const canBlock = battlefield.some(
-    b => !b.tapped && !b.faceDown && isCreatureCard(b.card),
+    b => !b.tapped && !b.faceDown && isCreatureNow(b),
   );
 
   return (
@@ -469,9 +565,11 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
             card={top.card}
             pt={ptOf(top)}
             granted={grantedOf(top)}
+            printed={printedOf(top)}
             count={members.length}
             blockedCount={blockedCount}
             blockerIds={blockerIds}
+            doomed={doomed}
             onRemoveBlocker={id => {
               const owner = members.find(m => blocksOf(m).includes(id));
               if (owner) removeBlocker(owner.instanceId, id);
@@ -557,7 +655,7 @@ function IncomingAttack({ opponentId, seatWidth }: { opponentId: string; seatWid
  * up to a strip is a long haul, and aiming down at your own board is short.
  */
 function AttackerSlot({
-  attackerId, attackerIds, card, pt, granted, blockerIds, onRemoveBlocker, battlefield, onAssign,
+  attackerId, attackerIds, card, pt, granted, doomed, printed, blockerIds, onRemoveBlocker, battlefield, onAssign,
   seatWidth, count = 1, blockedCount = 0, flyFrom = null, flyRotated = false, flyOrder = 0,
 }: {
   attackerId: string;
@@ -568,7 +666,16 @@ function AttackerSlot({
   pt: BotPT | null;
   /** Keywords it has that the card does not print — first strike, trample, deathtouch. */
   granted: CombatKeyword[];
+  /** The evasion and damage keywords the card DOES print — see `BLOCK_RELEVANT`. */
+  printed: CombatKeyword[];
   blockerIds: string[];
+  /**
+   * Everything in this fight that does not survive it, attackers and blockers
+   * alike — the block you are about to commit to, played out. Worked out once
+   * for the whole strip, because a per-slot answer would have to re-resolve
+   * every other slot to know what its own blockers are busy with.
+   */
+  doomed: Set<string>;
   onRemoveBlocker: (instanceId: string) => void;
   battlefield: BattlefieldCard[];
   onAssign: (attackerId: string, blockerInstanceId: string) => void;
@@ -679,6 +786,9 @@ function AttackerSlot({
   }, [attackerId, onAssign]);
 
   const empty = blockerIds.length === 0;
+  // A pile is drawn as one card, so its tag speaks for all of them: block two
+  // goblins out of five and two of the five die.
+  const dyingAttackers = attackerIds.filter(id => doomed.has(id)).length;
 
   return (
     <div
@@ -706,9 +816,15 @@ function AttackerSlot({
           src={getCardImageUrl(card, 'small')}
           alt={card.name}
           draggable={false}
-          className="rounded-[2px] shadow"
+          className={`rounded-[2px] shadow ${dyingAttackers > 0 ? 'ring-1 ring-rose-400/80' : ''}`}
           style={{ width: cardW(seatWidth, COMBAT_SCALE) }}
         />
+        {dyingAttackers > 0 && (
+          <FateTag
+            label={diesLabel(dyingAttackers, count)}
+            cardWidth={cardW(seatWidth, COMBAT_SCALE)}
+          />
+        )}
         {pt && (
           <PTBadge
             value={pt.live}
@@ -732,7 +848,7 @@ function AttackerSlot({
         {pt?.typeLine && (
           <TypeBadge typeLine={pt.typeLine} cardWidth={cardW(seatWidth, COMBAT_SCALE)} />
         )}
-        <GrantedKeywords keywords={granted} cardWidth={cardW(seatWidth, COMBAT_SCALE)} />
+        <KeywordChips granted={granted} printed={printed} cardWidth={cardW(seatWidth, COMBAT_SCALE)} />
         {count > 1 && (
           <span
             className="absolute top-0 left-0 px-1 rounded-br bg-rose-600 text-white text-[10px] font-bold tabular-nums shadow"
@@ -767,25 +883,37 @@ function AttackerSlot({
           </span>
         ) : blockerIds.map(bid => {
           const b = battlefield.find(x => x.instanceId === bid);
-          return b ? (
+          if (!b) return null;
+          const bw = cardW(seatWidth, BLOCKER_SCALE);
+          const bpt = playerPT(b);
+          const bDying = doomed.has(bid);
+          return (
             <button
               key={bid}
               onClick={() => onRemoveBlocker(bid)}
-              title={`${b.card.name} is blocking · click to remove`}
+              // The numbers ride on the card now, so the tooltip is only
+              // repeating them for a seat shrunk too small to carry words.
+              title={`${bpt ? `${b.card.name} · ${bpt.value}` : b.card.name} is blocking${
+                bDying ? ' and dies' : ''
+              } · click to remove`}
               className="relative shrink-0 group"
-              style={{ width: cardW(seatWidth, BLOCKER_SCALE) }}
+              style={{ width: bw }}
             >
               <img
                 src={getCardImageUrl(b.card, 'small')}
                 alt={b.card.name}
                 draggable={false}
-                className="w-full rounded-[2px]"
+                className={`w-full rounded-[2px] ${bDying ? 'ring-1 ring-rose-400/80' : ''}`}
               />
-              <span className="absolute inset-0 hidden group-hover:flex items-center justify-center bg-black/60 rounded-[2px]">
+              {bpt && <PTBadge value={bpt.value} cardWidth={bw} tone={bpt.tone} />}
+              {bDying && <FateTag label="Dies" cardWidth={bw} />}
+              {/* Above the badges: it is the answer to "what does clicking
+                  this do", and a P/T box poking through it muddles that. */}
+              <span className="absolute inset-0 z-40 hidden group-hover:flex items-center justify-center bg-black/60 rounded-[2px]">
                 <X className="w-2.5 h-2.5 text-red-300" />
               </span>
             </button>
-          ) : null;
+          );
         })}
       </div>
 

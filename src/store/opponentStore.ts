@@ -1,17 +1,16 @@
 import { create } from 'zustand';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
-import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
+import { useFloatingText } from '@/store/floatingTextStore';
 import { playCue, BOT_GAIN } from '@/services/playtest/playtestSound';
 import { slashCard } from '@/store/cardSlashStore';
-import { lungeAt, seatLifeAnchor, strikePacing } from '@/store/combatStrikes';
+import { lungeAt, strikePacing } from '@/store/combatStrikes';
 import { takeTurn } from '@/services/playtest/opponents/engine';
 import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/deckSources';
 import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
-import { getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { resolvePT, describeEdit } from '@/services/playtest/powerToughness';
+import { resolvePT, describeEdit, isCreatureNow, liveTypeLine } from '@/services/playtest/powerToughness';
 import { canBlock, keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
-import { botKeywords, botPower, botToughness, clearTempBoosts, isCreatureCard, isTokenCard } from '@/services/playtest/opponents/stats';
+import { botKeywords, botPower, botToughness, clearTempBoosts, isCreaturePermanent, isTokenCard, typeLineOf } from '@/services/playtest/opponents/stats';
 import { buryPermanents } from '@/services/playtest/opponents/deaths';
 import {
   pickCardsToDiscard, pickPermanentsToGiveUp, type BotDecision,
@@ -447,6 +446,17 @@ interface OpponentActions {
  * what lets a bot break up a combo that's one card from live — the one thing
  * here no other playtester does.
  */
+/**
+ * A card's colours, front face first.
+ *
+ * `colors` is absent on a double-faced card at the top level, which would read
+ * as colourless — and colourless passes every "nonblack" clause, so the one
+ * case this exists to catch would slip straight through it.
+ */
+function colorsOf(card: ScryfallCard): string[] {
+  return card.colors ?? card.card_faces?.[0]?.colors ?? [];
+}
+
 function readPlayerBoard(): PlayerBoardRead {
   const s = usePlaytestStore.getState();
   const commanders = new Set(s.source?.commanderNames ?? []);
@@ -463,10 +473,10 @@ function readPlayerBoard(): PlayerBoardRead {
     handSize: s.zones.hand.length,
     // What could actually block a bot's attack this turn.
     untappedCreatures: s.battlefield
-      .filter(b => !b.tapped && (b.edit?.typeLine ?? getFrontFaceTypeLine(b.card)).toLowerCase().includes('creature'))
+      .filter(b => !b.tapped && isCreatureNow(b))
       .map(playerCombatant),
     cards: s.battlefield.map(b => {
-      const type = (b.edit?.typeLine ?? getFrontFaceTypeLine(b.card)).toLowerCase();
+      const type = liveTypeLine(b).toLowerCase();
       const pt = resolvePT(b);
       const power = parseInt(pt?.modified.split('/')[0] ?? '', 10);
       const toughness = parseInt(pt?.modified.split('/')[1] ?? '', 10);
@@ -487,6 +497,9 @@ function readPlayerBoard(): PlayerBoardRead {
         comboId: liveComboByCard.get(b.card.name) ?? null,
         hexproof: keywords.has('hexproof'),
         indestructible: keywords.has('indestructible'),
+        // For the removal that may not be pointed at every creature — Doom
+        // Blade's "nonblack", Bone Shredder's "nonartifact, nonblack".
+        colors: colorsOf(b.card),
       };
     }),
   };
@@ -505,10 +518,10 @@ function readBotBoard(o: Opponent): PlayerBoardRead {
     life: o.life,
     handSize: o.hand.length,
     untappedCreatures: o.battlefield
-      .filter(p => !p.tapped && isCreatureCard(p.card))
+      .filter(p => !p.tapped && isCreaturePermanent(p))
       .map(p => botCombatant(p, o.battlefield, o.graveyard)),
     cards: o.battlefield.map(p => {
-      const type = getFrontFaceTypeLine(p.card).toLowerCase();
+      const type = typeLineOf(p).toLowerCase();
       // `botKeywords`, not `keywordsOf`: a rival's Wonder-style grant is as
       // real as a printed keyword, and the bot pointing removal at this seat
       // has to see the same board its owner does.
@@ -525,6 +538,7 @@ function readBotBoard(o: Opponent): PlayerBoardRead {
         comboId: armed.find(c => c.onBattlefield.includes(p.card.name))?.id ?? null,
         hexproof: keywords.has('hexproof'),
         indestructible: keywords.has('indestructible'),
+        colors: colorsOf(p.card),
       };
     }),
   };
@@ -727,7 +741,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       playtest.showToast(`${card.card.name} is tapped and can't block`);
       return {};
     }
-    if (!getFrontFaceTypeLine(card.card).toLowerCase().includes('creature')) {
+    if (!isCreatureNow(card)) {
       playtest.showToast(`${card.card.name} isn't a creature`);
       return {};
     }
@@ -1006,7 +1020,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       playtest.showToast(`${card.card.name} is tapped and can't attack`);
       return;
     }
-    if (!getFrontFaceTypeLine(card.card).toLowerCase().includes('creature')) {
+    if (!isCreatureNow(card)) {
       playtest.showToast(`${card.card.name} isn't a creature`);
       return;
     }
@@ -1091,7 +1105,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
 
       // Untapped creatures only. Summoning-sick creatures block fine.
       const blockers = opponent.battlefield
-        .filter(p => !p.tapped && isCreatureCard(p.card))
+        .filter(p => !p.tapped && isCreaturePermanent(p))
         .map(p => botCombatant(p, opponent.battlefield, opponent.graveyard));
 
       perOpponent[opponentId] = {
@@ -1299,7 +1313,6 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
   },
 
   adjustLife: (id, delta) => {
-    floatDelta(delta, seatLifeAnchor(id));
     const before = get().opponents.find(o => o.id === id);
     set(s => ({
       opponents: s.opponents.map(o => (o.id === id ? { ...o, life: o.life + delta } : o)),
@@ -1707,7 +1720,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
       if (attackers.length === 0) return;
 
       const pool = defender.battlefield
-        .filter(p => !p.tapped && isCreatureCard(p.card))
+        .filter(p => !p.tapped && isCreaturePermanent(p))
         .map(p => botCombatant(p, defender.battlefield, defender.graveyard));
 
       const assignment = chooseBlocks({
@@ -1971,11 +1984,11 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
             name: o.name,
             life: o.life,
             untappedCreatures: o.battlefield
-              .filter(p => !p.tapped && isCreatureCard(p.card))
+              .filter(p => !p.tapped && isCreaturePermanent(p))
               .map(p => botCombatant(p, o.battlefield, o.graveyard)),
             // Everything it has, tapped or not: what it swings with next turn.
             threat: o.battlefield
-              .filter(p => isCreatureCard(p.card))
+              .filter(p => isCreaturePermanent(p))
               .reduce((n, p) => n + botPower(p, o.battlefield, o.graveyard), 0),
           }));
         // Every other live seat's board, so removal can be pointed at whichever

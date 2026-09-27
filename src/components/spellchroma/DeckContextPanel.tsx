@@ -849,6 +849,7 @@ export function CardTagPopoverContent({ card, count, tags, selected, noun = 'dec
             <a href={buyCardUrl(card)} target="_blank" rel="noopener noreferrer sponsored"
               onClick={() => trackEvent('affiliate_buy_clicked', {
                 surface: 'spellchroma',
+                scope: 'single',
                 cardCount: 1,
                 totalPrice: price ? Number(price.replace(/[^0-9.]/g, '')) || null : null,
               })}

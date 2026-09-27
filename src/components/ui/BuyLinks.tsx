@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ShoppingCart, ExternalLink, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { buyCardUrl, buyDeckUrl, buyableDeckEntries } from '@/services/affiliate/tcgplayer';
@@ -33,6 +33,7 @@ export function BuyCardChip({ card, price }: BuyCardChipProps) {
       rel="noopener noreferrer sponsored"
       onClick={() => trackEvent('affiliate_buy_clicked', {
         surface: 'card_preview',
+        scope: 'single',
         cardCount: 1,
         totalPrice: price ? Number(price.replace(/[^0-9.]/g, '')) || null : null,
       })}
@@ -120,6 +121,18 @@ function BuyDeckModal({ cards, isOwned, currency, onClose }: {
   const basicsSkipped = cards.reduce((n, c) => n + c.quantity, 0) - qty(full);
   const shownTotal = scope === 'missing' && hasChoice ? missingTotal : fullTotal;
 
+  // Opening the dialog is the intent signal; the button below is the follow-through. Recorded on
+  // mount with the cart the dialog defaults to, so the pair is comparable without a second lookup.
+  useEffect(() => {
+    trackEvent('affiliate_buy_opened', {
+      surface: 'deck',
+      cardCount: full.length,
+      totalPrice: hasChoice ? missingTotal : fullTotal,
+    });
+    // Mount-only: re-firing as the user toggles carts would inflate the numerator of the funnel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const options = [
     ...(hasChoice
       ? [{ key: 'missing' as const, label: "Only cards you don't own", count: qty(missing), total: missingTotal }]
@@ -184,7 +197,10 @@ function BuyDeckModal({ cards, isOwned, currency, onClose }: {
             className="w-full btn-shimmer"
             onClick={() => {
               trackEvent('affiliate_buy_clicked', {
-                surface: 'deck', cardCount: entries.length, totalPrice: shownTotal,
+                surface: 'deck',
+                scope: scope === 'missing' && hasChoice ? 'missing' : 'full',
+                cardCount: entries.length,
+                totalPrice: shownTotal,
               });
               window.open(buyDeckUrl(entries), '_blank', 'noopener,noreferrer');
               onClose();

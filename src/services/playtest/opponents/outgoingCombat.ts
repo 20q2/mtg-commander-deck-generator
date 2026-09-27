@@ -1,4 +1,4 @@
-import { resolveDamage, type Combatant } from '@/services/playtest/combat';
+import { resolveDamage, type Combatant, type CombatOutcome } from '@/services/playtest/combat';
 import { botCombatant, playerCombatant } from '@/services/playtest/opponents/combatants';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 import type { BattlefieldCard } from '@/components/playtest/types';
@@ -39,15 +39,17 @@ export function readPlayerCombat(
 }
 
 /**
- * What this seat would actually lose by resolving right now — trample overflow
- * included. This is the number on the Resolve button.
+ * The whole fight worked out: what this seat loses, and which creatures on
+ * both sides are left standing.
+ *
+ * The mirror of `incomingOutcome`, and takes a reading for the same reason —
+ * the strip already has one in hand to draw the cards from. Null when nothing
+ * of yours is still attacking. It replaced `outgoingDamage`, whose only caller
+ * now needs the deaths as well as the number.
  */
-export function outgoingDamage(
-  side: PlayerAttackSide,
-  opponent: Opponent,
-  playerBattlefield: BattlefieldCard[],
-): number {
-  const { attackers, blocks } = readPlayerCombat(side, opponent, playerBattlefield);
-  if (attackers.length === 0) return 0;
-  return resolveDamage(attackers, blocks).damageToDefender;
+export function playerOutcome(
+  read: { attackers: Combatant[]; blocks: Record<string, Combatant[]> },
+): CombatOutcome | null {
+  if (read.attackers.length === 0) return null;
+  return resolveDamage(read.attackers, read.blocks);
 }

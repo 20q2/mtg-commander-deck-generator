@@ -33,6 +33,27 @@ function getHost(): string {
   }
 }
 
+/**
+ * The route the event happened on, collapsed to its first segment — "/build", "/lists",
+ * "/analyze" — so the dimension stays low-cardinality. The raw pathname would key every
+ * commander name and list id as its own bucket, which makes the aggregate unreadable.
+ * BASE_URL is stripped because the Pages mirror serves the app from a subdirectory.
+ */
+function getRoute(): string {
+  try {
+    const base = (import.meta.env.BASE_URL || '/').replace(/\/$/, '');
+    let path = window.location.pathname;
+    if (base && path.startsWith(base)) path = path.slice(base.length);
+    const segments = path.split('/').filter(Boolean);
+    if (segments.length === 0) return '/';
+    // /decks/shared is a different surface from the deck library it sits under.
+    if (segments[0] === 'decks' && segments[1] === 'shared') return '/decks/shared';
+    return `/${segments[0]}`;
+  } catch {
+    return 'unknown';
+  }
+}
+
 function getFirstSeen(): string {
   try {
     const KEY = 'mtg_first_seen';
@@ -83,6 +104,7 @@ export function trackEvent<T extends AnalyticsEventType>(
         deviceType: getDeviceType(),
         region: getRegion(),
         host: getHost(),
+        route: getRoute(),
       },
     });
 

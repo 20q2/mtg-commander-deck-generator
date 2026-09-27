@@ -6,7 +6,7 @@ import {
 import { useOpponentStore } from '@/store/opponentStore';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
-import { isCreatureCard } from '@/services/playtest/opponents/stats';
+import { isCreaturePermanent } from '@/services/playtest/opponents/stats';
 import type { OpponentPermanent } from '@/components/playtest/opponentTypes';
 
 export interface OpponentMenuTarget {
@@ -115,17 +115,17 @@ export function OpponentCardMenu({ target, onClose }: Props) {
       <Item icon={<Grab className="w-3.5 h-3.5" />} onClick={() => act(steal)}>
         Steal to your battlefield
       </Item>
-      {isCreatureCard(permanent.card) && (
-        <Item
-          icon={<Wand2 className="w-3.5 h-3.5" />}
-          onClick={() => {
-            onClose();
-            openModal({ kind: 'editCreature', target: { side: 'opponent', opponentId, instanceId: permanent.instanceId } });
-          }}
-        >
-          {permanent.edit ? 'Edit creature…' : 'Make it something else…'}
-        </Item>
-      )}
+      <Item
+        icon={<Wand2 className="w-3.5 h-3.5" />}
+        onClick={() => {
+          onClose();
+          openModal({ kind: 'editCreature', target: { side: 'opponent', opponentId, instanceId: permanent.instanceId } });
+        }}
+      >
+        {permanent.edit
+          ? 'Edit creature…'
+          : isCreaturePermanent(permanent) ? 'Make it something else…' : 'Make it a creature…'}
+      </Item>
 
       <Sep />
       <Item

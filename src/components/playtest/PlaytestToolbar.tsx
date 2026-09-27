@@ -8,6 +8,7 @@ import { PlaytestSettingsModal } from '@/components/playtest/PlaytestSettingsMod
 import { AttackButton, NextTurnButton, CombatButton } from '@/components/playtest/PlaytestActionsBar';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
+import { RollingNumber } from '@/components/playtest/RollingNumber';
 
 interface Props {
   onExit: () => void;
@@ -93,7 +94,6 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
           />
         ) : (
           <button
-            data-float-id="player-life"
             onClick={() => { setDraftLife(String(life)); setEditingLife(true); }}
             className={`mx-1 inline-flex items-center gap-1 px-2 py-0.5 rounded border font-bold text-sm min-w-[48px] justify-center transition-colors ${lifeTone} ${lifeShake}`}
             title={life <= 10 ? `${life} life — you're in burn range. Click to edit.` : 'Click to edit life'}
@@ -106,7 +106,7 @@ export function PlaytestToolbar({ onExit, onToggleSidePanel }: Props) {
               :              'fill-emerald-400/40'
               }`}
             />
-            {life}
+            <RollingNumber value={life} />
           </button>
         )}
         <button onClick={() => adjustLife(1)} className={tinyBtn} title="+1 life">+1</button>

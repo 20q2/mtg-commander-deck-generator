@@ -11,7 +11,7 @@ import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import { useAttackAim } from '@/components/playtest/hooks/useAttackAim';
 import { ArrowLayer, ArrowMark, ARROW_ATTACK } from '@/components/playtest/TargetArrow';
 import { useOpponentStore } from '@/store/opponentStore';
-import { isCreatureCard } from '@/services/playtest/opponents/stats';
+import { isCreatureNow } from '@/services/playtest/powerToughness';
 import type { BattlefieldCard as BfCard } from '@/components/playtest/types';
 
 export function BattlefieldCard({ card }: { card: BfCard }) {
@@ -59,7 +59,7 @@ export function BattlefieldCard({ card }: { card: BfCard }) {
     !s.playerCombat &&
     !Object.values(s.declaration ?? {}).some(ids => ids.includes(card.instanceId)),
   );
-  const canAim = inDeclareWindow && !card.tapped && !card.faceDown && isCreatureCard(card.card);
+  const canAim = inDeclareWindow && !card.tapped && !card.faceDown && isCreatureNow(card);
   const { aim, start: startAim, consumeAimedClick } = useAttackAim(card.instanceId, canAim);
 
   // Compute attachment offset: how many cards are attached above us in the stack?

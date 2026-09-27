@@ -129,6 +129,34 @@ async function handleGet(params: Record<string, string>) {
       classicBuild: 0,
       landCountModified: 0,
     };
+    // Affiliate link usage — "when" (per-day and per-hour-of-day) and "where" (surface, route,
+    // device, region). Clicks are the only revenue-shaped event on the site, so they get their own
+    // aggregate rather than being read off eventCounts, which cannot break a total down.
+    const affiliateClickUsers = new Set<string>();
+    const affiliate = {
+      clicks: 0,
+      opens: 0,
+      uniqueClickers: 0,
+      /** Which affordance was used: deck cart, card preview chip, SpellChroma card popover. */
+      surfaceCounts: {} as Record<string, number>,
+      /** Which page it happened on — the first path segment, sent by the client as `route`. */
+      routeCounts: {} as Record<string, number>,
+      deviceCounts: {} as Record<string, number>,
+      regionCounts: {} as Record<string, number>,
+      /** Whole deck vs only-what-you-don't-own vs a single card. */
+      scopeCounts: {} as Record<string, number>,
+      /** UTC hour-of-day, "00".."23" — the time-of-day shape across the whole range. */
+      hourOfDayCounts: {} as Record<string, number>,
+      /** Clicks per calendar day, so the trend is readable independent of overall traffic. */
+      dailyCounts: {} as Record<string, number>,
+      /** Estimated cart value, bucketed. Scryfall prices, so indicative only. */
+      valueBuckets: {} as Record<string, number>,
+      /** Totals behind the averages shown on the dashboard. */
+      cartValueTotal: 0,
+      cartValueCount: 0,
+      deckCardTotal: 0,
+      deckCartCount: 0,
+    };
     const listActivity = {
       created: 0,
       deleted: 0,
@@ -277,6 +305,44 @@ async function handleGet(params: Record<string, string>) {
         inspectorTabCounts[tab] = (inspectorTabCounts[tab] || 0) + 1;
       }
 
+      // Affiliate link usage
+      if (item.event === 'affiliate_buy_opened') affiliate.opens++;
+      if (item.event === 'affiliate_buy_clicked') {
+        affiliate.clicks++;
+        if (typeof meta?.userId === 'string') affiliateClickUsers.add(meta.userId);
+
+        const tally = (target: Record<string, number>, value: unknown) => {
+          const key = typeof value === 'string' && value ? value : 'unknown';
+          target[key] = (target[key] || 0) + 1;
+        };
+        tally(affiliate.surfaceCounts, meta?.surface);
+        tally(affiliate.routeCounts, meta?.route);
+        tally(affiliate.deviceCounts, meta?.deviceType);
+        tally(affiliate.regionCounts, meta?.region);
+        tally(affiliate.scopeCounts, meta?.scope);
+
+        if (day) affiliate.dailyCounts[day] = (affiliate.dailyCounts[day] || 0) + 1;
+        if (hour) {
+          const hod = hour.slice(11, 13); // "HH" out of "YYYY-MM-DDTHH"
+          affiliate.hourOfDayCounts[hod] = (affiliate.hourOfDayCounts[hod] || 0) + 1;
+        }
+
+        if (typeof meta?.totalPrice === 'number' && meta.totalPrice > 0) {
+          const v = meta.totalPrice as number;
+          affiliate.cartValueTotal += v;
+          affiliate.cartValueCount++;
+          const bucket =
+            v < 5 ? '<$5' : v < 20 ? '$5-20' : v < 50 ? '$20-50' : v < 100 ? '$50-100' : v < 250 ? '$100-250' : '$250+';
+          affiliate.valueBuckets[bucket] = (affiliate.valueBuckets[bucket] || 0) + 1;
+        }
+
+        // Deck carts only — averaging a single-card link into "cards per cart" makes it meaningless.
+        if (meta?.surface === 'deck' && typeof meta?.cardCount === 'number') {
+          affiliate.deckCardTotal += meta.cardCount as number;
+          affiliate.deckCartCount++;
+        }
+      }
+
       // List activity
       if (item.event === 'list_created') {
         listActivity.created++;
@@ -352,6 +418,8 @@ async function handleGet(params: Record<string, string>) {
       dailyUniqueUsers[day] = set.size;
     }
 
+    affiliate.uniqueClickers = affiliateClickUsers.size;
+
     const hourlyUniqueUsers: Record<string, number> = {};
     for (const [hour, set] of Object.entries(hourlyUserSets)) {
       hourlyUniqueUsers[hour] = set.size;
@@ -379,6 +447,7 @@ async function handleGet(params: Record<string, string>) {
         inspectorTabCounts,
         featureAdoption,
         listActivity,
+        affiliate,
         settingsCounts,
         dateRange: { from, to },
       }),

@@ -66,8 +66,13 @@ function frontManaCost(card: ScryfallCard): string {
  * reason a spell is uncastable.
  */
 export function pipsOf(card: ScryfallCard): number[] {
+  return pipsOfCost(frontManaCost(card));
+}
+
+/** The same read, off a bare cost string — an echo cost, a kicker. */
+function pipsOfCost(cost: string): number[] {
   const out: number[] = [];
-  for (const token of frontManaCost(card).match(/\{[^}]+\}/g) ?? []) {
+  for (const token of cost.match(/\{[^}]+\}/g) ?? []) {
     const body = token.slice(1, -1).toUpperCase();
     if (/^\d+$/.test(body) || body === 'X' || body === 'Y' || body === 'Z' || body === 'S') continue;
     if (body.includes('/')) {
@@ -120,6 +125,23 @@ export function devotionTo(cards: ScryfallCard[], color: DevotionColor): number 
 export function requirementFor(card: ScryfallCard, total: number): ManaRequirement {
   const pips = pipsOf(card).slice(0, total);
   return { generic: Math.max(0, total - pips.length), pips };
+}
+
+/**
+ * What a bare cost STRING demands — an echo cost, written on the card as its
+ * own `{1}{B}{B}` rather than as the card's mana cost.
+ *
+ * Unlike `requirementFor` there is no total to subtract from: the generic half
+ * is whatever numerals the cost actually prints. Same deliberate looseness as
+ * `pipsOf` about the symbols a bot can always pay some other way.
+ */
+export function requirementForCost(cost: string): ManaRequirement {
+  let generic = 0;
+  for (const token of cost.match(/\{[^}]+\}/g) ?? []) {
+    const body = token.slice(1, -1);
+    if (/^\d+$/.test(body)) generic += parseInt(body, 10);
+  }
+  return { generic, pips: pipsOfCost(cost) };
 }
 
 /** A cost with no colour requirement — registry abilities, cycling, recursion. */

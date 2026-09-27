@@ -1,4 +1,4 @@
-import { resolveDamage, type Combatant } from '@/services/playtest/combat';
+import { resolveDamage, type Combatant, type CombatOutcome } from '@/services/playtest/combat';
 import { playerCombatant } from '@/services/playtest/opponents/combatants';
 import { botKeywords, botPower, botToughness } from '@/services/playtest/opponents/stats';
 import type { Attacker, CombatState, Opponent } from '@/components/playtest/opponentTypes';
@@ -78,12 +78,23 @@ export function readIncomingCombat(
  * What you would actually lose by resolving right now — trample overflow and
  * all. This is the number on the button.
  */
+/**
+ * The whole fight worked out from a reading of it: what reaches you, and which
+ * creatures on both sides are left standing.
+ *
+ * Takes the reading rather than the raw state, so the strip — which already
+ * has one in hand to draw the cards from — does not re-read both boards to
+ * find out what happens to them. Null when nothing is still attacking.
+ */
+export function incomingOutcome(read: IncomingCombat): CombatOutcome | null {
+  if (read.attackers.length === 0) return null;
+  return resolveDamage(read.attackers, read.blocks);
+}
+
 export function incomingDamage(
   combat: CombatState,
   opponent: Opponent | undefined,
   playerBattlefield: BattlefieldCard[],
 ): number {
-  const { attackers, blocks } = readIncomingCombat(combat, opponent, playerBattlefield);
-  if (attackers.length === 0) return 0;
-  return resolveDamage(attackers, blocks).damageToDefender;
+  return incomingOutcome(readIncomingCombat(combat, opponent, playerBattlefield))?.damageToDefender ?? 0;
 }

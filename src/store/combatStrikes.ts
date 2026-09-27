@@ -73,11 +73,6 @@ export function strikePacing(count: number): StrikePacing {
   return { beatMs, impactMs: lungeMs * IMPACT_FRACTION, lungeMs };
 }
 
-/** The `data-float-id` a seat's life total answers to. */
-export function seatLifeAnchor(opponentId: string): string {
-  return `opp-life-${opponentId}`;
-}
-
 /**
  * The card standing for an attacker in a combat strip.
  *

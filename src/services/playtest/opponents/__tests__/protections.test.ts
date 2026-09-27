@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
 import { chooseAttackers, chooseBlocks, killsIt } from '@/services/playtest/opponents/combatChoices';
 import { resolveEffect, type PlayerBoardRead, type PlayerCardRead } from '@/services/playtest/opponents/evaluate';
-import type { BotEffectSpec } from '@/services/playtest/opponents/effects';
+import { lookupEffect, type BotEffectSpec } from '@/services/playtest/opponents/effects';
 import type { ScryfallCard } from '@/types';
 
 /**
@@ -218,5 +218,90 @@ describe('bot targeting — indestructible', () => {
       cardRead({ name: 'Bear', power: 2, toughness: 2 }),
     ]);
     expect(hit({ kind: 'damage', amount: 3 }, b)).toBe('Bear');
+  });
+});
+
+/**
+ * The other half of "can this spell be pointed at that": not a protection the
+ * creature has, but a clause printed on the removal itself. A bot destroying a
+ * black creature with a Bone Shredder is not making a bad play, it is playing
+ * a card that does not exist.
+ */
+describe('bot targeting — printed target restrictions', () => {
+  /** The spec as the registry really has it, so a typo there fails here. */
+  const specOf = (name: string) => {
+    const entry = lookupEffect(name);
+    if (!entry) throw new Error(`${name} is not in BOT_EFFECTS`);
+    return entry.spec;
+  };
+
+  it('Bone Shredder skips a black creature for a legal one', () => {
+    const b = board([
+      cardRead({ name: 'Sheoldred', power: 4, toughness: 5, colors: ['B'] }),
+      cardRead({ name: 'Bear', power: 2, toughness: 2, colors: ['G'] }),
+    ]);
+    expect(hit(specOf('Bone Shredder'), b)).toBe('Bear');
+  });
+
+  it('holds when every creature is black', () => {
+    const b = board([cardRead({ name: 'Sheoldred', power: 4, toughness: 5, colors: ['B'] })]);
+    expect(hit(specOf('Bone Shredder'), b)).toBeNull();
+    expect(hit(specOf('Doom Blade'), b)).toBeNull();
+  });
+
+  it('takes a colourless creature — nothing colourless is black', () => {
+    const b = board([cardRead({ name: 'Wurmcoil Engine', power: 6, toughness: 6, colors: [] })]);
+    expect(hit(specOf('Doom Blade'), b)).toBe('Wurmcoil Engine');
+  });
+
+  it('a multicoloured creature with black in it is still black', () => {
+    const b = board([
+      cardRead({ name: 'Vraska', power: 5, toughness: 5, colors: ['B', 'G'] }),
+      cardRead({ name: 'Bear', power: 2, toughness: 2, colors: ['G'] }),
+    ]);
+    expect(hit(specOf('Doom Blade'), b)).toBe('Bear');
+  });
+
+  it('Go for the Throat leaves the artifact creature alone', () => {
+    const b = board([
+      cardRead({ name: 'Wurmcoil Engine', power: 6, toughness: 6, isArtifact: true, colors: [] }),
+      cardRead({ name: 'Bear', power: 2, toughness: 2, colors: ['G'] }),
+    ]);
+    expect(hit(specOf('Go for the Throat'), b)).toBe('Bear');
+  });
+
+  it('Bone Shredder answers to both halves of its clause', () => {
+    const b = board([
+      cardRead({ name: 'Wurmcoil Engine', power: 6, toughness: 6, isArtifact: true, colors: [] }),
+      cardRead({ name: 'Sheoldred', power: 4, toughness: 5, colors: ['B'] }),
+    ]);
+    expect(hit(specOf('Bone Shredder'), b)).toBeNull();
+  });
+
+  it('Cut Down only gets a creature small enough', () => {
+    const b = board([
+      cardRead({ name: 'Titan', power: 6, toughness: 6, colors: ['G'] }),
+      cardRead({ name: 'Bear', power: 2, toughness: 2, colors: ['G'] }),
+    ]);
+    expect(hit(specOf('Cut Down'), b)).toBe('Bear');
+  });
+
+  it('breaks a combo only through a legal piece', () => {
+    // The combo rule runs before the protection filter on purpose — it must
+    // run before this one too, or a black combo piece hides the green one.
+    const b = board([
+      cardRead({ name: 'Thassa', power: 1, toughness: 1, comboId: 'k', colors: ['B'] }),
+      cardRead({ name: 'Peregrine Drake', power: 2, toughness: 3, comboId: 'k', colors: ['U'] }),
+      cardRead({ name: 'Titan', power: 9, toughness: 9, colors: ['G'] }),
+    ]);
+    expect(hit(specOf('Doom Blade'), b)).toBe('Peregrine Drake');
+  });
+
+  it('an unrestricted spell still takes the best creature on the board', () => {
+    const b = board([
+      cardRead({ name: 'Sheoldred', power: 4, toughness: 5, colors: ['B'] }),
+      cardRead({ name: 'Bear', power: 2, toughness: 2, colors: ['G'] }),
+    ]);
+    expect(hit(specOf('Murder'), b)).toBe('Sheoldred');
   });
 });

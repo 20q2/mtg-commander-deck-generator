@@ -9,10 +9,10 @@ import { useOpponentStore } from '@/store/opponentStore';
 import { getCardImageUrl, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { botPT, grantedKeywords, type BotPT } from '@/services/playtest/opponents/stats';
 import { MagnifiedPreview } from '@/components/playtest/MagnifiedPreview';
+import { RollingNumber } from '@/components/playtest/RollingNumber';
 import { GrantedKeywords, KEYWORD_LABEL, PTBadge, TypeBadge } from '@/components/playtest/CardBadges';
 import { useMagnifyHover } from '@/components/playtest/hooks/useMagnifyHover';
 import { boxOf, captureBox, useCardFlights } from '@/components/playtest/CardFlight';
-import { seatLifeAnchor } from '@/store/combatStrikes';
 import { OpponentCardMenu, type OpponentMenuTarget } from '@/components/playtest/opponents/OpponentCardMenu';
 import { OpponentZoneMenu, type OpponentZoneMenuTarget, type OpponentMenuZone } from '@/components/playtest/opponents/OpponentZoneMenu';
 import { OpponentChoiceMenu, type OpponentChoiceMenuTarget } from '@/components/playtest/opponents/OpponentChoiceMenu';
@@ -155,6 +155,13 @@ export function OpponentSeat({
     <div
       data-seat
       data-float-id={`opp-lane-${opponent.id}`}
+      /* A hover preview is roughly a third of the table, and the moment it is
+         most likely to go up — reading a blocker, reading the card a bot just
+         cast — is the moment you can least afford to lose sight of a bot's
+         board. MagnifiedPreview reads this off the DOM and flips to whichever
+         side buries less of it; the number is what covering this seat costs, so
+         a seat swinging at you outweighs two idle ones put together. */
+      data-preview-avoid={attackingYou ? 8 : inCombat || acting ? 3 : 1}
       className={`relative flex flex-col rounded-lg border bg-background/80 backdrop-blur-sm p-1.5 transition-colors ${
         placed ? 'shadow-2xl ring-1 ring-black/30' : 'shadow-lg'
       } ${
@@ -473,10 +480,6 @@ export function OpponentSeat({
  * A seat header has no room for the player toolbar's five-button cluster, so
  * the bigger step hides behind the right-click that the board already uses for
  * "same button, other direction" on loyalty and counters.
- *
- * The data-float-id lives on the wrapper rather than the pill because the pill
- * is swapped out for an input while you're typing, and floatDelta looks its
- * target up at the moment the damage lands.
  */
 function SeatLife({
   opponent, onAdjustLife, onSetLife, tiny,
@@ -510,10 +513,7 @@ function SeatLife({
         −
       </button>
 
-      <span
-        data-float-id={seatLifeAnchor(opponent.id)}
-        className="inline-flex items-center"
-      >
+      <span className="inline-flex items-center">
         {editing ? (
           <input
             autoFocus
@@ -544,7 +544,7 @@ function SeatLife({
             }
           >
             <Heart className="w-2.5 h-2.5 fill-rose-400/40" />
-            {opponent.life}
+            <RollingNumber value={opponent.life} />
           </button>
         )}
       </span>

@@ -211,23 +211,109 @@ export function GrantedKeywords({ keywords, cardWidth }: {
   keywords: CombatKeyword[];
   cardWidth: number;
 }) {
-  if (keywords.length === 0 || cardWidth < CHIP_MIN_CARD) return null;
+  return <KeywordChips granted={keywords} cardWidth={cardWidth} />;
+}
+
+/**
+ * The printed keywords that change how you block — and only those.
+ *
+ * An attacker's card text is unreadable at the size the combat strip draws it,
+ * so the only place "this thing flies" was written down was the art. That is
+ * fine for a creature you have been staring at all game and useless for the one
+ * that just turned sideways: the whole job of the strip is to be the board you
+ * make the block against, and a flier you cannot see is a block you cannot
+ * make.
+ *
+ * Reach, vigilance and hexproof are deliberately absent. They are real
+ * keywords and they say nothing about blocking an attacker — a strip that
+ * lists every keyword a creature has is a strip nobody reads.
+ */
+export const BLOCK_RELEVANT: CombatKeyword[] = [
+  'flying', 'menace', 'trample', 'deathtouch', 'firstStrike', 'doubleStrike', 'indestructible',
+];
+
+/**
+ * Printed and granted keywords, stacked bottom-left like stickers.
+ *
+ * Two tones rather than one list, because the difference matters when you are
+ * deciding a block: slate is what the card has always said and emerald is what
+ * something on their board is doing to it right now. Granted sits on top — it
+ * is the surprising half, and the half that goes away again.
+ */
+export function KeywordChips({ printed = [], granted, cardWidth }: {
+  /** Printed on the card. Filter to `BLOCK_RELEVANT` before passing. */
+  printed?: CombatKeyword[];
+  /** Keywords the card does not print — a lord's grant, an attack trigger. */
+  granted: CombatKeyword[];
+  cardWidth: number;
+}) {
+  if ((printed.length === 0 && granted.length === 0) || cardWidth < CHIP_MIN_CARD) return null;
   const fontSize = Math.max(7, Math.round(cardWidth * 0.075));
+  const chip = (k: CombatKeyword, tone: string, title: string) => (
+    <span
+      key={`${tone}:${k}`}
+      className={`px-[3px] rounded-[2px] text-white font-bold leading-[1.4] ring-1 ring-black/50 shadow-[0_1px_3px_rgba(0,0,0,0.8)] whitespace-nowrap ${tone}`}
+      style={{ fontSize }}
+      title={title}
+    >
+      {KEYWORD_LABEL[k]}
+    </span>
+  );
   return (
     <div
       className="absolute left-[4.5%] bottom-[3.4%] z-30 flex flex-col items-start gap-[1px] pointer-events-auto cursor-help"
       style={{ maxWidth: '62%' }}
     >
-      {keywords.map(k => (
-        <span
-          key={k}
-          className="px-[3px] rounded-[2px] bg-emerald-600 text-white font-bold leading-[1.4] ring-1 ring-black/50 shadow-[0_1px_3px_rgba(0,0,0,0.8)] whitespace-nowrap"
-          style={{ fontSize }}
-          title={`Gains ${KEYWORD_LABEL[k]} — not printed on the card`}
-        >
-          {KEYWORD_LABEL[k]}
-        </span>
-      ))}
+      {granted.map(k => chip(k, 'bg-emerald-600', `Gains ${KEYWORD_LABEL[k]} — not printed on the card`))}
+      {printed.map(k => chip(k, 'bg-slate-700/95', `${KEYWORD_LABEL[k]} — printed on the card`))}
     </div>
+  );
+}
+
+
+/**
+ * Under this a card is narrower than the word it would be wearing, so the tag
+ * hangs off both ends of the art. The call site still rings the card in rose,
+ * which is the half of the signal that survives at any size.
+ */
+const FATE_MIN_CARD = 26;
+
+/**
+ * What a card in an open combat is about to become, stamped across it.
+ *
+ * The strip already shows who is fighting whom, and the button already shows
+ * what it costs you in life — but the other half of every block decision is
+ * which creatures are still standing afterwards, and until now the only way to
+ * find that out was to resolve and read the log. Working it out by hand means
+ * re-doing first strike, deathtouch and granted keywords in your head off two
+ * boards' worth of badges.
+ *
+ * Deliberately one colour whoever it sits on. Rose is already "attack" in this
+ * strip and emerald is already "block", so tinting deaths by side would put a
+ * third meaning on two colours that are already doing a job. The card
+ * underneath says whose creature it is; this only says it dies.
+ */
+export function FateTag({ label, cardWidth, title }: {
+  label: string;
+  cardWidth: number;
+  title?: string;
+}) {
+  if (cardWidth < FATE_MIN_CARD) return null;
+  const fontSize = Math.max(7, Math.round(cardWidth * 0.105));
+  return (
+    <span
+      // Across the middle of the art rather than along an edge: the corners
+      // are spoken for — P/T bottom-right, keyword chips bottom-left, the pile
+      // count top-left — and this has to be readable across the table.
+      className="absolute inset-x-0 top-[38%] z-30 flex justify-center pointer-events-none"
+      title={title}
+    >
+      <span
+        className="px-1 rounded-[2px] bg-rose-950/90 text-rose-100 font-bold uppercase tracking-wide leading-[1.5] whitespace-nowrap ring-1 ring-rose-300/60 shadow-[0_1px_4px_rgba(0,0,0,0.9)]"
+        style={{ fontSize }}
+      >
+        {label}
+      </span>
+    </span>
   );
 }

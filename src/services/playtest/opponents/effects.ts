@@ -14,11 +14,34 @@
 import type { CombatKeyword } from '@/services/playtest/combat';
 import type { DevotionColor } from '@/services/playtest/opponents/mana';
 
+/**
+ * The "target ..." clause narrowing what a removal spell may be pointed at.
+ *
+ * Every spot-removal spell here used to read as an unconditional "destroy
+ * target creature", which is wrong on roughly a third of them and wrong in the
+ * way a player notices immediately: a bot pointing Bone Shredder at a black
+ * creature is not making a bad play, it is breaking a rule printed on the card
+ * it just cast. Absent means genuinely unconditional — a Murder.
+ *
+ * Only the restrictions that change what a bot may target live here. A clause
+ * about what happens AFTER it resolves — "it can't be regenerated", "you gain
+ * life equal to its toughness" — is a different kind of fact and belongs with
+ * the effect, not with the legality check.
+ */
+export interface TargetRestriction {
+  /** Colours the target may not be — Doom Blade's "nonblack". */
+  notColors?: DevotionColor[];
+  /** Go for the Throat: "target nonartifact creature". */
+  notArtifact?: boolean;
+  /** Cut Down: "total power and toughness 5 or less". */
+  maxTotalPT?: number;
+}
+
 export type BotEffectSpec =
   /** Destroy the best creature on the player's board. */
-  | { kind: 'destroyCreature' }
+  | { kind: 'destroyCreature'; restrict?: TargetRestriction }
   /** Same, but the card leaves for exile instead of the graveyard. */
-  | { kind: 'exileCreature' }
+  | { kind: 'exileCreature'; restrict?: TargetRestriction }
   /** Destroy the best permanent of any type. */
   | { kind: 'destroyPermanent' }
   /**
@@ -93,8 +116,10 @@ export interface BotEffectEntry {
 export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   // ── Spot removal ──
   'Murder':                { spec: { kind: 'destroyCreature' } },
-  'Doom Blade':            { spec: { kind: 'destroyCreature' } },
-  'Go for the Throat':     { spec: { kind: 'destroyCreature' } },
+  // "Destroy target nonblack creature."
+  'Doom Blade':            { spec: { kind: 'destroyCreature', restrict: { notColors: ['B'] } } },
+  // "Destroy target nonartifact creature."
+  'Go for the Throat':     { spec: { kind: 'destroyCreature', restrict: { notArtifact: true } } },
   "Hero's Downfall":       { spec: { kind: 'destroyCreature' } },
   'Swords to Plowshares':  { spec: { kind: 'exileCreature' } },
   'Path to Exile':         { spec: { kind: 'exileCreature' } },
@@ -103,7 +128,8 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   'Putrefy':               { spec: { kind: 'destroyCreature' } },
   'Chaos Warp':            { spec: { kind: 'destroyPermanent' } },
   'Infernal Grasp':        { spec: { kind: 'destroyCreature' } },
-  'Cut Down':              { spec: { kind: 'destroyCreature' } },
+  // "...target creature with total power and toughness 5 or less."
+  'Cut Down':              { spec: { kind: 'destroyCreature', restrict: { maxTotalPT: 5 } } },
   // ── Eternal Might ──
   'Damn':                  { spec: { kind: 'destroyCreature' } },
   'Despark':               { spec: { kind: 'destroyPermanent' } },
@@ -168,11 +194,13 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
 
   // ── Permanents that do something on arrival ──
   'Ravenous Chupacabra':   { spec: { kind: 'destroyCreature' }, etb: true },
-  'Bone Shredder':         { spec: { kind: 'destroyCreature' }, etb: true },
+  // Both of these are "destroy target nonartifact, nonblack creature" — the
+  // Nekusar-era drawback that is the price of stapling removal to a body.
+  'Bone Shredder':         { spec: { kind: 'destroyCreature', restrict: { notColors: ['B'], notArtifact: true } }, etb: true },
   'Gray Merchant of Asphodel': { spec: { kind: 'drain', amount: 1, perDevotion: 'B' }, etb: true },
   'Sheoldred, Whispering One':  { spec: { kind: 'edict' }, etb: true },
   'Goblin Trashmaster':    { spec: { kind: 'artifactSweep' }, etb: true },
-  'Shriekmaw':             { spec: { kind: 'destroyCreature' }, etb: true },
+  'Shriekmaw':             { spec: { kind: 'destroyCreature', restrict: { notColors: ['B'], notArtifact: true } }, etb: true },
   'Angel of Sanctions':    { spec: { kind: 'destroyPermanent' }, etb: true },
   'Cast Out':              { spec: { kind: 'destroyPermanent' }, etb: true },
   'Fleshbag Marauder':     { spec: { kind: 'edict' }, etb: true },

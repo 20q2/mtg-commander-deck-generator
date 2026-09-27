@@ -34,6 +34,12 @@ export interface OpponentPermanent {
   edit?: CardEdit;
   /** Set while an until-end-of-turn pump is live — see TempBoost. */
   tempBoost?: TempBoost;
+  /**
+   * Echo has not been settled yet: this came under the bot's control since its
+   * last upkeep, and the next one either pays the cost or sacrifices it.
+   * Cleared the moment that upkeep resolves, paid or not — echo bills once.
+   */
+  echoDue?: boolean;
 }
 
 /** Zones a permanent can be sent to from the board. */

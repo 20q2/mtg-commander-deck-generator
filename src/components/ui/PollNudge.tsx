@@ -6,7 +6,7 @@ import { trackEvent } from '@/services/analytics';
 
 // One-time friendly nudge toward the Community Poll. After a visitor has
 // opened the site VISIT_THRESHOLD separate sessions, this slides in just under
-// the version-number button it points at and teaches them where the poll
+// the header's hamburger button it points at and teaches them where the poll
 // lives. Dismiss or click → set the `seen` flag so it never shows again.
 // Purely client-side via localStorage; no store state.
 const VISIT_THRESHOLD = 5;
@@ -20,7 +20,7 @@ const MARGIN = 8;
 
 type Pos = { top: number; cardRight: number; arrowRight: number };
 
-// Align the card under the version button (tagged `data-poll-nudge-anchor`),
+// Align the card under the hamburger button (tagged `data-poll-nudge-anchor`),
 // clamped to stay fully on screen. `cardRight`/`arrowRight` are distances from
 // the viewport's right edge and the card's right edge respectively.
 function measure(): Pos {
@@ -110,7 +110,7 @@ export function PollNudge({ onVisibilityChange }: { onVisibilityChange?: (active
       role="dialog"
       aria-label="Community poll suggestion"
     >
-      {/* Arrow pointing up toward the version-number button in the header */}
+      {/* Arrow pointing up toward the hamburger button in the header */}
       <div
         className="absolute -top-1.5 w-3 h-3 rotate-45 bg-card border-l border-t border-border"
         style={{ right: pos.arrowRight }}
@@ -127,8 +127,8 @@ export function PollNudge({ onVisibilityChange }: { onVisibilityChange?: (active
 
         <p className="text-sm text-foreground/90 leading-relaxed pr-4">
           👋 Hope you're enjoying ManaFoundry! Got a feature idea? Click the{' '}
-          <span className="font-semibold text-violet-300/90">version number</span> just above to open
-          the menu and find the <span className="font-semibold text-violet-300/90">Community Poll</span>.
+          <span className="font-semibold text-violet-300/90">menu</span> just above and find the{' '}
+          <span className="font-semibold text-violet-300/90">Community Poll</span>.
         </p>
 
         <Link

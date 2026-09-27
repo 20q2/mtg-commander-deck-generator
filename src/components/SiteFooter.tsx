@@ -1,6 +1,9 @@
 import { Link } from 'react-router-dom';
 
-/** Shared site footer — attribution + support/feedback links. */
+/** Shared site footer — attribution + support/feedback links.
+ *
+ * The WotC fan-content disclaimer and the TCGplayer affiliate disclosure share one
+ * small-print paragraph; both have to stay visible, but they don't each need a line. */
 export function SiteFooter() {
   return (
     <footer className="border-t border-border/50 bg-card/50 backdrop-blur-sm">
@@ -61,9 +64,8 @@ export function SiteFooter() {
             WotC Fan Content Policy
           </a>
           . Not approved/endorsed by Wizards. Portions © Wizards of the Coast LLC.
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground/70">
-          Card purchase links are TCGplayer affiliate links — we may earn a commission at no extra cost to you.
+          {' '}Card purchase links are TCGplayer affiliate links — we may earn a commission at no
+          extra cost to you.
         </p>
       </div>
     </footer>

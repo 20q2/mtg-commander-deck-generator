@@ -24,7 +24,7 @@ import {
 } from '@/components/playtest/types';
 import { fisherYates, isLand as _isLand, makeInstanceId, snapArrival, findArrivalSlot } from '@/components/playtest/utils';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
-import { floatDelta, useFloatingText } from '@/store/floatingTextStore';
+import { useFloatingText } from '@/store/floatingTextStore';
 import { playCue, playCounterCue } from '@/services/playtest/playtestSound';
 import { useDamageFlash } from '@/store/damageFlashStore';
 import { describeEdit } from '@/services/playtest/powerToughness';
@@ -776,11 +776,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   })),
 
   adjustLife: (delta, opts) => {
-    // Pops "−4" off the life counter. Fired here rather than at the call sites so
-    // combat, drain and the toolbar buttons all get it for free.
-    floatDelta(delta, 'player-life');
-    // Same reasoning for the "ouch" glow: every way you can lose life — a bot's
-    // combat damage, a drain, your own Phyrexian mana — funnels through here.
+    // The "ouch" glow is fired here rather than at the call sites, so every way
+    // you can lose life — a bot's combat damage, a drain, your own Phyrexian
+    // mana — funnels through one place and gets it for free.
     if (delta < 0) useDamageFlash.getState().hit(-delta, get().life);
     set(state => {
       const life = state.life + delta;

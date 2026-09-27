@@ -43,6 +43,7 @@ export type AnalyticsEventType =
   | 'card_group_commander_selected'
   | 'shared_deck_opened'
   | 'shared_deck_saved'
+  | 'affiliate_buy_opened'
   | 'affiliate_buy_clicked';
 
 export interface AnalyticsEventMetadata {
@@ -117,8 +118,18 @@ export interface AnalyticsEventMetadata {
   shared_deck_opened: { cardCount: number; hasCommander: boolean };
   /** A shared-deck preview was saved into My Decks. */
   shared_deck_saved: { cardCount: number };
-  /** `cardCount` is 1 for a single-card link, the number of cards in the cart for a whole-deck buy. */
-  affiliate_buy_clicked: { surface: 'deck' | 'card_preview' | 'spellchroma'; cardCount: number; totalPrice: number | null };
+  /** The deck buy dialog was opened. Paired with `affiliate_buy_clicked` it separates intent
+   *  from follow-through — card links have no dialog, so this only ever fires for deck carts. */
+  affiliate_buy_opened: { surface: 'deck'; cardCount: number; totalPrice: number | null };
+  /** `cardCount` is 1 for a single-card link, the number of cards in the cart for a whole-deck buy.
+   *  `scope` says which cart left the site: the whole deck, only the cards the player doesn't own,
+   *  or a single card. Every event also carries `route`, added by the client — that is the "where". */
+  affiliate_buy_clicked: {
+    surface: 'deck' | 'card_preview' | 'spellchroma';
+    scope: 'full' | 'missing' | 'single';
+    cardCount: number;
+    totalPrice: number | null;
+  };
   /** An inspector analyzer tab became active (overview/roles/mana/tempo/optimize/bracket/cost/lift). */
   inspector_tab_viewed: { tab: string };
   analyze_cta_clicked: { from: 'builder' | 'list-deck' | 'generate-lane-auto' };

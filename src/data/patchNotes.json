@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.3.44",
+    "notes": [
+      "Playtest > Various improvements to bot reasoning, fixed a few bugs that would occur with certain cards",      
+      "Playtest > Card previews are less likely to cover up bot seats",
+      "Playtest and Community Poll are now both accessible under a New \"More\" menu in the header"
+    ]
+  },
+  {
     "version": "1.3.43",
     "notes": [
       "New TCG Affiliate links! Show your support for the site by buying directly from your decklist or card preview",

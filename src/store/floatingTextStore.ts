@@ -60,13 +60,3 @@ export const useFloatingText = create<State & Actions>((set) => ({
   remove: (id) => set(s => ({ items: s.items.filter(i => i.id !== id) })),
   clear: () => set({ items: [] }),
 }));
-
-/** Convenience for the common case: a signed number. */
-export function floatDelta(delta: number, target: string | { x: number; y: number }, suffix = '') {
-  if (delta === 0) return;
-  useFloatingText.getState().float(
-    `${delta > 0 ? '+' : '−'}${Math.abs(delta)}${suffix}`,
-    delta > 0 ? 'heal' : 'damage',
-    target,
-  );
-}

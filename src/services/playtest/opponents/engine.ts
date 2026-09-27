@@ -17,8 +17,8 @@ import {
   specsOf,
 } from '@/services/playtest/opponents/effects';
 import type { BotEffectSpec, BotSelfSpec, GraveyardCost, TokenSpec } from '@/services/playtest/opponents/effects';
-import { arrivesDead, botKeywords, botPower as livePower, botToughness as liveToughness, effectiveCost, hasHaste, isCreatureCard, isTokenCard, toPermanent, tokenMultiplier, typeLineOf } from '@/services/playtest/opponents/stats';
-import { applyTaps, devotionTo, genericCost, graveyardManaCost, manaFrom, planPayment, requirementFor } from '@/services/playtest/opponents/mana';
+import { arrivesDead, botKeywords, botPower as livePower, botToughness as liveToughness, echoCostOf, effectiveCost, hasHaste, isCreatureCard, isTokenCard, toPermanent, tokenMultiplier, typeLineOf } from '@/services/playtest/opponents/stats';
+import { applyTaps, devotionTo, genericCost, graveyardManaCost, manaFrom, planPayment, requirementFor, requirementForCost } from '@/services/playtest/opponents/mana';
 import { chooseAttackTarget, chooseAttackers, type AttackCandidate } from '@/services/playtest/opponents/combatChoices';
 import { BOT_COMBOS, comboPiecesWanted, liveCombos } from '@/services/playtest/opponents/botCombos';
 import { pickSacrificeFodder } from '@/services/playtest/opponents/choices';
@@ -866,6 +866,48 @@ export function takeTurn(
   const botPower = () => opp.battlefield
     .filter(p => isCreatureCard(p.card))
     .reduce((sum, p) => sum + livePower(p, opp.battlefield), 0);
+
+  // ── Echo ──
+  /*
+   * "At the beginning of your upkeep, if this came under your control since the
+   * beginning of your last upkeep, sacrifice it unless you pay its echo cost."
+   *
+   * Flagged on arrival and settled on the first upkeep that sees it, which is
+   * what makes an echo creature a rental rather than a permanent the bot got to
+   * keep for free — the Bone Shredder that shot something down on turn four was
+   * still standing there on turn twelve.
+   *
+   * It sits here rather than up with the recurring triggers because paying is a
+   * payment: it needs the mana helpers, and it has to come out of the pool
+   * BEFORE the bot spends the turn, exactly as it would at a real upkeep.
+   *
+   * Whether to pay is the one real decision echo asks, and the bot answers it
+   * the way a player does: keep the creature when the body is worth the mana,
+   * let it go when it is not. A 1/1 flier is not worth {1}{B}{B} on the turn it
+   * has already used its trigger, and a bot that paid anyway would be throwing
+   * away a whole turn of mana to keep a card it no longer wants.
+   */
+  for (const p of opp.battlefield.filter(x => x.echoDue)) {
+    // Cleared whatever happens next: echo bills once, not every upkeep.
+    p.echoDue = false;
+    const cost = echoCostOf(p.card);
+    if (!cost) continue;
+    const requirement = requirementForCost(cost);
+    const worth = livePower(p, opp.battlefield) + liveToughness(p, opp.battlefield);
+    const plan = isCreatureCard(p.card) && worth <= requirement.generic + requirement.pips.length
+      ? { paid: false, taps: [] as number[] }
+      : planPayment(opp.battlefield, requirement, opp.graveyard);
+    if (plan.paid) {
+      spendTaps(plan.taps);
+      frame([`${opp.name} pays echo for ${p.card.name}`], [], [], `Echo · ${p.card.name}`);
+    } else {
+      const logs = bury([p.instanceId]);
+      frame(
+        [`${opp.name} doesn't pay echo and sacrifices ${p.card.name}`, ...logs],
+        [], [], `Echo · ${p.card.name}`,
+      );
+    }
+  }
 
   // ── Commander ──
   // It goes first: it is the card the deck is built around, and holding it back

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useOpponentStore } from '@/store/opponentStore';
 import { usePlaytestStore } from '@/store/playtestStore';
-import { isCreatureCard } from '@/services/playtest/opponents/stats';
+import { isCreatureNow } from '@/services/playtest/powerToughness';
 import type { Point } from '@/components/playtest/TargetArrow';
 
 /**
@@ -46,7 +46,7 @@ function attackGroup(instanceId: string): string[] {
       selected.has(b.instanceId) &&
       b.instanceId !== instanceId &&
       !b.tapped && !b.faceDown &&
-      isCreatureCard(b.card) &&
+      isCreatureNow(b) &&
       !declared.has(b.instanceId))
     .map(b => b.instanceId);
   return [instanceId, ...followers];
