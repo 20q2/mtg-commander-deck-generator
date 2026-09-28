@@ -57,7 +57,17 @@ export async function resolveDeckTokens(deckCards: ScryfallCard[]): Promise<Scry
   const deduped: ScryfallCard[] = [];
   const emblems: ScryfallCard[] = [];
   for (const c of cards) {
-    const key = `${c.name.toLowerCase()}|${c.type_line.toLowerCase()}`;
+    // Size and keywords are part of the identity, not decoration. Keyed on name
+    // and type alone, a deck holding both Beast tokens — Beast Within's 3/3 and
+    // Rampaging Baloths' 4/4 — silently dropped one of them, and whichever
+    // survived became the only Beast the deck could ever make.
+    const key = [
+      c.name.toLowerCase(),
+      c.type_line.toLowerCase(),
+      c.power ?? '',
+      c.toughness ?? '',
+      (c.keywords ?? []).join(',').toLowerCase(),
+    ].join('|');
     if (seenKey.has(key)) continue;
     seenKey.add(key);
     (isEmblem(c) ? emblems : deduped).push(c);

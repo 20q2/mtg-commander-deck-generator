@@ -138,11 +138,30 @@ describe('the telegraph', () => {
   it('a game-ending line comes through as lethal, not as a big number', () => {
     const pieces = [
       perm(card({ name: 'Sanguine Bond', type_line: 'Enchantment', cmc: 5 })),
-      perm(card({ name: 'Exquisite Blood', type_line: 'Enchantment', cmc: 5 })),
+      perm(card({ name: 'Exquisite Blood', type_line: 'Enchantment', cmc: 6 })),
+      // The starter. Neither enchantment does anything until a life total
+      // moves, and an Impact Tremors is the cheapest thing on the board that
+      // moves one — see the test below for the pair on its own.
+      perm(card({ name: 'Impact Tremors', type_line: 'Enchantment', cmc: 2 })),
     ];
     const first = takeTurn(bot({ battlefield: pieces }), board());
     const second = takeTurn(first.final, board());
     expect(lethalIn(second.frames)).toBe(true);
+    expect(damageOf(second.frames)).toBe(0);
+  });
+
+  it('a drain loop with nothing to start it does not go off', () => {
+    // Sanguine Bond waits on life gained, Exquisite Blood on life lost. Held
+    // together they are infinite; alone on an empty board they are two dead
+    // cards, and the bot used to win the game off exactly this.
+    const pieces = [
+      perm(card({ name: 'Sanguine Bond', type_line: 'Enchantment', cmc: 5 })),
+      perm(card({ name: 'Exquisite Blood', type_line: 'Enchantment', cmc: 6 })),
+    ];
+    const first = takeTurn(bot({ battlefield: pieces }), board());
+    expect(first.final.armedCombos ?? []).toEqual([]);
+    const second = takeTurn(first.final, board());
+    expect(lethalIn(second.frames)).toBe(false);
     expect(damageOf(second.frames)).toBe(0);
   });
 

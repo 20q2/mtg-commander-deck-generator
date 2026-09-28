@@ -1,3 +1,11 @@
+import {
+  BOT_DEATH_WATCHERS,
+  BOT_RECURRING_EFFECTS,
+  BOT_TRIGGERS,
+  lookupActivated,
+  lookupEffect,
+  lookupSelfEffect,
+} from '@/services/playtest/opponents/effects';
 import type { TokenSpec } from '@/services/playtest/opponents/effects';
 
 /**
@@ -55,6 +63,15 @@ export interface BotCombo {
   inHand?: string[];
   /** Total mana to execute, on top of already holding the pieces. */
   mana: number;
+  /**
+   * The line is a loop with no starter of its own: it needs something else on
+   * the board that can move a life total before the first trigger can fire.
+   *
+   * Sanguine Bond waits on life gained, Exquisite Blood on life lost. Held
+   * together they are infinite, but two inert enchantments do nothing at all —
+   * and the bot was winning the game off exactly that, having played a land.
+   */
+  needsLifeSwing?: boolean;
   outcome: ComboOutcome;
   /**
    * One line saying what the loop actually does, logged when it fires. A
@@ -85,6 +102,7 @@ export const BOT_COMBOS: BotCombo[] = [
     name: 'Sanguine Bond + Exquisite Blood',
     onBattlefield: ['Sanguine Bond', 'Exquisite Blood'],
     mana: 0,
+    needsLifeSwing: true,
     outcome: { kind: 'winTheGame' },
     how: 'Each drains you, each triggers the other — the loop only stops when you are at zero.',
   },
@@ -143,9 +161,47 @@ export interface ComboContext {
   mana: number;
 }
 
+/**
+ * Can anything this bot controls move a life total on its own?
+ *
+ * The starter a drain loop needs. Read off the registries rather than a card
+ * list so it keeps working as decks change: a Judith ping, a Gray Merchant
+ * arrival, a Plague Belcher death — any of them is enough to push the first
+ * point through and let the loop take over.
+ */
+export function lifeSwingSources(battlefield: string[]): string[] {
+  return battlefield.filter(name => hasLifeSwing([name]));
+}
+
+function hasLifeSwing(battlefield: string[]): boolean {
+  const moves = (spec: unknown): boolean => {
+    for (const one of Array.isArray(spec) ? spec : [spec]) {
+      const kind = (one as { kind?: string } | undefined)?.kind;
+      if (kind === 'drain' || kind === 'damage' || kind === 'gainLife'
+        || kind === 'gainLifeSelf' || kind === 'creatureEtbDamage') return true;
+    }
+    return false;
+  };
+  return battlefield.some(name => {
+    const effect = lookupEffect(name);
+    // An `etb` entry has already resolved by the time the card is sitting on
+    // the battlefield — a Gray Merchant that drained on arrival cannot move a
+    // life total again, and must not keep satisfying this gate for ever.
+    if (effect && !effect.etb && moves(effect.spec)) return true;
+    const self = lookupSelfEffect(name);
+    if (self && moves(self.spec)) return true;
+    if (moves(BOT_TRIGGERS[name])) return true;
+    if (moves(BOT_RECURRING_EFFECTS[name])) return true;
+    const watcher = BOT_DEATH_WATCHERS[name];
+    if (watcher && (moves(watcher.effect) || moves(watcher.spec))) return true;
+    return (lookupActivated(name) ?? []).some(a => moves(a.effect) || moves(a.spec));
+  });
+}
+
 /** Is every piece of this combo present and payable? */
 export function comboIsLive(combo: BotCombo, ctx: ComboContext): boolean {
   if (combo.mana > ctx.mana) return false;
+  if (combo.needsLifeSwing && !hasLifeSwing(ctx.battlefield)) return false;
   // Counted, not just present: a line needing two copies of a piece needs two.
   const has = (need: string[], pool: string[]) => {
     const left = [...pool];

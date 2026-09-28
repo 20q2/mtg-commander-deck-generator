@@ -6,11 +6,11 @@ import { playCue, BOT_GAIN } from '@/services/playtest/playtestSound';
 import { slashCard } from '@/store/cardSlashStore';
 import { lungeAt, strikePacing } from '@/store/combatStrikes';
 import { takeTurn } from '@/services/playtest/opponents/engine';
-import { buildOpponentFromStub, findStub } from '@/services/playtest/opponents/deckSources';
+import { buildOpponentFromStub, findStub, openingHand } from '@/services/playtest/opponents/deckSources';
 import { fisherYates, makeInstanceId } from '@/components/playtest/utils';
 import { resolvePT, describeEdit, isCreatureNow, liveTypeLine } from '@/services/playtest/powerToughness';
 import { canBlock, keywordsOf, resolveDamage, type Combatant } from '@/services/playtest/combat';
-import { botKeywords, botPower, botToughness, clearTempBoosts, isCreaturePermanent, isTokenCard, typeLineOf } from '@/services/playtest/opponents/stats';
+import { botKeywords, botPower, botToughness, clearTempBoosts, findToken, isCreaturePermanent, isTokenCard, toPermanent, typeLineOf } from '@/services/playtest/opponents/stats';
 import { buryPermanents } from '@/services/playtest/opponents/deaths';
 import {
   pickCardsToDiscard, pickPermanentsToGiveUp, type BotDecision,
@@ -21,7 +21,7 @@ import { readIncomingCombat } from '@/services/playtest/opponents/incomingCombat
 import { readPlayerCombat } from '@/services/playtest/opponents/outgoingCombat';
 import { botCombatant, playerCombatant } from '@/services/playtest/opponents/combatants';
 import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
-import { EMPTY as NO_EFFECT } from '@/services/playtest/opponents/evaluate';
+import { EMPTY as NO_EFFECT, tokenPhrase } from '@/services/playtest/opponents/evaluate';
 import type { AppliedEffect, PlayerBoardRead } from '@/services/playtest/opponents/evaluate';
 import type { CastZone, CombatState, Opponent, OpponentPermanent, OpponentZone, StackItem, TurnFrame } from '@/components/playtest/opponentTypes';
 import type { BattlefieldCard, CardEdit } from '@/components/playtest/types';
@@ -308,6 +308,12 @@ interface OpponentActions {
   remove: (id: string) => void;
   clearAll: () => void;
   adjustLife: (id: string, delta: number) => void;
+  /**
+   * Nudge a seat's experience counters. The engine earns them on its own — this
+   * is the manual override the rest of the seat row already offers for life and
+   * for counters on a permanent, for when you resolve something it cannot.
+   */
+  adjustExperience: (id: string, delta: number) => void;
   setLife: (id: string, life: number) => void;
   togglePermanentTap: (opponentId: string, instanceId: string) => void;
   removePermanent: (opponentId: string, instanceId: string) => void;
@@ -489,6 +495,9 @@ function readPlayerBoard(): PlayerBoardRead {
         isCreature: type.includes('creature'),
         isArtifact: type.includes('artifact'),
         isLand: type.includes('land'),
+        isEnchantment: type.includes('enchantment'),
+        isPlaneswalker: type.includes('planeswalker'),
+        cmc: b.card.cmc,
         // Counters and stickers already changed these numbers on screen; a bot
         // reading the printed values would target the wrong creature.
         power: Number.isNaN(power) ? 0 : power,
@@ -532,6 +541,9 @@ function readBotBoard(o: Opponent): PlayerBoardRead {
         isCreature: type.includes('creature'),
         isArtifact: type.includes('artifact'),
         isLand: type.includes('land'),
+        isEnchantment: type.includes('enchantment'),
+        isPlaneswalker: type.includes('planeswalker'),
+        cmc: p.card.cmc,
         power: botPower(p, o.battlefield, o.graveyard),
         toughness: botToughness(p, o.battlefield, o.graveyard),
         isCommander: p.card.name === o.commanderName,
@@ -569,6 +581,26 @@ function applyEffect(effect: AppliedEffect, casterId: string) {
       target: { kind: 'zone', zone: toCommand ? 'command' : effect.destination },
     });
     if (toCommand && hit) playtest.appendLog(`${hit.card.name} returns to the command zone`, 'bot', [casterId]);
+  }
+
+  // What the card hands back for each permanent it took — Beast Within's
+  // Beast, Terastodon's Elephants — out of the caster's own token pool, which
+  // is where every token a bot's deck can make already lives. `destroy` is
+  // the list that actually left, so a target that was gone by the time the
+  // spell resolved hands nothing back.
+  if (effect.grants && effect.destroy.length > 0) {
+    const caster = useOpponentStore.getState().opponents.find(o => o.id === casterId);
+    const token = caster ? findToken(caster.tokens, effect.grants) : undefined;
+    if (token) {
+      for (let i = 0; i < effect.destroy.length; i++) playtest.spawnToken(token);
+      playtest.appendLog(`You create ${tokenPhrase(effect.destroy.length, token.name)}`, 'bot', [casterId]);
+    }
+  }
+
+  // Swords to Plowshares: the life for the creature, paid to its controller.
+  if (effect.victimGain) {
+    playtest.adjustLife(effect.victimGain);
+    playtest.appendLog(`You gain ${effect.victimGain} life`, 'bot', [casterId]);
   }
 
   if (effect.discard > 0) {
@@ -1323,6 +1355,11 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
     }
   },
 
+  adjustExperience: (id, delta) => set(s => ({
+    opponents: s.opponents.map(o =>
+      o.id === id ? { ...o, experience: Math.max(0, (o.experience ?? 0) + delta) } : o),
+  })),
+
   setLife: (id, life) => set(s => ({
     opponents: s.opponents.map(o => (o.id === id ? { ...o, life } : o)),
   })),
@@ -1825,8 +1862,22 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         }
         const names = rival.battlefield.filter(p => ids.includes(p.instanceId)).map(p => p.card.name);
         playtest.appendLog(`${caster.name} ${e.destination === 'exile' ? 'exiles' : 'destroys'} ${rival.name}'s ${names.join(', ')}`, 'bot', [caster.id, seatId]);
+        // The Beast Within Beast, on a rival's board: straight onto it, one per
+        // permanent taken, out of the caster's pool as on yours.
+        if (e.grants) {
+          const token = findToken(caster.tokens, e.grants);
+          if (token) {
+            set(s => ({
+              opponents: s.opponents.map(o => o.id === seatId
+                ? { ...o, battlefield: [...o.battlefield, ...ids.map(() => toPermanent(token))] }
+                : o),
+            }));
+            playtest.appendLog(`${rival.name} creates ${tokenPhrase(ids.length, token.name)}`, 'bot', [seatId]);
+          }
+        }
       }
       if (e.lifeLoss > 0) get().adjustLife(seatId, -e.lifeLoss);
+      if (e.victimGain) get().adjustLife(seatId, e.victimGain);
       // Paid to the caster, not the seat that lost the life — see AppliedEffect.
       if (e.lifeGain) {
         get().adjustLife(caster.id, e.lifeGain);
@@ -2096,6 +2147,15 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           if (!mine()) return false;
           // Damage from the bot's own triggers, billed per beat.
           if (f.selfDamage) usePlaytestStore.getState().adjustLife(-f.selfDamage);
+          // And the other half of a drain — a Wayward Servant gains its seat the
+          // life it took from you. Applied here rather than in the engine
+          // because `correct` above throws the engine's copy of a life total
+          // away on purpose.
+          if (f.selfLifeGain) get().adjustLife(f.opponent.id, f.selfLifeGain);
+          // And what it paid for its own cards — an Undead Augur's draw, a
+          // tutor's cost. Through adjustLife so a seat that pays itself out
+          // announces its own defeat like any other.
+          if (f.selfLifeLoss) get().adjustLife(f.opponent.id, -f.selfLifeLoss);
 
           // An attack on another seat needs nothing from the player: both sides
           // are bot decisions, so it is worked out here and the turn carries on.
@@ -2245,12 +2305,15 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
           : undefined;
         const deck = commander ? all.filter(c => c !== commander) : all;
 
-        const shuffled = fisherYates(deck);
+        // Same free-mulligan rule the bot got when it first sat down. Dealing a
+        // raw seven here meant a reset could hand a bot the one-land hand the
+        // build path exists to prevent.
+        const { library, hand } = openingHand(deck);
         return {
           ...o,
           life: STARTING_LIFE,
-          library: shuffled.slice(7),
-          hand: shuffled.slice(0, 7),
+          library,
+          hand,
           graveyard: [],
           exile: [],
           command: commander ? [commander] : o.command,

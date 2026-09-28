@@ -98,28 +98,52 @@ export async function buildOpponentFromStub(
 }
 
 /**
- * Shuffle and draw seven, redrawing a hand with fewer than two or more than
- * five lands. Bots do
- * not mulligan down to six — they just take another seven, up to four tries,
- * and keep the best they saw. A one-land keep produces a bot that does nothing
- * for ten turns, which reads as the feature being broken rather than as variance.
+ * Shuffle and draw seven until the hand has three to five lands, then keep it.
+ *
+ * Bots never mulligan down to six — they take another fresh seven, free, as
+ * many times as it takes. That is not how Magic works, and it is deliberate:
+ * a bot that keeps a two-lander and stalls out plays no game at all, and what
+ * you are playing against it for is a game. The floor is three rather than two
+ * because two-land keeps in a 99-card deck miss their third drop often enough
+ * to produce exactly the do-nothing opponent this is here to prevent.
+ *
+ * The ceiling still matters — an unbounded "more lands is better" search walks
+ * itself to a seven-land hand that also does nothing.
+ *
+ * MULLIGAN_TRIES is a safety valve, not a budget. A hundred shuffles of a
+ * 60-card array costs well under a millisecond and runs once per bot per game,
+ * so the number is set by how badly the worst deck needs it rather than by
+ * cost: our leanest stub hits the window about one shuffle in nine, which over
+ * a hundred tries misses a few times in a million games. When it does miss we
+ * keep the closest hand we saw, rather than looping forever on a deck that
+ * cannot satisfy the window at all (a deck short a dozen cards Scryfall could
+ * not resolve, say).
  */
-function openingHand(pool: ScryfallCard[]): { library: ScryfallCard[]; hand: ScryfallCard[] } {
+const MULLIGAN_TRIES = 100;
+const MIN_OPENING_LANDS = 3;
+const MAX_OPENING_LANDS = 5;
+
+/**
+ * `shuffleFn` exists so the seeded game-simulation diagnostic can run this exact
+ * rule off its own PRNG. Without it the harness dealt a raw seven and quietly
+ * measured a bot that keeps one-land hands — the opposite of what ships.
+ */
+export function openingHand(
+  pool: ScryfallCard[],
+  shuffleFn: (cards: ScryfallCard[]) => ScryfallCard[] = fisherYates,
+): { library: ScryfallCard[]; hand: ScryfallCard[] } {
   let best: { library: ScryfallCard[]; hand: ScryfallCard[] } | null = null;
   let bestLands = -1;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const shuffled = fisherYates(pool);
+  for (let attempt = 0; attempt < MULLIGAN_TRIES; attempt++) {
+    const shuffled = shuffleFn(pool);
     const hand = shuffled.slice(0, 7);
     const lands = hand.filter(isLand).length;
-    // A keep is two to five lands. Seven lands used to count as the best hand
-    // seen, because "more lands" was the only score.
-    const keepable = lands >= 2 && lands <= 5;
-    if (keepable) {
-      best = { library: shuffled.slice(7), hand };
-      break;
+    if (lands >= MIN_OPENING_LANDS && lands <= MAX_OPENING_LANDS) {
+      return { library: shuffled.slice(7), hand };
     }
-    // Nothing keepable yet: remember the hand closest to three lands.
-    if (best === null || Math.abs(lands - 3) < Math.abs(bestLands - 3)) {
+    // Nothing keepable yet: remember the hand closest to the floor, so a deck
+    // that can never hit the window still sits down with its best showing.
+    if (best === null || Math.abs(lands - MIN_OPENING_LANDS) < Math.abs(bestLands - MIN_OPENING_LANDS)) {
       bestLands = lands;
       best = { library: shuffled.slice(7), hand };
     }

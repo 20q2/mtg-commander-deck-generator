@@ -22,7 +22,7 @@ import { isLand } from '@/components/playtest/utils';
 import {
   botPower, botToughness, effectiveCost, isTokenCard, typeLineOf,
 } from '@/services/playtest/opponents/stats';
-import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
+import { BOT_COMBOS, lifeSwingSources } from '@/services/playtest/opponents/botCombos';
 import type { Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 
 /** The type a "sacrifice a ___" or "return a ___" asks for. */
@@ -85,7 +85,16 @@ export function matchesChoice(p: OpponentPermanent, of: ChoiceType): boolean {
 function armedPieces(o: Opponent): Set<string> {
   const ids = o.armedCombos ?? [];
   if (ids.length === 0) return new Set();
-  return new Set(BOT_COMBOS.filter(c => ids.includes(c.id)).flatMap(c => c.onBattlefield));
+  const armed = BOT_COMBOS.filter(c => ids.includes(c.id));
+  const names = armed.flatMap(c => c.onBattlefield);
+  // A loop that needs a starter is only lethal while the starter is there, so
+  // the starter is a piece too. Without this the bot fed Judith — the one card
+  // making two inert enchantments lethal — to its own Victimize, and broke up
+  // an already-armed win for a 1/1 out of the graveyard.
+  if (armed.some(c => c.needsLifeSwing)) {
+    names.push(...lifeSwingSources(o.battlefield.map(p => p.card.name)));
+  }
+  return new Set(names);
 }
 
 /**

@@ -6,7 +6,13 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { useOpponentStore } from '@/store/opponentStore';
 import { FloatingDialog } from '@/components/playtest/FloatingDialog';
-import { animatedTypeLine, liveTypeLine } from '@/services/playtest/powerToughness';
+import {
+  EDITABLE_CARD_TYPES,
+  animatedTypeLine,
+  composeTypeLine,
+  liveTypeLine,
+  parseTypeLine,
+} from '@/services/playtest/powerToughness';
 import { typeLineOf } from '@/services/playtest/opponents/stats';
 import type { CardEdit, EditTarget } from '@/components/playtest/types';
 import type { ScryfallCard } from '@/types';
@@ -76,12 +82,17 @@ export function EditCreatureModal() {
   const [form, setForm] = useState(() => {
     const printed = subject ? printedPT(subject.card) : { power: 0, toughness: 0 };
     const existing = subject?.edit;
+    // Pre-animated: opening this on a land seeds "Land Creature — Mutavault", so
+    // becoming a creature is two numbers rather than retyping the line. Held in
+    // pieces because the types are buttons and the subtypes are a field, and a
+    // single string would fight the keystrokes in the latter.
+    const parsed = parseTypeLine(subject ? animatedTypeLine(subject.typeLine) : '');
     return {
       power: String(existing?.power ?? printed.power),
       toughness: String(existing?.toughness ?? printed.toughness),
-      // Pre-animated: opening this on a land seeds "Land Creature — Mutavault",
-      // so becoming a creature is two numbers rather than retyping the line.
-      typeLine: subject ? animatedTypeLine(subject.typeLine) : '',
+      others: parsed.others,
+      types: parsed.types,
+      subtypes: parsed.subtypes,
       loseAbilities: existing?.loseAbilities ?? false,
     };
   });
@@ -173,12 +184,41 @@ export function EditCreatureModal() {
           </label>
         </div>
 
+        <div className="space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Card types</div>
+          {/* Toggles rather than a text field because these five words are the
+              only part of the line anything reads: they are what the bots' view
+              of your board is built from, so a typo here is a land they never
+              blow up or a creature they refuse to block. Supertypes and Token
+              ride along untouched in `others`. */}
+          <div className="flex flex-wrap gap-1">
+            {EDITABLE_CARD_TYPES.map(type => {
+              const on = form.types.includes(type);
+              return (
+                <Button
+                  key={type}
+                  variant={on ? 'default' : 'outline'}
+                  size="sm"
+                  aria-pressed={on}
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => setForm(f => ({
+                    ...f,
+                    types: on ? f.types.filter(t => t !== type) : [...f.types, type],
+                  }))}
+                >
+                  {type}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+
         <label className="block space-y-1">
-          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Type line</span>
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">Subtypes</span>
           <Input
-            value={form.typeLine}
-            onChange={e => setForm(f => ({ ...f, typeLine: e.target.value }))}
-            placeholder="Creature — Treefolk"
+            value={form.subtypes}
+            onChange={e => setForm(f => ({ ...f, subtypes: e.target.value }))}
+            placeholder="Treefolk"
             className="h-8"
           />
         </label>
@@ -208,7 +248,7 @@ export function EditCreatureModal() {
             onClick={() => apply({
               power: numberOr0(form.power),
               toughness: numberOr0(form.toughness),
-              typeLine: form.typeLine.trim() || undefined,
+              typeLine: composeTypeLine(form) || undefined,
               loseAbilities: form.loseAbilities,
             })}
           >

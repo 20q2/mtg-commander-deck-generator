@@ -10,6 +10,11 @@ export interface PlayerCardRead {
   isArtifact: boolean;
   /** Optional so older callers and the diagnostic's scripted board need not set it. */
   isLand?: boolean;
+  /** For Casualties of War's one-of-each, and Bane of Progress. Optional like `isLand`. */
+  isEnchantment?: boolean;
+  isPlaneswalker?: boolean;
+  /** Mana value, for Despark's "4 or greater". Absent reads as zero. */
+  cmc?: number;
   power: number;
   toughness: number;
   isCommander: boolean;
@@ -76,6 +81,17 @@ export interface AppliedEffect {
   /** Cards to discard at random from the player's hand. */
   discard: number;
   /**
+   * A token the VICTIM creates for each permanent removed — Beast Within's
+   * Beast, Terastodon's Elephants. The drawback half of those cards, and the
+   * half that decides whether they are worth casting: a 3/3 handed back for
+   * a basic land is a bad trade, and a bot that skipped it was playing a
+   * better card than the one it holds. A name rather than a card: the token
+   * is looked up in the caster's own pool at the moment it lands.
+   */
+  grants?: string;
+  /** Life the VICTIM gains — Swords to Plowshares. */
+  victimGain?: number;
+  /**
    * The game is over. Set by a combo whose outcome is simply "you lose" rather
    * than a number — an Oracle on an empty library does not deal damage, it
    * wins. Kept separate from a huge `lifeLoss` so the log reads honestly.
@@ -86,6 +102,12 @@ export interface AppliedEffect {
    * store applies these directly; only effects aimed at you go on the stack.
    */
   target?: { seatId: string; name: string };
+}
+
+/** "a Beast token", "an Elephant token", "3 Elephant tokens". */
+export function tokenPhrase(count: number, name: string): string {
+  if (count > 1) return `${count} ${name} tokens`;
+  return `${/^[aeiou]/i.test(name) ? 'an' : 'a'} ${name} token`;
 }
 
 /**
@@ -99,7 +121,16 @@ export interface AppliedEffect {
 export function describeEffect(effect: AppliedEffect, target: string): string {
   if (effect.lethal) return 'You lose the game';
   if (effect.destroy.length > 0) {
-    return `${effect.destination === 'exile' ? 'Exiles' : 'Destroys'} ${target}`;
+    const verb = effect.destination === 'exile' ? 'Exiles' : 'Destroys';
+    // The price on the stack, because it changes the answer: a Beast Within on
+    // your Sol Ring is a trade, not a loss.
+    const n = effect.destroy.length;
+    const back = effect.grants
+      ? ` · you get ${tokenPhrase(n, effect.grants)}`
+      : effect.victimGain
+        ? ` · you gain ${effect.victimGain} life`
+        : '';
+    return `${verb} ${target}${back}`;
   }
   if (effect.discard > 0) {
     return `You discard ${effect.discard} card${effect.discard > 1 ? 's' : ''}`;
@@ -170,6 +201,10 @@ const allowedBy = (r: TargetRestriction | undefined) => (c: PlayerCardRead) => {
   if (r.notColors?.some(col => (c.colors ?? []).includes(col))) return false;
   if (r.notArtifact && c.isArtifact) return false;
   if (r.maxTotalPT !== undefined && c.power + c.toughness > r.maxTotalPT) return false;
+  if (r.noncreature && c.isCreature) return false;
+  if (r.nonland && c.isLand) return false;
+  if (r.onlyArtifact && !c.isArtifact) return false;
+  if (r.minManaValue !== undefined && (c.cmc ?? 0) < r.minManaValue) return false;
   return true;
 };
 
@@ -250,22 +285,69 @@ export function resolveEffect(
           ...EMPTY,
           destroy: [target.instanceId],
           destination: spec.kind === 'exileCreature' ? 'exile' : 'graveyard',
+          victimGain: spec.kind === 'exileCreature' && spec.victimGainsPower
+            ? Math.max(0, target.power)
+            : undefined,
         },
         target: target.name,
       };
     }
     case 'destroyPermanent': {
-      // Combo piece, then the biggest creature, then any artifact or
-      // enchantment — a Beast Within on a basic land is a wasted card, and
-      // `cards[0]` was very often a land.
-      const answerable = board.cards.filter(killable);
-      const target = comboPieceToBreak(board, killable)
-        ?? biggestCreature(board, killable)
-        ?? answerable.find(c => c.isArtifact)
-        ?? answerable.find(c => !c.isLand && !c.isCreature)
-        ?? answerable[0];
-      if (!target) return null;
-      return { effect: { ...EMPTY, destroy: [target.instanceId] }, target: target.name };
+      // Exile answers an indestructible permanent; destroy does not — and on
+      // top of that, whatever the card's own targeting clause allows.
+      const answers = spec.exile ? targetable : killable;
+      const legal = allowedBy(spec.restrict);
+      const usable = (c: PlayerCardRead) => answers(c) && legal(c);
+      const pool = board.cards.filter(usable);
+
+      // In the order a player reaches for them: a combo piece, the biggest
+      // creature, an artifact, then any other nonland permanent. Lands are
+      // kept out of this list on purpose — a Beast Within on a basic is a
+      // wasted card, and `cards[0]` was very often a land.
+      const seen = new Set<string>();
+      const ranked: PlayerCardRead[] = [];
+      const consider = (c: PlayerCardRead | null | undefined) => {
+        if (c && !seen.has(c.instanceId)) { seen.add(c.instanceId); ranked.push(c); }
+      };
+      consider(comboPieceToBreak(board, usable));
+      [...creatures(board).filter(usable)]
+        .sort((a, b) => b.power - a.power || Number(b.isCommander) - Number(a.isCommander))
+        .forEach(consider);
+      pool.filter(c => c.isArtifact).forEach(consider);
+      pool.filter(c => !c.isLand && !c.isCreature).forEach(consider);
+      const lands = pool.filter(c => c.isLand);
+
+      let picks: PlayerCardRead[];
+      if (spec.eachType) {
+        // Casualties of War: one target per type, each the best of its kind.
+        // A card wearing two types is still one target, so it is taken once.
+        const taken = new Set<string>();
+        const one = (of: (c: PlayerCardRead) => boolean) => {
+          const hit = [...ranked, ...lands].find(c => of(c) && !taken.has(c.instanceId));
+          if (hit) taken.add(hit.instanceId);
+          return hit;
+        };
+        picks = [
+          one(c => c.isArtifact), one(c => c.isCreature), one(c => !!c.isEnchantment),
+          one(c => !!c.isLand), one(c => !!c.isPlaneswalker),
+        ].filter((c): c is PlayerCardRead => !!c);
+      } else {
+        picks = ranked.slice(0, spec.count ?? 1);
+        // A land only when there is nothing else at all, and only ever one —
+        // even for a Terastodon that could legally take three. Handing out
+        // three Elephants for three basics is not a play anyone makes.
+        if (picks.length === 0 && lands.length > 0) picks = [lands[0]];
+      }
+      if (picks.length === 0) return null;
+      return {
+        effect: {
+          ...EMPTY,
+          destroy: picks.map(c => c.instanceId),
+          destination: spec.exile ? 'exile' : 'graveyard',
+          grants: spec.grants,
+        },
+        target: picks.map(c => c.name).join(', '),
+      };
     }
     case 'boardWipe': {
       // A -X/-X sweeper only kills what it is big enough to kill — but it gets
@@ -309,6 +391,9 @@ export function resolveEffect(
       if (victim) {
         return { effect: { ...EMPTY, destroy: [victim.instanceId] }, target: victim.name };
       }
+      // "Target creature" burn has nowhere else to go: with nothing it can
+      // kill, the card stays in hand rather than being pointed at your face.
+      if (spec.creatureOnly) return null;
       return { effect: { ...EMPTY, lifeLoss: amount }, target: 'you' };
     }
     case 'drain': {

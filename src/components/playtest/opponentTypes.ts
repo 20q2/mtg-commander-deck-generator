@@ -20,6 +20,13 @@ export interface TempBoost {
   toughness: number;
   /** Keywords granted for the turn — Goreclaw hands out trample. */
   keywords?: CombatKeyword[];
+  /**
+   * Haste, granted for the turn — a kicked Goblin Bushwhacker.
+   *
+   * Separate from `keywords` because CombatKeyword is the set the damage maths
+   * reads and haste is not one of them; it is read by the attack step instead.
+   */
+  haste?: boolean;
 }
 
 export interface OpponentPermanent {
@@ -78,6 +85,15 @@ export interface Opponent {
   aggression: number;
   /** Drives the "hold early" rule in evaluation. */
   turnsTaken: number;
+  /**
+   * Experience counters. A player counter, not a permanent's, which is the
+   * whole point of the mechanic: Meren keeps hers when she dies, so the bot
+   * that has been trading creatures all game reanimates where a fresh one
+   * only gets the card back.
+   *
+   * Optional so every existing seat reads as zero without a migration.
+   */
+  experience?: number;
   /**
    * Combo ids this bot has announced and will execute next turn. A combo is
    * telegraphed on the turn it assembles and fired on the following one, so
@@ -209,6 +225,17 @@ export interface TurnFrame {
    * which describe things done to the player's permanents.
    */
   selfDamage?: number;
+  /**
+   * Life the BOT gains from its own triggers this beat — the other half of a
+   * Wayward Servant. Applied by the store for the same reason `selfDamage` is:
+   * the engine's copy of a seat's life is thrown away on the way out.
+   */
+  selfLifeGain?: number;
+  /**
+   * Life the BOT pays this beat — a tutor's cost, an upkeep's bill. Applied by
+   * the store next to `selfLifeGain`, and for the same reason.
+   */
+  selfLifeLoss?: number;
   /**
    * Instance ids on the bot's board that are attacking. Non-empty only on the
    * attack beat. An attack on YOU stops the turn while you block; an attack on

@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import {
-  BookOpen, Crown, Gavel, GripHorizontal, Heart, Mountain, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
+  BookOpen, Crown, Gavel, Gem, GripHorizontal, Heart, Mountain, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
 } from 'lucide-react';
 import { usePlaytestStore } from '@/store/playtestStore';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
@@ -67,6 +67,7 @@ export function OpponentSeat({
 }) {
   const adjustLife = useOpponentStore(s => s.adjustLife);
   const setLife = useOpponentStore(s => s.setLife);
+  const adjustExperience = useOpponentStore(s => s.adjustExperience);
   const remove = useOpponentStore(s => s.remove);
   const setResistance = useOpponentStore(s => s.setResistance);
   const setAggression = useOpponentStore(s => s.setAggression);
@@ -151,6 +152,25 @@ export function OpponentSeat({
   const landsCollapsed = landWidth < LAND_MIN_WIDTH;
   const untappedLands = landPiles.reduce((n, p) => n + (p.top.tapped ? 0 : p.count), 0);
 
+  /**
+   * How much the board rows may grow into the height nobody else wants.
+   *
+   * Everything below the board is served first and at its own size — the
+   * lands have already taken their cut above, and the zone row and the strip
+   * are fixed — so what is left is the board's, and the board spends it on
+   * bigger cards rather than on blank space. A seat that has not been given a
+   * height grows to its contents instead, so there is nothing spare to hand
+   * out and the width rules are the whole story.
+   */
+  const landRowHeight = landPiles.length === 0
+    ? 0
+    : ROW_GAP + (landsCollapsed ? COLLAPSED_LAND_ROW : Math.round(landWidth * CARD_ASPECT));
+  const boardRoom = height === undefined
+    ? Infinity
+    : height - SEAT_CHROME - (inCombat ? COMBAT_CHROME : 0)
+      - Math.round(zoneWidth * CARD_ASPECT) - landRowHeight;
+  const grow = growToFill(width, rows, scale, boardRoom);
+
   return (
     <div
       data-seat
@@ -228,6 +248,7 @@ export function OpponentSeat({
         opponent={opponent}
         onAdjustLife={adjustLife}
         onSetLife={setLife}
+        onAdjustExperience={adjustExperience}
         onSetResistance={setResistance}
         onSetAggression={setAggression}
         onRemove={remove}
@@ -310,7 +331,7 @@ export function OpponentSeat({
                     permanent={pile.top}
                     count={pile.count}
                     comboPiece={armedPieces.has(pile.top.card.name)}
-                    width={rowWidth(width, row.scale * scale)}
+                    width={rowWidth(width, row.scale * scale * grow)}
                     castFrom={pile.ids.some(id => playedIds.includes(id)) ? (beat?.from ?? 'hand') : null}
                     beatTick={beat?.tick ?? 0}
                   />
@@ -562,16 +583,48 @@ function SeatLife({
 }
 
 /**
+ * Experience counters, shown only once a seat has any.
+ *
+ * A player counter rather than a permanent's, so it has nowhere else to live —
+ * and without it on screen a Meren standing a five-drop back up looks like the
+ * bot cheating. Hidden at zero because most decks never earn one, and a row of
+ * empty counters on every seat is noise.
+ *
+ * Click adds, right-click removes: the same "same button, other direction"
+ * idiom the life stepper and the card counters already use.
+ */
+function SeatExperience({ opponent, onAdjust }: {
+  opponent: Opponent;
+  onAdjust: (id: string, delta: number) => void;
+}) {
+  const experience = opponent.experience ?? 0;
+  if (experience === 0) return null;
+  return (
+    <button
+      onClick={() => onAdjust(opponent.id, 1)}
+      onContextMenu={e => { e.preventDefault(); onAdjust(opponent.id, -1); }}
+      title={`${opponent.name} has ${experience} experience counter${experience === 1 ? '' : 's'} · click to add, right-click to remove`}
+      aria-label={`${opponent.name}: ${experience} experience`}
+      className="shrink-0 inline-flex items-center gap-0.5 h-7 px-1.5 md:h-auto md:px-1 rounded border border-amber-400/40 bg-amber-500/15 text-amber-300 font-bold text-[11px] leading-4 tabular-nums transition-colors hover:bg-amber-500/25"
+    >
+      <Gem className="w-2.5 h-2.5" />
+      <RollingNumber value={experience} />
+    </button>
+  );
+}
+
+/**
  * Who they are, their life, whether they fight back, and the way out — all on
  * one row.
  */
 function SeatHeader({
-  opponent, onAdjustLife, onSetLife, onSetResistance, onSetAggression, onRemove, onOpenChoices,
-  onGrab, onResetPosition, placed,
+  opponent, onAdjustLife, onSetLife, onAdjustExperience, onSetResistance, onSetAggression,
+  onRemove, onOpenChoices, onGrab, onResetPosition, placed,
 }: {
   opponent: Opponent;
   onAdjustLife: (id: string, delta: number) => void;
   onSetLife: (id: string, life: number) => void;
+  onAdjustExperience: (id: string, delta: number) => void;
   onSetResistance: (id: string, resistance: boolean) => void;
   onSetAggression: (id: string, aggression: number) => void;
   onRemove: (id: string) => void;
@@ -617,6 +670,8 @@ function SeatHeader({
         onSetLife={onSetLife}
         tiny={tiny}
       />
+
+      <SeatExperience opponent={opponent} onAdjust={onAdjustExperience} />
 
       {/* Icon-only: the colour already carries the state. */}
       <button
@@ -1030,6 +1085,9 @@ const COMBAT_CHROME = 76;
  */
 const LAND_MIN_WIDTH = 18;
 
+/** The collapsed land row's one line of text (`text-[10px] leading-4`). */
+const COLLAPSED_LAND_ROW = 16;
+
 /**
  * How far the board shrinks while this seat is in combat. The strip's cards
  * roughly double at the same moment, so the seat as a whole stays about the
@@ -1055,9 +1113,84 @@ export const ZONE_WIDTH_FRACTION = 0.075;
  * past a certain seat width the cards stopped growing and resizing the seat
  * just added blank space around them — the opposite of what dragging a seat
  * wider is for. The whole point is that the seat is a zoom control.
+ *
+ * Both handles are that zoom control, not just this one. Width sets the base
+ * size here; `growToFill` then multiplies it by however much the seat's spare
+ * HEIGHT can afford. Width used to be the only input, which meant a seat given
+ * height — dragged taller, or handed a share of the canvas by a preset — drew
+ * the same small cards and banked the difference as an empty band.
  */
 function rowWidth(seatWidth: number, scale: number): number {
   return Math.round(Math.max(14, seatWidth * scale));
+}
+
+/**
+ * The most a seat's spare height may inflate its cards, as a multiple of what
+ * its width alone would draw.
+ *
+ * There has to be a ceiling, because the fit below is driven by how much board
+ * there is: a seat holding one Signet has height to spare for a card the size
+ * of the seat, and a lone permanent rendered larger than the player's own cards
+ * reads as an error rather than as emphasis. A multiple rather than a pixel cap
+ * on purpose — a pixel cap is what the old 84px ceiling was, and it would
+ * silently take the width handle's zoom away again at large seat sizes. This
+ * only limits the bonus, so the seat is still as wide as you drag it.
+ */
+const MAX_GROW = 2;
+
+/**
+ * How tall the wrapping rows come out at a given zoom.
+ *
+ * Wrapping is why this can't be a multiplication: a bigger card is both taller
+ * and fits fewer per line, so height grows in steps as each row gains a line.
+ * That is also why it is monotonic in `grow`, which is what lets `growToFill`
+ * binary search it.
+ */
+function boardHeight(
+  seatWidth: number, rows: Record<RowKey, OpponentPermanent[]>, scale: number, grow: number,
+): number {
+  const inner = Math.max(1, seatWidth - SEAT_PADDING);
+  let total = 0;
+  let drawn = 0;
+  for (const row of UPPER_ROWS) {
+    const piles = pileUp(rows[row.key]).length;
+    if (piles === 0) continue;
+    const cw = rowWidth(seatWidth, row.scale * scale * grow);
+    const perLine = Math.max(1, Math.floor((inner + ROW_GAP) / (cw + ROW_GAP)));
+    const lines = Math.ceil(piles / perLine);
+    total += lines * Math.round(cw * CARD_ASPECT) + (lines - 1) * ROW_GAP;
+    drawn += 1;
+  }
+  // `space-y-1` between the rows that actually rendered.
+  return total + Math.max(0, drawn - 1) * ROW_GAP;
+}
+
+/**
+ * How much bigger than its width says this seat may draw its cards, given the
+ * height it has left over.
+ *
+ * The largest multiple in [1, MAX_GROW] whose board still fits `room` — found
+ * by bisection, since `boardHeight` steps rather than scales. Never below 1: a
+ * seat too short for its board scrolls, exactly as it did before, because
+ * shrinking the cards to fit would make a crowded board unreadable at the
+ * moment there is most to read.
+ */
+function growToFill(
+  seatWidth: number, rows: Record<RowKey, OpponentPermanent[]>, scale: number, room: number,
+): number {
+  if (!Number.isFinite(room) || room <= 0) return 1;
+  if (boardHeight(seatWidth, rows, scale, MAX_GROW) <= room) return MAX_GROW;
+  if (boardHeight(seatWidth, rows, scale, 1) >= room) return 1;
+  let lo = 1;
+  let hi = MAX_GROW;
+  // Twelve halvings of a 1× range lands inside a thousandth of a card width —
+  // well past the point the rounding in `rowWidth` makes it visible.
+  for (let i = 0; i < 12; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (boardHeight(seatWidth, rows, scale, mid) <= room) lo = mid;
+    else hi = mid;
+  }
+  return lo;
 }
 
 /**

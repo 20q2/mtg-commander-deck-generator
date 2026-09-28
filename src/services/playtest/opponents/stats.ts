@@ -7,6 +7,7 @@ import {
   graveyardStaticsOf,
   staticsOf,
   type BotStaticSpec,
+  type TokenSpec,
 } from '@/services/playtest/opponents/effects';
 import { keywordsOf, type CombatKeyword } from '@/services/playtest/combat';
 import { editedTypeLine } from '@/services/playtest/powerToughness';
@@ -66,7 +67,11 @@ export function isCreaturePermanent(p: OpponentPermanent): boolean {
 }
 
 function hasSubtype(typeLine: string, subtype: string): boolean {
-  return typeLine.toLowerCase().includes(subtype.toLowerCase());
+  const line = typeLine.toLowerCase();
+  // Every word has to be there: 'zombie token' is a Zombie that is a token,
+  // which is how "Zombie tokens you control have flying" is written, and a
+  // one-word subtype reads exactly as it always did.
+  return subtype.toLowerCase().split(/\s+/).every(word => line.includes(word));
 }
 
 /** Is a Maskwood Nexus out, making every subtype test pass? */
@@ -161,10 +166,12 @@ function dynamicBonus(
 ): { power: number; toughness: number } {
   const spec = BOT_DYNAMIC_STATS[p.card.name];
   if (!spec) return { power: 0, toughness: 0 };
-  const n =
-    spec.kind === 'ownGraveyardCreatures' ? graveyard.filter(isCreatureCard).length
+  const counted =
+    spec.kind === 'flat'                  ? 1
+    : spec.kind === 'ownGraveyardCreatures' ? graveyard.filter(isCreatureCard).length
     : spec.kind === 'ownGraveyardCards'   ? graveyard.length
     :                                       battlefield.filter(x => isLand(x.card)).length;
+  const n = spec.max === undefined ? counted : Math.min(counted, spec.max);
   return { power: spec.power * n, toughness: spec.toughness * n };
 }
 
@@ -302,6 +309,7 @@ export function effectiveCost(card: ScryfallCard, battlefield: OpponentPermanent
     for (const spec of staticsOf(source.card.name)) {
       if (spec.kind !== 'costReducer') continue;
       if (spec.subtype && !countsAs(getFrontFaceTypeLine(card), spec.subtype, battlefield)) continue;
+      if (spec.minPower !== undefined && printedStat(card, 'power') < spec.minPower) continue;
       reduction += spec.amount;
     }
   }
@@ -321,6 +329,10 @@ export function hasHaste(p: OpponentPermanent, battlefield: OpponentPermanent[])
   // keywords the damage maths cares about, and haste is not one of them.
   // A creature stripped of its abilities has no printed haste to read.
   if (!p.edit?.loseAbilities && (p.card.keywords ?? []).some(k => k.toLowerCase() === 'haste')) return true;
+  // An until-end-of-turn grant — a kicked Goblin Bushwhacker. The registry
+  // comment used to say a temporary haste grant had nowhere to live; `tempBoost`
+  // is exactly that place, and the pump spec already writes keywords into it.
+  if (p.tempBoost?.haste) return true;
   return battlefield.some(source => staticsOf(source.card.name).some(spec =>
     spec.kind === 'grantsHaste' && (!spec.subtype || countsAs(typeLineOf(p), spec.subtype, battlefield)),
   ));
@@ -414,6 +426,121 @@ export function tokenMultiplier(battlefield: OpponentPermanent[]): number {
     p => staticsOf(p.card.name).some(spec => spec.kind === 'tokenDoubler'),
   ).length;
   return 2 ** doublers;
+}
+
+/**
+ * Hard ceiling on permanents a bot may control.
+ *
+ * Krenko doubles its goblins every combat, which is what the card does and is
+ * correct — but a player who ignores it for eight turns had 300 tokens and by
+ * twelve had 2,400, every one of them a card image in their seat. That is not
+ * a hard game, it is a hung browser.
+ *
+ * Token creation stops at the cap. Nothing else does: the bot keeps casting
+ * from hand, so hitting this looks like a board that has stopped growing rather
+ * than a bot that has stopped playing.
+ *
+ * Lowered from 60 after measuring the goblin deck at 555 damage a game against
+ * the other three decks' 25 to 84. Sixty permanents was not a difficulty
+ * setting, it was a different game — and the cap is the one lever that bounds
+ * the doubling without rewriting what Krenko does.
+ */
+export const MAX_BOARD = 40;
+
+/**
+ * Find a token in the deck's fetched pool. Matched on name first, then on the
+ * type line, so a spec asking for a 'Goblin' finds "Goblin" and would also find
+ * a differently-named goblin token if a deck ever had one.
+ *
+ * A miss returns undefined and the token is simply not made. That is the right
+ * failure: a Scryfall hiccup should cost the bot a token, not crash its turn.
+ */
+export function findToken(
+  pool: ScryfallCard[],
+  name: string,
+  want?: { power?: string; toughness?: string; keyword?: string },
+): ScryfallCard | undefined {
+  const wanted = name.toLowerCase();
+  const named = pool.filter(t => t.name.toLowerCase() === wanted);
+  const candidates = named.length > 0
+    ? named
+    : pool.filter(t => getFrontFaceTypeLine(t).toLowerCase().includes(wanted));
+  if (candidates.length === 0) return undefined;
+  if (!want) return candidates[0];
+  // An exact match on what the spec described, falling back to the first of the
+  // name rather than nothing: a pool missing the exact token should still make
+  // something, the way it did before sizes were part of the match.
+  const exact = candidates.find(t =>
+    (want.power === undefined || t.power === want.power)
+    && (want.toughness === undefined || t.toughness === want.toughness)
+    && (want.keyword === undefined
+      || (t.keywords ?? []).some(k => k.toLowerCase() === want.keyword!.toLowerCase())),
+  );
+  return exact ?? candidates[0];
+}
+
+/**
+ * How many of a token to make. A fixed count, unless the spec counts a subtype
+ * already on the board — Krenko makes one goblin per goblin. Either way it is
+ * multiplied by any token doublers the bot controls.
+ */
+export function tokenCount(spec: TokenSpec, battlefield: OpponentPermanent[]): number {
+  const base = spec.countPerSubtype
+    ? battlefield.filter(p =>
+        getFrontFaceTypeLine(p.card).toLowerCase().includes(spec.countPerSubtype!.toLowerCase()),
+      ).length
+    : spec.count;
+  return base * tokenMultiplier(battlefield);
+}
+
+/** Tokens a spec would make right now, ready to be put on the board. */
+export interface TokenBatch {
+  /** New permanents, in arrival order. */
+  permanents: OpponentPermanent[];
+  /** The card behind each permanent — what the ETB triggers watch arrive. */
+  arrivals: ScryfallCard[];
+  /** "2 Goblins, Beast" — the log's half of the sentence. */
+  parts: string[];
+  /**
+   * Tokens the board cap refused.
+   *
+   * Worth saying out loud: a Krenko that makes one goblin instead of twenty-nine
+   * reads as a counting bug to anyone watching the log, and the cap is the only
+   * reason. Silent truncation cost an auditor a whole pass.
+   */
+  capped: number;
+}
+
+/**
+ * Work out a token spec against a bot's board without touching it.
+ *
+ * Pure so that both sides can use it: the engine pushes the result onto the
+ * board it is mutating, and a death trigger folds it into the new opponent it
+ * is building. Before this existed only the engine could make tokens, which
+ * quietly made every token-making death trigger a no-op — a Mogg War Marshal
+ * sacrificed to echo left no goblin behind.
+ */
+export function makeTokenBatch(
+  o: Pick<Opponent, 'tokens' | 'battlefield'>,
+  specs: TokenSpec[],
+): TokenBatch {
+  const batch: TokenBatch = { permanents: [], arrivals: [], parts: [], capped: 0 };
+  for (const spec of specs) {
+    const card = findToken(o.tokens, spec.name, spec);
+    if (!card) continue;
+    // Room left under the cap, counting what this batch has already placed, so
+    // a doubling engine plateaus instead of running away with the frame rate.
+    const room = Math.max(0, MAX_BOARD - o.battlefield.length - batch.permanents.length);
+    const wanted = tokenCount(spec, o.battlefield);
+    const n = Math.min(wanted, room);
+    batch.capped += wanted - n;
+    for (let i = 0; i < n; i++) {
+      batch.permanents.push(toPermanent(card));
+      batch.arrivals.push(card);
+    }
+    if (n > 0) batch.parts.push(n > 1 ? `${n} ${card.name}s` : card.name);
+  }
+  return batch;
 }
 
 /**

@@ -16,6 +16,7 @@
  */
 import { describe, it } from 'vitest';
 import { takeTurn } from '@/services/playtest/opponents/engine';
+import { openingHand } from '@/services/playtest/opponents/deckSources';
 import { lookupSelfEffect } from '@/services/playtest/opponents/effects';
 import { botPower } from '@/services/playtest/opponents/stats';
 import { isLand } from '@/components/playtest/utils';
@@ -120,10 +121,15 @@ describe.skipIf(import.meta.env.VITE_LIVE_DIAG !== '1')('bot full-game diagnosti
         let comboTurn: number | null = null;
         let killTurn: number | null = null;
         const rand = rng(game * 7919 + 13);
-        const pool = shuffle(deckNames.map(n => fx.cards[n]), rand);
+        // The same free-mulligan rule the real bots use, driven off this game's
+        // seed so the run stays reproducible.
+        const { library, hand } = openingHand(
+          deckNames.map(n => fx.cards[n]),
+          cards => shuffle(cards, rand),
+        );
         let opp: Opponent = {
           id: `sim${game}`, name: stub.name, stubId: stub.id, blurb: '', colors: [],
-          life: 40, library: pool.slice(7), hand: pool.slice(0, 7),
+          life: 40, library, hand,
           graveyard: [], exile: [], command: [fx.cards[stub.commander]],
           commanderName: stub.commander, commanderCasts: 0, tokens,
           battlefield: [], decked: false, resistance: true, aggression: 0.5, turnsTaken: 0,

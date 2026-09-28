@@ -1,5 +1,14 @@
 [
   {
+    "version": "1.3.45",
+    "notes": [
+      "Playtest > Large pass addresing faulty card behavior within certain bot decks",      
+      "Playtest > Gave Meren an experience counter UI",
+      "Playtest > Changing a permanent's card types is now a row of buttons",
+      "Playtest > Bots keep steadier opening hands, so they stall out less"
+    ]
+  },
+  {
     "version": "1.3.44",
     "notes": [
       "Playtest > Various improvements to bot reasoning, fixed a few bugs that would occur with certain cards",      

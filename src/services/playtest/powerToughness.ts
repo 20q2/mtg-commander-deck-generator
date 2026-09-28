@@ -144,3 +144,61 @@ export function animatedTypeLine(typeLine: string): string {
   if (dash === -1) return `${typeLine.trim()} Creature`;
   return `${typeLine.slice(0, dash).trim()} Creature ${typeLine.slice(dash)}`;
 }
+
+/**
+ * The card types the edit dialog lets you toggle — the five that can sit on a
+ * permanent, in the order a type line prints them when a card has several.
+ *
+ * Instant and Sorcery are deliberately absent: nothing on the battlefield is
+ * one, and the bots' read of your board only asks these five questions.
+ */
+export const EDITABLE_CARD_TYPES = ['Artifact', 'Creature', 'Enchantment', 'Land', 'Planeswalker'] as const;
+
+export type EditableCardType = typeof EDITABLE_CARD_TYPES[number];
+
+export interface ParsedTypeLine {
+  /**
+   * Words before the dash that aren't one of the five — supertypes (Legendary,
+   * Basic, Snow) and Token. Kept verbatim and in place, because a Forest that
+   * stopped being Basic stops making mana and a token that stopped saying Token
+   * stops answering to "Zombie tokens you control get +1/+1".
+   */
+  others: string[];
+  /** The toggleable types, in the order the line printed them. */
+  types: EditableCardType[];
+  /** Everything after the dash, as typed. */
+  subtypes: string;
+}
+
+/**
+ * Split a type line into the parts the edit dialog manipulates. An en dash or a
+ * spaced hyphen is accepted alongside Scryfall's em dash, because the field used
+ * to be free text and old edits were typed by hand.
+ */
+export function parseTypeLine(typeLine: string): ParsedTypeLine {
+  const normalized = typeLine.replace(/\s-\s/g, ' — ');
+  const dash = normalized.search(/[—–]/);
+  const head = dash === -1 ? normalized : normalized.slice(0, dash);
+  const subtypes = dash === -1 ? '' : normalized.slice(dash + 1).trim();
+
+  const types: EditableCardType[] = [];
+  const others: string[] = [];
+  for (const word of head.trim().split(/\s+/).filter(Boolean)) {
+    const hit = EDITABLE_CARD_TYPES.find(t => t.toLowerCase() === word.toLowerCase());
+    if (hit) types.push(hit);
+    else others.push(word);
+  }
+  return { others, types, subtypes };
+}
+
+/**
+ * The inverse of `parseTypeLine`. Round-trips a line it didn't change, so an
+ * edit that only moved the numbers doesn't read as a type rewrite to
+ * `editedTypeLine` and light the amber bar over nothing.
+ */
+export function composeTypeLine({ others, types, subtypes }: ParsedTypeLine): string {
+  const head = [...others, ...types].join(' ').trim();
+  const tail = subtypes.trim();
+  if (!head) return tail;
+  return tail ? `${head} — ${tail}` : head;
+}
