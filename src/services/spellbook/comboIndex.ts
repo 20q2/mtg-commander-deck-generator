@@ -29,6 +29,9 @@ export interface SpellbookComboEntry {
   d: string;
   p: number;
   b: string;
+  // t = template requirements — card slots the combo needs that aren't named
+  // cards ("Creature with Persist or Undying"). Absent on ~95% of combos.
+  t?: { n: string; q: string; x?: number }[];
 }
 
 interface SpellbookComboFile {

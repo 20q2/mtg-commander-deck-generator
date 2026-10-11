@@ -57,6 +57,13 @@ interface DeckBuildingAreaProps {
   onSwapCard?: (oldCard: ScryfallCard, newCard: ScryfallCard) => void;
   /** Called when the user adds a similar-card suggestion without swapping. */
   onAddCard?: (newCard: ScryfallCard) => void;
+  /**
+   * Enables "swap in" on the manual add-a-card popover. Once the deck is at its
+   * target size, choosing a card expands that popover into the cut list instead
+   * of adding. Both must be supplied; omit to keep the plain add behavior.
+   */
+  getSwapPlan?: (card: ScryfallCard) => import('@/services/deckBuilder/swapFinder').SwapInPlan | null;
+  onConfirmSwap?: (incoming: ScryfallCard, cutName: string) => void | Promise<void>;
   /** EDHREC inclusion % map — score badges + rerank for similar-card suggestions. */
   cardInclusionMap?: Record<string, number> | null;
   /** Composite relevancy map — preferred rerank key for similar-card suggestions. */
@@ -64,6 +71,13 @@ interface DeckBuildingAreaProps {
   /** Commander color identity for the preview modal's similar-card filter. Without it
    *  the modal applies no identity filter — it never reads the store. */
   commanderColorIdentity?: string[];
+  /**
+   * The deck's target size, EXCLUDING the commander(s) — what `Deck (n)` counts.
+   * Pass the loaded deck's own target (a saved list's `deckSize`); without it
+   * this falls back to the global format setting, which is wrong for any deck
+   * that declares a size of its own.
+   */
+  targetDeckSize?: number;
   /** ?deck= reference so a card-preview tag click carries the whole deck into SpellChroma
    *  (a saved list id, or 'generated' for the ephemeral deck). Omit to seed just the card. */
   spellChromaDeckRef?: string;
@@ -311,7 +325,7 @@ const GROUP_STORAGE_KEY = 'analyze-play-area-group';
 const SORT_DIR_STORAGE_KEY = 'analyze-play-area-sort-dir';
 const DIM_ROLES_KEY = 'analyze-play-area-dim-roles';
 
-export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = false, activeRole = null, activeCmcRange = null, activeRoleGroup = null, removalNames, misfitNames, focusedMisfitName = null, focusLands = false, onCardAction, menuProps, themeMembership = null, headerExtra, onSwapCard, onAddCard, cardInclusionMap, cardRelevancyMap, commanderColorIdentity, spellChromaDeckRef }: DeckBuildingAreaProps) {
+export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = false, activeRole = null, activeCmcRange = null, activeRoleGroup = null, removalNames, misfitNames, focusedMisfitName = null, focusLands = false, onCardAction, menuProps, themeMembership = null, headerExtra, onSwapCard, onAddCard, getSwapPlan, onConfirmSwap, cardInclusionMap, cardRelevancyMap, commanderColorIdentity, targetDeckSize: targetDeckSizeProp, spellChromaDeckRef }: DeckBuildingAreaProps) {
   const buckets = useMemo(
     () => buildCurveBuckets(currentCards, { excludeNames }),
     [currentCards, excludeNames],
@@ -322,7 +336,7 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
   const deckNames = useMemo(() => namesAtCopyLimit(currentCards), [currentCards]);
   const deckFormat = useStore(s => s.customization.deckFormat);
   const partnerCommander = useStore(s => s.partnerCommander);
-  const targetDeckSize = deckFormat - (partnerCommander ? 1 : 0);
+  const targetDeckSize = targetDeckSizeProp ?? deckFormat - (partnerCommander ? 1 : 0);
 
   const [view, setView] = useState<RightView>(() => {
     const stored = localStorage.getItem(VIEW_KEY);
@@ -524,6 +538,8 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
   };
 
   const totalNonLand = buckets.countsByCmc.reduce((n, c) => n + c, 0);
+  // MDFCs count in both lanes, so subtract them back out for the deck total.
+  const deckCount = totalNonLand + buckets.landCount - buckets.mdfcCount;
 
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState<number>(Infinity);
@@ -614,20 +630,21 @@ export function DeckBuildingArea({ currentCards, excludeNames, highlightRoles = 
       <div className="flex items-center justify-between gap-3 px-2 sm:px-4 py-2 min-h-[52px] border-b border-border/30 bg-background/40">
         <div className="flex items-center gap-2 min-w-0">
           {headerExtra}
-          {(() => {
-            const deckCount = totalNonLand + buckets.landCount - buckets.mdfcCount;
-            const atTarget = deckCount === targetDeckSize;
-            return (
-              <span className={`text-sm font-bold uppercase tracking-wider inline-flex items-center gap-1.5 ${atTarget ? 'text-emerald-400' : ''}`}>
-                Deck ({deckCount})
-                {atTarget && <Check className="w-3.5 h-3.5" />}
-              </span>
-            );
-          })()}
+          <span className={`text-sm font-bold uppercase tracking-wider inline-flex items-center gap-1.5 ${deckCount === targetDeckSize ? 'text-emerald-400' : ''}`}>
+            Deck ({deckCount})
+            {deckCount === targetDeckSize && <Check className="w-3.5 h-3.5" />}
+          </span>
           {/* Manual add-a-card: shared popover with a `+` trigger, routed through
-              the same onCardAction the rest of the panel uses. */}
+              the same onCardAction the rest of the panel uses. At target it asks
+              what comes out instead of quietly pushing the deck over. */}
           {onCardAction && (
-            <AddCardPopover deckNames={deckNames} onCardAction={onCardAction} />
+            <AddCardPopover
+              deckNames={deckNames}
+              onCardAction={onCardAction}
+              swapMode={deckCount >= targetDeckSize}
+              getSwapPlan={getSwapPlan}
+              onConfirmSwap={onConfirmSwap}
+            />
           )}
           {/* View toggle — Non-lands / Lands. Replaces the side drawer. */}
           <div
@@ -1189,6 +1206,7 @@ function CurveCard({
             isBanned={menuProps!.bannedNames.has(card.name)}
             userLists={menuProps!.userLists}
             onFocus={() => document.dispatchEvent(new CustomEvent('lift-focus-card', { detail: { name: card.name } }))}
+            removeFirst
             forceOpen={menuOpen}
             onForceClose={() => setMenuOpen(false)}
           />

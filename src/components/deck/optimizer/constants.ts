@@ -306,7 +306,8 @@ export const COLOR_BARS: Record<string, string> = {
 };
 
 export function tileGradeStyles(letter: string) {
-  return FIXING_GRADE_STYLES[letter] || FIXING_GRADE_STYLES.C;
+  // Suffixed grades ('A-') share their base letter's palette.
+  return FIXING_GRADE_STYLES[letter] || FIXING_GRADE_STYLES[letter?.[0]] || FIXING_GRADE_STYLES.C;
 }
 
 // ─── Role Known Subtypes ─────────────────────────────────────────────

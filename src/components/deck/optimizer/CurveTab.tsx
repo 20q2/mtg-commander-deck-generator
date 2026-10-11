@@ -48,8 +48,15 @@ const ROLE_SHORT_LABEL: Record<RoleGroupKey, string> = {
 };
 
 function getRoleGroupGrade(current: number, target: number): string {
-  if (target === 0) return current > 0 ? 'A' : '-';
-  if (current >= target) return 'A';
+  if (target === 0 && current === 0) return '-';
+  if (current >= target) {
+    // Hitting the target isn't a clean A if the group has run well past it — those extra
+    // slots come out of the rest of the phase. One over is rounding noise; beyond that,
+    // mark it A-. A target of 0 means no expectation here, so every extra card is surplus.
+    const surplus = current - target;
+    if (surplus > 1 && (target === 0 || surplus / target > 0.25)) return 'A-';
+    return 'A';
+  }
   const gap = target - current;
   const deficit = gap / target;
   // For small targets (≤5), a single card off shouldn't tank the grade

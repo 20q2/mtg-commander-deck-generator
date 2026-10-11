@@ -34,6 +34,7 @@ import {
   Plus,
   Trash2,
   Eye,
+  EyeOff,
   MoreVertical,
   ListPlus,
   FileText,
@@ -353,6 +354,7 @@ export type CardAction =
   | { type: 'maybeboard' }
   | { type: 'mustInclude' }
   | { type: 'exclude' }
+  | { type: 'hideFromCombos' }
   | { type: 'createCombo' }
   | { type: 'addToList'; listId: string; board?: 'main' | 'sideboard' | 'maybeboard' }
   | { type: 'createListAndAdd'; listName: string };
@@ -375,6 +377,11 @@ export interface CardContextMenuProps {
   isBanned?: boolean;
   /** Show a "Create combo" entry that seeds the custom-combo form with this card. */
   hasCreateCombo?: boolean;
+  /** Combo panel only — show "Hide combos with this card", a view-level filter that
+   *  doesn't touch the deck or the generator's excluded-cards list. */
+  hasHideFromCombos?: boolean;
+  /** Whether the card is already on that hide list, so the entry reads as a toggle. */
+  isHiddenFromCombos?: boolean;
   /** Commander row — hide deck-management actions (remove/board/must-include/exclude), keep Create combo + Add to list/deck. */
   isCommander?: boolean;
   /** Same hiding as isCommander, for contexts with no working deck at all (brew's packs). */
@@ -383,13 +390,16 @@ export interface CardContextMenuProps {
   forceOpen?: boolean;
   onForceClose?: () => void;
   onFocus?: () => void;   // optional "Focus on graph" action (Lift Web); shown at the top when provided
+  /** Put "Remove from Deck" above `onFocus` instead of below it (Inspector deck area,
+   *  where removing is the common action and the graph is a secondary destination). */
+  removeFirst?: boolean;
   /** Optional destructive action, shown at the top (brew: cut the card from the rest of the run). */
   onCut?: () => void;
   /** Whether `onCut` is currently marked, so the entry reads as a toggle. */
   isCut?: boolean;
 }
 
-export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, hasCreateCombo, isCommander, hideDeckActions, userLists, noun = 'deck', forceOpen, onForceClose, onFocus, onCut, isCut }: CardContextMenuProps) {
+export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, hasCreateCombo, hasHideFromCombos, isHiddenFromCombos, isCommander, hideDeckActions, userLists, noun = 'deck', forceOpen, onForceClose, onFocus, removeFirst, onCut, isCut }: CardContextMenuProps) {
   const workingNoun = noun === 'list' ? 'List' : 'Deck';
   const [internalOpen, setInternalOpen] = React.useState(false);
   const [showLists, setShowLists] = React.useState(false);
@@ -422,6 +432,16 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
 
   const menuBtn = 'group/item w-full text-left px-3 py-1.5 text-xs hover:bg-accent flex items-center gap-2 rounded transition-colors';
 
+  const canDeckActions = !isCommander && !hideDeckActions;
+  const removeEntry = hasRemove && canDeckActions ? (
+    <button className={menuBtn} onClick={() => fire({ type: 'remove' })}>
+      <Trash2 className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-red-400 transition-colors" />
+      Remove from {workingNoun}
+    </button>
+  ) : null;
+  // When hoisted, Remove leads the menu and Focus follows it in the same top section.
+  const hoistRemove = !!(removeFirst && removeEntry);
+
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
@@ -433,12 +453,15 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" side="bottom" className="w-48 p-1" onClick={(e) => e.stopPropagation()}>
-        {onFocus && (
+        {(hoistRemove || onFocus) && (
           <>
-            <button className={menuBtn} onClick={() => { onFocus(); handleOpenChange(false); }}>
-              <Crosshair className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-fuchsia-400 transition-colors" />
-              Focus on graph
-            </button>
+            {hoistRemove && removeEntry}
+            {onFocus && (
+              <button className={menuBtn} onClick={() => { onFocus(); handleOpenChange(false); }}>
+                <Crosshair className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-fuchsia-400 transition-colors" />
+                Focus on graph
+              </button>
+            )}
             <div className="h-px bg-border my-1" />
           </>
         )}
@@ -451,7 +474,7 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
             <div className="h-px bg-border my-1" />
           </>
         )}
-        {!isCommander && !hideDeckActions && (
+        {canDeckActions && (
           <>
             {hasAddToDeck && (
               <button className={menuBtn} onClick={() => fire({ type: 'addToDeck' })}>
@@ -459,12 +482,7 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
                 Add to {workingNoun}
               </button>
             )}
-            {hasRemove && (
-              <button className={menuBtn} onClick={() => fire({ type: 'remove' })}>
-                <Trash2 className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-red-400 transition-colors" />
-                Remove from {workingNoun}
-              </button>
-            )}
+            {!hoistRemove && removeEntry}
             {hasSideboard && (
               <button className={menuBtn} onClick={() => fire({ type: 'sideboard' })}>
                 {addToBoard
@@ -479,7 +497,7 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
                 {addToBoard ? 'Add to Maybeboard' : isInMaybeboard ? 'Remove from Maybeboard' : 'Move to Maybeboard'}
               </button>
             )}
-            {(hasRemove || hasAddToDeck || hasSideboard || hasMaybeboard) && (
+            {((hasRemove && !hoistRemove) || hasAddToDeck || hasSideboard || hasMaybeboard) && (
               <div className="h-px bg-border my-1" />
             )}
             <button className={menuBtn} onClick={() => fire({ type: 'mustInclude' })}>
@@ -492,10 +510,23 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
             </button>
           </>
         )}
+        {/* Combo-panel view filter. Independent of the deck and of Exclude — it only
+            decides which combos the panel lists. */}
+        {hasHideFromCombos && (
+          <>
+            <div className="h-px bg-border my-1" />
+            <button className={menuBtn} onClick={() => fire({ type: 'hideFromCombos' })}>
+              {isHiddenFromCombos
+                ? <Eye className="w-3.5 h-3.5 text-amber-400 transition-colors" />
+                : <EyeOff className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-amber-400 transition-colors" />}
+              {isHiddenFromCombos ? 'Show combos with this card' : 'Hide combos with this card'}
+            </button>
+          </>
+        )}
         {/* Create combo — isolated in its own section between dividers. */}
         {hasCreateCombo && (
           <>
-            {!isCommander && <div className="h-px bg-border my-1" />}
+            {!isCommander && !hasHideFromCombos && <div className="h-px bg-border my-1" />}
             <button className={menuBtn} onClick={() => fire({ type: 'createCombo' })}>
               <Sparkles className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-violet-400 transition-colors" />
               Create combo
@@ -5339,6 +5370,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                           ? cards.filter(({ card }) => combinedMatchingIds.has(card.id))
                           : cards;
                         if (visibleCards.length === 0) return null;
+                        const visibleCount = visibleCards.reduce((sum, c) => sum + c.quantity, 0);
                         const isCommanderGroup = label === 'Commander';
                         const isTypeGroup = groupBy === 'type';
                         const collapsed = collapsedGridCategories.has(label);
@@ -5366,7 +5398,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                                   return <RoleIcon className="w-3.5 h-3.5 text-muted-foreground/60" />;
                                 })()}
                                 <span className="text-xs font-medium text-muted-foreground">{groupBy === 'cmc' && label !== 'Lands' ? `CMC ${label}` : label}</span>
-                                <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
+                                <span className="text-[10px] text-muted-foreground/60">{visibleCount}</span>
                               </button>
                               {!collapsed && (
                                 <StacksColumn
@@ -5388,6 +5420,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                       ? cards.filter(({ card }) => combinedMatchingIds.has(card.id))
                       : cards;
                     if (visibleCards.length === 0) return null;
+                    const visibleCount = visibleCards.reduce((sum, c) => sum + c.quantity, 0);
                     const isCommanderGroup = label === 'Commander';
                     const isTypeGroup = groupBy === 'type';
                     return (
@@ -5407,7 +5440,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                             return <RoleIcon className="w-3.5 h-3.5 text-muted-foreground/60" />;
                           })()}
                           <span className="text-xs font-medium text-muted-foreground">{label}</span>
-                          <span className="text-[10px] text-muted-foreground/60">{visibleCards.length}</span>
+                          <span className="text-[10px] text-muted-foreground/60">{visibleCount}</span>
                         </button>
                         {!collapsedGridCategories.has(label) && (
                           <div ref={gridAnimateRef} className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2">

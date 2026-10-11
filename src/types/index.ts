@@ -268,9 +268,27 @@ export interface DeckComposition {
 }
 
 // EDHREC Combo types
+/**
+ * A card slot a combo needs that isn't a specific card — Commander Spellbook
+ * calls these templates. "Nim Deathmantle + Ashnod's Altar" is a two-card combo
+ * on paper but does nothing without a persist/undying creature to loop, and the
+ * steps reference it throughout. Surfacing these is the difference between a
+ * combo the deck can run and one it only looks like it can.
+ */
+export interface ComboTemplate {
+  /** Human label, e.g. "Creature with Persist or Undying". */
+  name: string;
+  /** Scryfall query matching the slot, e.g. `t:creature (keyword:persist or keyword:undying)`. */
+  scryfallQuery: string;
+  /** How many such cards the combo needs. Omitted when 1. */
+  quantity?: number;
+}
+
 export interface EDHRECCombo {
   comboId: string;
   cards: { name: string; id: string }[];
+  /** Unnamed card slots the combo also needs (persist creature, mana rock, …). */
+  templates?: ComboTemplate[];
   results: string[];
   deckCount: number;
   rank: number;
@@ -284,6 +302,12 @@ export interface EDHRECCombo {
 export interface DetectedCombo {
   comboId: string;
   cards: string[];
+  /**
+   * Unnamed card slots the combo also needs. NOTE: `isComplete` reflects the
+   * named cards only — a combo with an unsatisfied template can read complete
+   * while being unassemblable, so the UI shows these as their own requirement.
+   */
+  templates?: ComboTemplate[];
   results: string[];
   isComplete: boolean;
   missingCards: string[];

@@ -55,6 +55,19 @@ interface SpellbookVariant {
   legalities?: { commander?: boolean };
   uses?: { card?: { name?: string }; mustBeCommander?: boolean }[];
   produces?: { feature?: { name?: string } }[];
+  // Template requirements: "any card matching this Scryfall query", e.g.
+  // "Creature with Persist or Undying". ~5% of commander-legal variants have
+  // one, concentrated in the most popular combos — Nim Deathmantle + Ashnod's
+  // Altar is nothing without the persist creature the steps keep referring to.
+  requires?: { quantity?: number; template?: { name?: string; scryfallQuery?: string } }[];
+}
+
+// A named card-slot a combo needs beyond its listed cards.
+// n = template name, q = Scryfall query that matches it, x = quantity (omitted when 1).
+interface TrimmedTemplate {
+  n: string;
+  q: string;
+  x?: number;
 }
 
 // One trimmed combo as shipped to the client (compact keys — ~40k of these):
@@ -68,6 +81,8 @@ interface TrimmedCombo {
   d: string;
   p: number;
   b: string;
+  // Template requirements, omitted entirely when there are none (~95% of combos).
+  t?: TrimmedTemplate[];
 }
 
 export function trimVariant(v: SpellbookVariant): { combo: TrimmedCombo; mask: number } | null {
@@ -83,6 +98,14 @@ export function trimVariant(v: SpellbookVariant): { combo: TrimmedCombo; mask: n
   if (cards.length < 2) return null;
   const results = (v.produces ?? []).map(p => p.feature?.name).filter((n): n is string => !!n);
 
+  const templates: TrimmedTemplate[] = [];
+  for (const req of v.requires ?? []) {
+    const name = req.template?.name;
+    if (!name) continue;
+    const qty = req.quantity ?? 1;
+    templates.push({ n: name, q: req.template?.scryfallQuery ?? '', ...(qty > 1 ? { x: qty } : {}) });
+  }
+
   return {
     combo: {
       i: v.id,
@@ -91,6 +114,7 @@ export function trimVariant(v: SpellbookVariant): { combo: TrimmedCombo; mask: n
       d: v.identity || 'C',
       p: v.popularity ?? 0,
       b: v.bracketTag ?? '',
+      ...(templates.length > 0 ? { t: templates } : {}),
     },
     mask: identityToMask(v.identity || ''),
   };

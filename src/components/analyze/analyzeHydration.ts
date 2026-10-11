@@ -52,6 +52,7 @@ function detectCombosInDeck(
       return {
         comboId: combo.comboId,
         cards: comboCardNames,
+        templates: combo.templates,
         results: combo.results,
         isComplete: missingCards.length === 0,
         missingCards,

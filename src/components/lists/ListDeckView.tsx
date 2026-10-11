@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Image as ImageIcon, Swords, Scissors, Sparkles, RotateCw, Redo2, Library, Trash2, Check, Share } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Pencil, CopyPlus, X, Plus, MoreHorizontal, ChevronDown, ChevronRight, ClipboardPaste, Bold, Italic, Heading2, ListOrdered, Minus, Image as ImageIcon, Swords, Scissors, Sparkles, RotateCw, Redo2, Library, Trash2, Check, Share} from 'lucide-react';
 import { FloatingListPanel } from '@/components/lists/FloatingListPanel';
 import { SpellChromaIcon } from '@/components/spellchroma/SpellChromaIcon';
 import { InspectorIcon } from '@/components/analyze/InspectorIcon';
@@ -40,6 +40,7 @@ import { getCollectionNameSet } from '@/services/collection/db';
 import { buildThemeFit, literalThemeMembers } from '@/services/deckBuilder/themeFit';
 import { rebuildRelevancyMap } from '@/services/deckBuilder/relevancyMap';
 import { AddCardsPanel } from '@/components/deck/AddCardsPanel';
+import { findSwapCandidates } from '@/services/deckBuilder/swapFinder';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
@@ -277,6 +278,7 @@ function detectCombosInDeck(
       return {
         comboId: combo.comboId,
         cards: comboCardNames,
+        templates: combo.templates,
         results: combo.results,
         isComplete: missingCards.length === 0,
         missingCards,
@@ -777,24 +779,29 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
       : ''),
     [list.cachedColorIdentity, list.chosenColor],
   );
-  // Color-identity violations — derive the commander's identity from the
-  // loaded ScryfallCards so we don't show false positives during store rehydration.
-  const colorIdentityViolations = useMemo(() => {
-    if (!list.commanderName) return [];
+  // The colors this deck may legally play — derived from the loaded ScryfallCards
+  // so we don't show false positives during store rehydration. null means "not
+  // yet knowable", which every consumer must read as "don't judge legality".
+  const allowedColors = useMemo<Set<string> | null>(() => {
+    if (!list.commanderName) return null;
     const commanderCard = generatedDeck?.commander;
     const partnerCard = generatedDeck?.partnerCommander;
-    if (!commanderCard) return [];
+    if (!commanderCard) return null;
     // The partner contributes colors, so judging before it lands flags every off-color card.
-    if (list.partnerCommanderName && !partnerCard) return [];
-    const allowed = new Set<string>([
+    if (list.partnerCommanderName && !partnerCard) return null;
+    return new Set<string>([
       ...combineColorIdentity(commanderCard, list.partnerCommanderName ? partnerCard : null),
       // A persisted chosenColor is itself proof a "choose a color" commander is in the zone
       // (the store only keeps one while that's true), so trust it without re-deriving.
       ...(list.chosenColor ? [list.chosenColor] : []),
     ]);
-    const cards: ScryfallCard[] = generatedDeck ? Object.values(generatedDeck.categories).flat() : [];
-    return cards.filter(c => (c.color_identity || []).some(color => !allowed.has(color)));
   }, [generatedDeck, list.commanderName, list.partnerCommanderName, list.chosenColor]);
+
+  const colorIdentityViolations = useMemo(() => {
+    if (!allowedColors) return [];
+    const cards: ScryfallCard[] = generatedDeck ? Object.values(generatedDeck.categories).flat() : [];
+    return cards.filter(c => (c.color_identity || []).some(color => !allowedColors.has(color)));
+  }, [generatedDeck, allowedColors]);
 
   // Singleton violations — duplicate non-basic cards. Uses getMaxCopies() so
   // basics and "any number" / capped multi-copy cards are recognized from card
@@ -1924,6 +1931,9 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
   useEffect(() => {
     if (!showBulkAdd) return;
     const handleClick = (e: MouseEvent) => {
+      // The swap flyout is portalled to body, so it is "outside" by DOM but
+      // very much inside by intent — clicking an option must not dismiss this.
+      if ((e.target as Element | null)?.closest?.('[data-swap-flyout]')) return;
       if (bulkAddRef.current && !bulkAddRef.current.contains(e.target as Node)) {
         closeBulkAddImporting();
       }
@@ -1936,6 +1946,9 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
   useEffect(() => {
     if (!showHeaderBulkAdd) return;
     const handleClick = (e: MouseEvent) => {
+      // The swap flyout is portalled to body, so it is "outside" by DOM but
+      // very much inside by intent — clicking an option must not dismiss this.
+      if ((e.target as Element | null)?.closest?.('[data-swap-flyout]')) return;
       if (headerBulkAddRef.current && !headerBulkAddRef.current.contains(e.target as Node)) {
         closeHeaderBulkAddImporting();
       }
@@ -1983,6 +1996,65 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
     setShowSearchResults(false);
     showActionToast(`Added ${card.name}`, () => onRemoveCardsRef.current?.([card.name]), primaryTypeFromLine(card.type_line));
   }, [onAddCards, pushDeckHistory, showActionToast]);
+
+  // ── Swap in — "I picked up this card, what comes out?" ──────────────────
+  // Only engages once the deck is at its target size. Under target there is
+  // nothing to trade, so the plain add stands and this never appears.
+
+  const deckNameSet = useMemo(() => {
+    const names = new Set<string>();
+    for (const n of list.cards) {
+      names.add(n);
+      if (n.includes(' // ')) names.add(n.split(' // ')[0]);
+    }
+    return names;
+  }, [list.cards]);
+
+  // Shown only once the deck is actually full: under target there is nothing to
+  // trade, you just add. Also waits on the same enrichment the Trim drawer does
+  // plus the card objects the finder ranks over — without that the panel opens
+  // empty and reads as a verdict rather than as "not ready".
+  const swapReady = trimReady
+    && allDeckCards.length > 0
+    && !!onMoveToMaybeboard
+    && !!list.deckSize
+    && list.cards.length >= list.deckSize;
+
+  const getSwapPlan = useCallback((incoming: ScryfallCard) => findSwapCandidates({
+    incoming,
+    deckCards: allDeckCards,
+    deckNames: deckNameSet,
+    commanderNames: [list.commanderName, list.partnerCommanderName].filter((n): n is string => !!n),
+    allowedColors: allowedColors ?? undefined,
+    targetSize: list.deckSize ?? list.cards.length,
+    currentSize: list.cards.length,
+    roleCounts: generatedDeck?.roleCounts,
+    roleTargets: generatedDeck?.roleTargets,
+    cardSynergyMap: generatedDeck?.cardSynergyMap,
+    // Theme-aware relevancy when the list declares themes, matching what the
+    // Trim drawer ranks on — otherwise the two disagree about the same deck.
+    cardRelevancyMap: trimThemeRelevancy ?? generatedDeck?.cardRelevancyMap,
+    mustIncludeNames: new Set(customization.mustIncludeCards),
+    detectedCombos: generatedDeck?.detectedCombos,
+  }), [allDeckCards, deckNameSet, list.commanderName, list.partnerCommanderName,
+       list.deckSize, list.cards.length, allowedColors, generatedDeck, trimThemeRelevancy,
+       customization.mustIncludeCards]);
+
+  const handleConfirmSwap = useCallback((incoming: ScryfallCard, cutName: string) => {
+    if (!onAddCards || !onMoveToMaybeboard) return;
+    // Cut to the maybeboard rather than deleting: the swap stays reversible and
+    // the card the player set aside is still findable.
+    onMoveToMaybeboard([cutName]);
+    onAddCards([incoming.name], 'deck');
+    pushDeckHistory({ action: 'swap', cardName: cutName, targetCardName: incoming.name });
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearchResults(false);
+    showActionToast(`${cutName} out, ${incoming.name} in`, () => {
+      onRemoveCardsRef.current?.([incoming.name]);
+      onMoveToDeck?.([cutName], 'maybeboard');
+    }, primaryTypeFromLine(incoming.type_line));
+  }, [onAddCards, onMoveToMaybeboard, onMoveToDeck, pushDeckHistory, showActionToast]);
 
   // --- Drag a card link (EDHREC / Scryfall / Moxfield) onto the deck to add it ---
   const { isDraggingCard, dropHandlers } = useCardLinkDrop({
@@ -2853,15 +2925,29 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
           onCopyShareLink={unsaved ? undefined : handleCopyShareLink}
           headerBulkAdd={onAddCards ? (
             <div className="relative" ref={headerBulkAddRef}>
-              <button
-                onClick={() => { if (showHeaderBulkAdd) closeHeaderBulkAddImporting(); else setShowHeaderBulkAdd(true); }}
-                title="Add cards from a list"
-                className={`flex items-center bg-card/50 rounded-md p-1.5 border border-border/50 transition-colors ${showHeaderBulkAdd ? 'text-foreground bg-accent' : 'text-muted-foreground hover:text-foreground'}`}
-              >
-                <Plus className="w-4 h-4" />
-              </button>
+              <TooltipProvider delayDuration={200}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => { if (showHeaderBulkAdd) closeHeaderBulkAddImporting(); else setShowHeaderBulkAdd(true); }}
+                      aria-label="Add cards"
+                      // Open reads as the accent, not a neutral grey: this button
+                      // owns a panel that covers the deck, so it should be obvious
+                      // which control put it there.
+                      className={`flex items-center rounded-md p-1.5 border transition-colors ${
+                        showHeaderBulkAdd
+                          ? 'border-violet-400/50 bg-violet-500/20 text-violet-100'
+                          : 'border-border/50 bg-card/50 text-muted-foreground hover:text-foreground'
+                      }`}
+                    >
+                      <Plus className="w-4 h-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>Add Cards</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               {showHeaderBulkAdd && (
-                <div className="absolute top-full mt-2 right-0 z-50 w-[min(90vw,24rem)] rounded-lg border border-border bg-card shadow-2xl p-4">
+                <div className="absolute top-full mt-2 right-0 z-50 w-[min(90vw,24rem)] rounded-lg border border-border bg-card shadow-2xl overflow-hidden">
                   <AddCardsPanel
                     ref={headerBulkImporterRef}
                     autoFocus
@@ -2870,6 +2956,9 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
                     onAddCard={handleAddCardByName}
                     label="Add Cards"
                     showDragDropHint
+                    swapEnabled={swapReady}
+                    getSwapPlan={getSwapPlan}
+                    onConfirmSwap={handleConfirmSwap}
                     onCancel={() => setShowHeaderBulkAdd(false)}
                   />
                 </div>
@@ -2977,7 +3066,7 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
                   </button>
                   {/* Desktop: floating panel above button */}
                   {showBulkAdd && (
-                    <div className="hidden sm:block absolute bottom-full mb-2 right-0 z-50 w-96 rounded-lg border border-border bg-card shadow-2xl p-4">
+                    <div className="hidden sm:block absolute bottom-full mb-2 right-0 z-50 w-96 rounded-lg border border-border bg-card shadow-2xl overflow-hidden">
                       <AddCardsPanel
                         ref={bulkImporterDesktopRef}
                         autoFocus
@@ -2986,6 +3075,9 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
                         onAddCard={handleAddCardByName}
                         label="Bulk Add Cards"
                         showDragDropHint
+                        swapEnabled={swapReady}
+                        getSwapPlan={getSwapPlan}
+                        onConfirmSwap={handleConfirmSwap}
                         onCancel={() => setShowBulkAdd(false)}
                       />
                     </div>
@@ -2996,12 +3088,16 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
               {showBulkAdd && (
                 <div className="sm:hidden">
                   <AddCardsPanel
+                    contentPadding="none"
                     ref={bulkImporterMobileRef}
                     existingNames={allListNames}
                     onAddCards={handleBulkImport}
                     onAddCard={handleAddCardByName}
                     label="Bulk Add Cards"
                     showDragDropHint
+                    swapEnabled={swapReady}
+                    getSwapPlan={getSwapPlan}
+                    onConfirmSwap={handleConfirmSwap}
                     onCancel={() => setShowBulkAdd(false)}
                   />
                 </div>

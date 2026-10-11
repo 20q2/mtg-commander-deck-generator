@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { Plus, X, Loader2, MoreHorizontal, Layers, Bookmark, CornerDownLeft } from 'lucide-react';
+import { Plus, X, Loader2, MoreHorizontal, Layers, Bookmark, CornerDownLeft, ArrowLeftRight } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import { getCardByName } from '@/services/scryfall/client';
 import { useCardNameSearch } from '@/hooks/useCardNameSearch';
@@ -7,6 +7,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { CardAction } from '@/components/deck/DeckDisplay';
+import type { SwapInPlan } from '@/services/deckBuilder/swapFinder';
+import { SwapInPanel } from '@/components/lists/SwapInPanel';
 
 /**
  * The deck pane's manual "add a card" control: a `+` button that opens a small
@@ -17,10 +19,21 @@ import type { CardAction } from '@/components/deck/DeckDisplay';
  * uses, so a saved list persists + toasts for free. When a saved list is loaded
  * (`boardsEnabled`), each result also offers sideboard/maybeboard destinations.
  */
-export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = false, deckNames, onCardAction }: {
+export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = false, deckNames, onCardAction, swapMode = false, getSwapPlan, onConfirmSwap }: {
   /** Reserved for future identity-aware hinting; suggestions are name-based today. */
   colorIdentity?: string[];
   boardsEnabled?: boolean;
+  /**
+   * The deck is already at its target size, so a plain add would push it over.
+   * Rows then offer "Swap in" and this popover EXPANDS IN PLACE into the cut
+   * recommendation rather than closing and handing off to a floating panel —
+   * the search stays behind it, one back-step away. Requires `getSwapPlan`.
+   */
+  swapMode?: boolean;
+  /** Ranks what could come out for this card. Synchronous; no loading state. */
+  getSwapPlan?: (card: ScryfallCard) => SwapInPlan | null;
+  /** Applies the chosen trade. */
+  onConfirmSwap?: (incoming: ScryfallCard, cutName: string) => void | Promise<void>;
   /**
    * Names to keep out of the suggestions. Pass the cards that can't take another
    * copy — `namesAtCopyLimit` in lib/utils — not every name in the deck, or the
@@ -34,6 +47,9 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
   const [boardPickerFor, setBoardPickerFor] = useState<string | null>(null);
   // While a chosen name is being resolved to a full card.
   const [resolving, setResolving] = useState<string | null>(null);
+  // The card being swapped in, once chosen. Non-null means this popover is
+  // showing the cut recommendation instead of the search.
+  const [pendingSwap, setPendingSwap] = useState<ScryfallCard | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const exclude = useMemo(() => new Set([...deckNames].map(n => n.toLowerCase())), [deckNames]);
@@ -57,6 +73,22 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
     }
   };
 
+  const swapping = swapMode && !!getSwapPlan && !!onConfirmSwap;
+
+  // At target, the chosen card expands this same popover into the cut list
+  // instead of being added. The search is kept mounted behind it so "back" is
+  // a step, not a reopen.
+  const requestSwap = async (name: string) => {
+    setResolving(name);
+    try {
+      setPendingSwap(await getCardByName(name, true));
+    } catch {
+      /* lookup failed — leave the query so the user can retry */
+    } finally {
+      setResolving(null);
+    }
+  };
+
   // Enter adds the top suggestion, or resolves the typed name fuzzily so a
   // near-miss (spelling/casing) still lands.
   const onKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -64,10 +96,15 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
     e.preventDefault();
     const name = query.trim();
     if (!name) return;
-    if (suggestions[0]) { void add(suggestions[0], 'addToDeck'); return; }
+    if (suggestions[0]) {
+      if (swapping) void requestSwap(suggestions[0]);
+      else void add(suggestions[0], 'addToDeck');
+      return;
+    }
     setResolving(name);
     try {
       const card = await getCardByName(name, false);
+      if (swapping) { setPendingSwap(card); return; }
       onCardAction(card, { type: 'addToDeck' });
       clear();
       inputRef.current?.focus();
@@ -79,14 +116,41 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
   };
 
   return (
-    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) { clear(); setBoardPickerFor(null); } }}>
+    <Popover open={open} onOpenChange={(o) => { setOpen(o); if (!o) { clear(); setBoardPickerFor(null); setPendingSwap(null); } }}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" title="Add a card" aria-label="Add a card"
           className="shrink-0 h-7 w-7 text-muted-foreground/80 hover:text-foreground">
           <Plus className="w-4 h-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 p-2">
+      <PopoverContent
+        align="start"
+        className={pendingSwap ? 'w-80 p-0 overflow-hidden' : 'w-80 p-2'}
+        onPointerDownOutside={(e) => {
+          // Same exemption: the category flyout portals out of this subtree.
+          if ((e.target as Element | null)?.closest?.('[data-swap-flyout]')) e.preventDefault();
+        }}
+      >
+        {pendingSwap ? (
+          <SwapInPanel
+            incoming={pendingSwap}
+            plan={getSwapPlan!(pendingSwap) ?? { roomToAdd: false, short: 0, incomingRole: null, candidates: [] }}
+            onBack={() => { setPendingSwap(null); inputRef.current?.focus(); }}
+            onSwap={async (cutName) => {
+              await onConfirmSwap!(pendingSwap, cutName);
+              setPendingSwap(null);
+              clear();
+              setOpen(false);
+            }}
+            onAddAnyway={() => {
+              onCardAction(pendingSwap, { type: 'addToDeck' });
+              setPendingSwap(null);
+              clear();
+              setOpen(false);
+            }}
+          />
+        ) : (
+        <>
         <div className="relative">
           <Plus className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
           <Input
@@ -111,10 +175,21 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
           <div className="mt-2 max-h-[300px] overflow-y-auto flex flex-col">
             {suggestions.map((name) => (
               <div key={name} className="flex items-center gap-2 rounded-md hover:bg-accent/50 transition-colors group">
-                <button type="button" onClick={() => void add(name, 'addToDeck')} disabled={!!resolving}
+                <button
+                  type="button"
+                  onClick={() => swapping ? void requestSwap(name) : void add(name, 'addToDeck')}
+                  disabled={!!resolving}
                   className="flex flex-1 min-w-0 items-center gap-2 px-2 py-2 text-left disabled:opacity-60">
-                  <Plus className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
+                  {swapping
+                    ? <ArrowLeftRight className="w-3.5 h-3.5 text-violet-300/70 shrink-0" />
+                    : <Plus className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />}
                   <span className="flex-1 min-w-0 truncate text-sm">{name}</span>
+                  {/* At target the click means something different, so the row says so. */}
+                  {swapping && (
+                    <span className="shrink-0 text-[10px] font-semibold text-violet-300/80 opacity-0 group-hover:opacity-100 transition-opacity">
+                      Swap in
+                    </span>
+                  )}
                 </button>
                 {boardsEnabled && boardPickerFor === name ? (
                   <div className="flex shrink-0 items-center gap-1 pr-1.5">
@@ -140,8 +215,11 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
           <p className="mt-2 px-2 py-3 text-xs text-center text-muted-foreground">No cards match that name.</p>
         ) : (
           <p className="mt-2 px-2 py-2 text-[11px] text-muted-foreground/80 flex items-center gap-1.5">
-            Type a name, then click a result or press <CornerDownLeft className="w-3 h-3" /> to add.
+            Type a name, then click a result or press <CornerDownLeft className="w-3 h-3" />
+            {swapping ? ' to pick what it replaces.' : ' to add.'}
           </p>
+        )}
+        </>
         )}
       </PopoverContent>
     </Popover>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { findSwapCandidates } from '@/services/deckBuilder/swapFinder';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, FlaskConical } from 'lucide-react';
 import { TAB_SLUG_BY_KEY, TAB_KEY_BY_SLUG, type TabKey } from '@/components/deck/optimizer/constants';
@@ -647,6 +648,55 @@ export function AnalyzePage() {
     maybeboardNames: new Set<string>(),
   }), [lists, customization.mustIncludeCards, customization.bannedCards]);
 
+  // The deck's target size, EXCLUDING the commander(s) — the basis the deck pane
+  // counts in. A saved list's own deckSize wins over the global format setting;
+  // an ephemeral deck has no declared target, so its current size is the target.
+  const analyzerDeckSize = useMemo(() => {
+    if (!generatedDeck) return 0;
+    const partnerOffset = generatedDeck.partnerCommander ? 1 : 0;
+    const sourceList = source?.kind === 'list' ? lists.find(l => l.id === source.listId) : undefined;
+    if (sourceList?.deckSize != null) return Math.max(sourceList.deckSize - 1 - partnerOffset, 0);
+    const totalCards = (generatedDeck.commander ? 1 : 0) + partnerOffset
+      + Object.values(generatedDeck.categories).reduce((n, arr) => n + arr.length, 0);
+    return Math.max(totalCards - 1 - partnerOffset, 0);
+  }, [generatedDeck, source, lists]);
+
+  // ── Swap in — the add-a-card popover's cut recommendation ──────────────
+  // Computed on demand rather than held in state: the popover owns the chosen
+  // card and expands in place, so this page only has to answer "what could come
+  // out for this?" and apply the result.
+  const getAnalyzerSwapPlan = useCallback((incoming: ScryfallCard) => {
+    if (!generatedDeck) return null;
+    const deckCards = Object.values(generatedDeck.categories).flat();
+    const commanderNames = [generatedDeck.commander?.name, generatedDeck.partnerCommander?.name]
+      .filter((n): n is string => !!n);
+    return findSwapCandidates({
+      incoming,
+      deckCards,
+      deckNames: new Set(deckCards.map(c => c.name)),
+      commanderNames,
+      allowedColors: colorIdentityStore?.length ? new Set(colorIdentityStore) : undefined,
+      // Both sizes exclude the commander, matching the number the deck pane
+      // gates swap mode on — otherwise the two disagree about having room.
+      targetSize: analyzerDeckSize,
+      currentSize: deckCards.length,
+      roleCounts: generatedDeck.roleCounts,
+      roleTargets: generatedDeck.roleTargets,
+      cardSynergyMap: generatedDeck.cardSynergyMap,
+      cardRelevancyMap: generatedDeck.cardRelevancyMap,
+      mustIncludeNames: new Set(customization.mustIncludeCards),
+      detectedCombos: generatedDeck.detectedCombos,
+    });
+  }, [generatedDeck, analyzerDeckSize, colorIdentityStore, customization.mustIncludeCards]);
+
+  const handleConfirmAnalyzerSwap = useCallback((incoming: ScryfallCard, cutName: string) => {
+    const cut = generatedDeck
+      ? Object.values(generatedDeck.categories).flat().find(c => c.name === cutName)
+      : undefined;
+    if (!cut) return;
+    handleAnalyzerSwapCard(cut, incoming);
+  }, [generatedDeck, handleAnalyzerSwapCard]);
+
   const deckLoaded = generatedDeck && source;
 
   // Show a dedicated loading screen when arriving fresh via /analyze/<listId>
@@ -690,15 +740,7 @@ export function AnalyzePage() {
   }
 
   if (deckLoaded) {
-    const partnerOffset = generatedDeck.partnerCommander ? 1 : 0;
-    const totalCards =
-      (generatedDeck.commander ? 1 : 0)
-      + partnerOffset
-      + Object.values(generatedDeck.categories).reduce((n, arr) => n + arr.length, 0);
     const sourceList = source.kind === 'list' ? lists.find(l => l.id === source.listId) : undefined;
-    const analyzerDeckSize = sourceList?.deckSize != null
-      ? Math.max(sourceList.deckSize - 1 - partnerOffset, 0)
-      : Math.max(totalCards - 1 - partnerOffset, 0);
 
     const sourceLabel = source.kind === 'paste'
       ? 'Pasted'
@@ -800,6 +842,9 @@ export function AnalyzePage() {
                 cardInclusionMap={generatedDeck.cardInclusionMap}
                 cardRelevancyMap={generatedDeck.cardRelevancyMap}
                 commanderColorIdentity={colorIdentityStore}
+                targetDeckSize={analyzerDeckSize}
+                getSwapPlan={getAnalyzerSwapPlan}
+                onConfirmSwap={handleConfirmAnalyzerSwap}
               />
             }
           />

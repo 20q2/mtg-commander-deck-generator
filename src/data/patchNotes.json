@@ -1,5 +1,15 @@
 [
   {
+    "version": "1.3.46",
+    "notes": [
+      "New Swap mode available when adding a card to a deck. See at a glance what cards might have a good slot to replace for the card you'd like to add (thank you Noobais for the feature suggestion and code contributions)",
+      "Newly swapped cards are moved to your maybeboard",
+      "Inspector: Adding a card offers the same swap suggestions once your deck is full",      
+      "Combos: Combos that also need an unnamed card — like \"a creature with persist\" — now show that requirement instead of looking complete when they aren't",
+      "You can now mute combo cards you don't want cluttering the combo list"
+    ]
+  },
+  {
     "version": "1.3.45",
     "notes": [
       "Playtest > Large pass addresing faulty card behavior within certain bot decks",      

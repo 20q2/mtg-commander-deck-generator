@@ -9,7 +9,7 @@ import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay'
 import { ManaText } from '@/components/ui/mtg-icons';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X, ListChecks, Footprints, Infinity, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X, ListChecks, Footprints, Infinity, Loader2, Pencil, Trash2, EyeOff, HelpCircle } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
@@ -59,6 +59,10 @@ const cardDataCache = new Map<string, ScryfallCard>();
 // Near-misses render a page at a time — the Spellbook index can surface
 // thousands in a single deck's colors, far more than the panel can hold.
 const NEAR_MISS_PAGE_SIZE = 50;
+
+// Cards muted from the combo panel, shared across decks — "I never want to see
+// Thassa's Oracle lines" is a standing preference, not a per-deck one.
+const HIDDEN_COMBO_CARDS_KEY = 'combos.hiddenCards';
 
 // EDHREC prereqs often include trivial card-location statements like
 // "X and Y on the battlefield." that just restate where the combo cards belong.
@@ -166,6 +170,24 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   useEffect(() => {
     if (typeof window !== 'undefined') localStorage.setItem('combos.showPrereqs', String(showPrereqs));
   }, [showPrereqs]);
+  // Cards the user has muted from the combo panel. Purely a view filter — unlike
+  // the generator's bannedCards, this never touches the deck or a build. Combos
+  // involving any muted card drop out of every section rather than moving to
+  // "Excluded", which is where *deck-level* exclusions land.
+  const [hiddenComboCards, setHiddenComboCards] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(HIDDEN_COMBO_CARDS_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return Array.isArray(parsed) ? parsed.filter((n): n is string => typeof n === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  useEffect(() => {
+    if (typeof window !== 'undefined') localStorage.setItem(HIDDEN_COMBO_CARDS_KEY, JSON.stringify(hiddenComboCards));
+  }, [hiddenComboCards]);
+  const [showHiddenCards, setShowHiddenCards] = useState(false);
   const [cardFilter, setCardFilter] = useState<string | null>(null);
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
@@ -231,10 +253,19 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     [bannedSet],
   );
 
+  // Muted cards knock out their combos ahead of the complete/near-miss/excluded
+  // split, so a muted card can't leak back in through any one section.
+  const hiddenCardSet = useMemo(() => new Set(hiddenComboCards.map(n => n.toLowerCase())), [hiddenComboCards]);
+  const notHidden = useMemo(
+    () => visibleCombos.filter(c => !c.cards.some(n => hiddenCardSet.has(n.toLowerCase()))),
+    [visibleCombos, hiddenCardSet],
+  );
+  const hiddenByCardCount = visibleCombos.length - notHidden.length;
+
   const filteredVisible = useMemo(
-    () => visibleCombos.filter(combo =>
+    () => notHidden.filter(combo =>
       !cardFilter || combo.cards.some(n => (n.includes(' // ') ? n.split(' // ')[0] : n) === cardFilter)),
-    [visibleCombos, cardFilter],
+    [notHidden, cardFilter],
   );
 
   const sortCombos = useCallback((list: DetectedCombo[]) => {
@@ -291,7 +322,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     () => nearMisses.slice(currentNearMissPage * NEAR_MISS_PAGE_SIZE, (currentNearMissPage + 1) * NEAR_MISS_PAGE_SIZE),
     [nearMisses, currentNearMissPage],
   );
-  useEffect(() => { setNearMissPage(0); }, [comboSort, cardFilter, bracketCeiling, showSynergy]);
+  useEffect(() => { setNearMissPage(0); }, [comboSort, cardFilter, bracketCeiling, showSynergy, hiddenCardSet]);
 
   // Exactly what's on screen — drives the detail/image prefetches.
   const renderedCombos = useMemo(
@@ -504,6 +535,16 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         updateCustomization({ bannedCards: [...bannedCards, name] });
         setToastMessage(`Excluded "${name}"`);
         break;
+      case 'hideFromCombos': {
+        const hidden = hiddenComboCards.some(n => n.toLowerCase() === name.toLowerCase());
+        setHiddenComboCards(hidden
+          ? hiddenComboCards.filter(n => n.toLowerCase() !== name.toLowerCase())
+          : [...hiddenComboCards, name]);
+        // Filtering *to* the card you just muted would leave an empty panel.
+        if (!hidden && cardFilter === (name.includes(' // ') ? name.split(' // ')[0] : name)) setCardFilter(null);
+        setToastMessage(hidden ? `Showing combos with "${name}" again` : `Hiding combos with "${name}"`);
+        break;
+      }
       case 'addToList': {
         const list = userLists.find(l => l.id === action.listId);
         if (list && !list.cards.includes(name)) {
@@ -518,7 +559,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         break;
       }
     }
-  }, [mustIncludeCards, bannedCards, updateCustomization, userLists, updateList, createList, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard]);
+  }, [mustIncludeCards, bannedCards, updateCustomization, userLists, updateList, createList, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, hiddenComboCards, cardFilter]);
 
   // Auto-dismiss toast
   useEffect(() => {
@@ -584,7 +625,11 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
       ? extractMeaningfulPrereqs(_details.prerequisites, combo.cards)
       : [];
     const showingPrereqs = showPrereqs && allPrereqs.length > 0;
-    const itemCount = combo.cards.length + (showingPrereqs ? allPrereqs.length : 0);
+    // Template slots sit alongside the named cards rather than with the prereq
+    // chips: they're a card you still have to supply, not a footnote, so they
+    // stay visible even with Details off.
+    const templates = combo.templates ?? [];
+    const itemCount = combo.cards.length + templates.length + (showingPrereqs ? allPrereqs.length : 0);
     const availablePx = 340 - Math.max(0, itemCount - 1) * 18;
     const itemWidth = Math.min(80, Math.max(40, Math.floor(availablePx / Math.max(1, itemCount))));
     const itemHeight = Math.round(itemWidth * 680 / 488);
@@ -624,8 +669,13 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         {/* Title + metadata */}
         <div className={`mb-2 min-w-0 ${combo.source === 'color-identity' || combo.source === 'user' ? 'pr-16' : ''}`}>
           {(() => {
-            const tone = isExcluded ? 'text-red-400' : combo.isComplete ? 'text-green-500' : 'text-amber-500';
-            const Icon = isExcluded ? Ban : combo.isComplete ? Check : AlertTriangle;
+            // A combo whose named cards are all present but which also needs an
+            // unnamed slot isn't assembled yet — we can't tell whether the deck
+            // fills that slot, so it reads amber (with the slot named below)
+            // rather than claiming a green "you have this".
+            const needsSlot = combo.isComplete && templates.length > 0;
+            const tone = isExcluded ? 'text-red-400' : (combo.isComplete && !needsSlot) ? 'text-green-500' : 'text-amber-500';
+            const Icon = isExcluded ? Ban : (combo.isComplete && !needsSlot) ? Check : AlertTriangle;
             return (
               <span className={`flex items-start gap-1 text-xs font-medium min-w-0 ${tone}`}>
                 <Icon className="w-3 h-3 shrink-0 mt-0.5" />
@@ -662,6 +712,11 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
               ? (combo.results[0] || 'Custom combo')
               : `${combo.deckCount.toLocaleString()} decks · Bracket ${combo.bracket}`}
           </span>
+          {templates.length > 0 && (
+            <span className="text-[10px] text-amber-300/80 mt-0.5 block">
+              Also needs {templates.map(t => `${t.quantity && t.quantity > 1 ? `${t.quantity}× ` : ''}${t.name.toLowerCase()}`).join(' + ')}
+            </span>
+          )}
         </div>
 
         {/* Card images with + separators */}
@@ -825,6 +880,9 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                         hasSideboard={!!onMoveToSideboard}
                         hasMaybeboard={!!onMoveToMaybeboard}
                         isMustInclude={mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)}
+                        isBanned={isBanned}
+                        hasHideFromCombos
+                        isHiddenFromCombos={hiddenCardSet.has(name.toLowerCase())}
                         userLists={userLists}
                         onForceClose={() => setContextMenuCard(null)}
                       />
@@ -834,6 +892,28 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
               </Fragment>
             );
           })}
+          {templates.map((tpl, idx) => (
+            <Fragment key={`tpl-${idx}`}>
+              {(combo.cards.length > 0 || idx > 0) && (
+                <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
+              )}
+              <a
+                href={`https://scryfall.com/search?q=${encodeURIComponent(tpl.scryfallQuery)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-md border border-dashed border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/20 hover:border-amber-400/80 overflow-y-auto overflow-x-hidden transition-colors"
+                style={{ width: itemWidth, height: itemHeight }}
+                title={`This combo also needs ${tpl.quantity && tpl.quantity > 1 ? `${tpl.quantity}× ` : 'a '}${tpl.name}${tpl.scryfallQuery ? ` — search Scryfall: ${tpl.scryfallQuery}` : ''}`}
+              >
+                <div className="flex flex-col items-center justify-center gap-1 min-h-full px-1.5 py-2">
+                  <HelpCircle className="w-3 h-3 text-amber-300/80 shrink-0" />
+                  <span className="text-[9px] text-amber-100/90 leading-tight text-center break-words">
+                    {tpl.quantity && tpl.quantity > 1 ? `${tpl.quantity}× ` : ''}{tpl.name}
+                  </span>
+                </div>
+              </a>
+            </Fragment>
+          ))}
           {allPrereqs.map((prereq, idx) => (
             <Fragment key={`prereq-${idx}`}>
               <Plus
@@ -1037,7 +1117,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         <Sparkles className="w-4 h-4 text-primary shrink-0" />
         <h3 className="text-sm font-semibold truncate">Combos in Your Deck</h3>
         <span className="text-xs text-muted-foreground ml-auto shrink-0 whitespace-nowrap">
-          {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}{customCount > 0 ? ` · ${customCount} custom` : ''}{excludedCombos.length > 0 ? ` · ${excludedCombos.length} excluded` : ''}{overBracketHiddenCount > 0 ? ` · ${overBracketHiddenCount} over-bracket hidden` : ''}
+          {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}{customCount > 0 ? ` · ${customCount} custom` : ''}{excludedCombos.length > 0 ? ` · ${excludedCombos.length} excluded` : ''}{overBracketHiddenCount > 0 ? ` · ${overBracketHiddenCount} over-bracket hidden` : ''}{hiddenByCardCount > 0 ? ` · ${hiddenByCardCount} muted` : ''}
         </span>
         {onAddCombo && (
           <button
@@ -1062,6 +1142,20 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
           >
             <span className="truncate max-w-[140px]">Filter: {cardFilter}</span>
             <X className="w-3 h-3 shrink-0" />
+          </button>
+        )}
+        {expanded && hiddenComboCards.length > 0 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowHiddenCards(v => !v); }}
+            className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded-md border transition-colors shrink-0 ${
+              showHiddenCards
+                ? 'border-amber-500/40 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
+                : 'border-border bg-transparent text-muted-foreground hover:text-foreground hover:bg-accent'
+            }`}
+            title={`${hiddenComboCards.length} card${hiddenComboCards.length === 1 ? '' : 's'} muted${hiddenByCardCount > 0 ? ` · ${hiddenByCardCount} combo${hiddenByCardCount === 1 ? '' : 's'} hidden` : ''}`}
+          >
+            <EyeOff className="w-3 h-3" />
+            <span>{hiddenComboCards.length} muted</span>
           </button>
         )}
         {expanded && (
@@ -1131,6 +1225,39 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
       </div>
 
       <div className={`overflow-hidden transition-all duration-300 ${expanded ? 'px-4 pb-4 max-h-[20000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+        {/* Muted cards — the un-hide surface for right-click → "Hide combos with this card". */}
+        {showHiddenCards && hiddenComboCards.length > 0 && (
+          <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-2.5">
+            <div className="flex items-center gap-2 mb-2">
+              <EyeOff className="w-3 h-3 text-amber-300/80 shrink-0" />
+              <span className="text-[11px] text-amber-100/90">
+                Combos using these cards are hidden
+                {hiddenByCardCount > 0 && <span className="text-amber-200/60"> · {hiddenByCardCount.toLocaleString()} hidden here</span>}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setHiddenComboCards([])}
+                className="ml-auto h-6 px-2 text-[10px] text-amber-200/80 hover:text-amber-100"
+              >
+                Clear all
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {hiddenComboCards.map(name => (
+                <button
+                  key={name}
+                  onClick={() => setHiddenComboCards(hiddenComboCards.filter(n => n !== name))}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md border border-amber-500/30 bg-amber-500/10 text-[10px] text-amber-100/90 hover:bg-amber-500/20 transition-colors"
+                  title={`Show combos with "${name}" again`}
+                >
+                  <span className="truncate max-w-[180px]">{name}</span>
+                  <X className="w-3 h-3 shrink-0" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {/* Empty state — no combos yet, but authoring is available. */}
         {onAddCombo && completeCombos.length === 0 && nearMisses.length === 0 && excludedCombos.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-6 text-center">

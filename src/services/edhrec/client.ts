@@ -1659,6 +1659,7 @@ export async function fetchColorIdentityCombos(colorIdentity: string[]): Promise
       return {
         comboId: e.i,
         cards: e.c.map(name => ({ name, id: '' })),
+        templates: e.t?.map(t => ({ name: t.n, scryfallQuery: t.q, ...(t.x ? { quantity: t.x } : {}) })),
         results: e.r,
         deckCount: e.p,
         rank: 0, // assigned after the sort below
