@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.47",
+    "notes": [
+      "Inspectr > Lands: The color pips bars now fill up as your mana sources reach the intended amount (thank you MITICA2020 for the report)",
+      "Foundry > Deck Tuning: the card type and mana curve targets now add up to exactly 99 alongside your land count (thank you LuisMiguelMedina for the report)"
+    ]
+  },
+  {
     "version": "1.3.46",
     "notes": [
       "New Swap mode available when adding a card to a deck. See at a glance what cards might have a good slot to replace for the card you'd like to add (thank you Noobais for the feature suggestion and code contributions)",

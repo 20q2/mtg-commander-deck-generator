@@ -979,8 +979,11 @@ export function FixingDetail({
                         <span className={`text-sm font-black tabular-nums leading-none ${selectedColors.has(color) ? 'text-foreground' : isWeak ? 'text-amber-400' : 'text-foreground'}`}>{pips}</span>
                       </div>
                       <p className="text-[9px] text-muted-foreground/50 text-center tabular-nums mb-0.5">{demandPct}% of demand</p>
+                      {/* Full bar = the healthy ratio the tooltip states, 1 source per ~1.75 pips
+                          (hence 100/1.75 = 175). Not 1 source per pip: duals and rocks serve
+                          several colors, so sources never need to match raw pip counts. */}
                       <div className="h-1 rounded-full bg-accent/40 overflow-hidden mb-0.5">
-                        <div className={`h-full rounded-full transition-all ${COLOR_BARS[color] || 'bg-foreground'}`} style={{ width: `${Math.min(100, Math.round(((cf.sourcesPerColor?.[color] || 0) / Math.max(pips, 1)) * 50))}%` }} />
+                        <div className={`h-full rounded-full transition-all ${COLOR_BARS[color] || 'bg-foreground'}`} style={{ width: `${Math.min(100, Math.round(((cf.sourcesPerColor?.[color] || 0) / Math.max(pips, 1)) * 175))}%` }} />
                       </div>
                       <p className="text-[9px] text-muted-foreground/50 text-center tabular-nums">{cf.sourcesPerColor?.[color] || 0} sources</p>
                     </button>

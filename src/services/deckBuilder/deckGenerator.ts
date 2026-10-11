@@ -29,6 +29,7 @@ import {
   calculateTypeTargets,
   calculateCurveTargets,
   hasCurveRoom,
+  apportionTargets,
 } from './curveUtils';
 import { loadTaggerData, hasTaggerData, getCardRole, getCardSubtype, hasMultipleRoles, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, getProtectionSubtype, isTapland, isUtilityLand, type RoleKey } from '@/services/tagger/client';
 import { estimateBracket, comboFitsBracket } from './bracketEstimator';
@@ -93,6 +94,24 @@ interface TargetCountsResult {
   curveTargets: Record<number, number>;
 }
 
+/**
+ * Re-apportion the buckets the user actually set, leaving any the panel doesn't expose
+ * (`battle`) at their EDHREC value — and subtracting what those already hold, so the
+ * targets still total `nonLandCards` instead of overshooting by whatever sits in the
+ * bucket with no slider.
+ */
+function apportionOverride<K extends string | number>(
+  existing: Record<K, number>,
+  overrides: Record<K, number>,
+  nonLandCards: number,
+  overflowKey?: K
+): Record<K, number> {
+  const untouched = (Object.keys(existing) as K[])
+    .filter(k => overrides[k] === undefined)
+    .reduce((s, k) => s + (existing[k] || 0), 0);
+  return apportionTargets(overrides, nonLandCards - untouched, overflowKey);
+}
+
 // Apply user's advanced target overrides (curve percentages, type percentages)
 function applyAdvancedOverrides(
   customization: Customization,
@@ -103,33 +122,11 @@ function applyAdvancedOverrides(
   const adv = customization.advancedTargets;
 
   if (adv?.curvePercentages) {
-    const pcts = adv.curvePercentages;
-    const total = Object.values(pcts).reduce((s, v) => s + v, 0) || 100;
-    let allocated = 0;
-    const cmcKeys = Object.keys(pcts).map(Number).sort((a, b) => a - b);
-    for (const cmc of cmcKeys) {
-      curveTargets[cmc] = Math.round((pcts[cmc] / total) * nonLandCards);
-      allocated += curveTargets[cmc];
-    }
-    const diff = nonLandCards - allocated;
-    if (diff !== 0) {
-      const largest = cmcKeys.reduce((m, c) => (curveTargets[c] > curveTargets[m]) ? c : m, cmcKeys[0]);
-      curveTargets[largest] += diff;
-    }
+    Object.assign(curveTargets, apportionOverride(curveTargets, adv.curvePercentages, nonLandCards));
   }
 
   if (adv?.typePercentages) {
-    const pcts = adv.typePercentages;
-    const total = Object.values(pcts).reduce((s, v) => s + v, 0) || 100;
-    let allocated = 0;
-    for (const type of Object.keys(pcts)) {
-      typeTargets[type] = Math.round((pcts[type] / total) * nonLandCards);
-      allocated += typeTargets[type];
-    }
-    const diff = nonLandCards - allocated;
-    if (diff !== 0) {
-      typeTargets.creature = (typeTargets.creature ?? 0) + diff;
-    }
+    Object.assign(typeTargets, apportionOverride(typeTargets, adv.typePercentages, nonLandCards, 'creature'));
   }
 }
 

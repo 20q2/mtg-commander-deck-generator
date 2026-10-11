@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { PieChart } from '@/components/ui/pie-chart';
 import { CardTypeIcon } from '@/components/ui/mtg-icons';
 import { useStore } from '@/store';
-import { calculateCurvePercentages, calculateTypePercentages } from '@/services/deckBuilder/curveUtils';
+import { calculateCurvePercentages, calculateTypePercentages, apportionTargets, FALLBACK_TYPE_WEIGHTS, FALLBACK_CURVE_WEIGHTS } from '@/services/deckBuilder/curveUtils';
 import { EDHREC_BLEND_WEIGHT, ROLE_LABELS, getBaseRoleTargets } from '@/services/deckBuilder/roleTargets';
 import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import type { AdvancedTargets } from '@/types';
@@ -42,15 +42,11 @@ const ROLE_COLORS: Record<string, string> = {
   protection: '#eab308', other: '#6b7280',
 };
 
-const FALLBACK_CURVE: Record<number, number> = {
-  0: 2, 1: 12, 2: 20, 3: 25, 4: 18, 5: 12, 6: 6, 7: 5,
-};
-
-// Must sum to 100 — anything less opens the panel already showing an off-target total
-// and a "Fix" button on a deck the user never customized.
-const FALLBACK_TYPES: Record<string, number> = {
-  creature: 49, instant: 12, sorcery: 12, artifact: 12, enchantment: 12, planeswalker: 3,
-};
+// Shared with the generator, which falls back to the same shape — see curveUtils. Both must
+// sum to 100; anything less opens the panel already showing an off-target total and a "Fix"
+// button on a deck the user never customized.
+const FALLBACK_CURVE = FALLBACK_CURVE_WEIGHTS;
+const FALLBACK_TYPES = FALLBACK_TYPE_WEIGHTS;
 
 /**
  * Scale values so they sum to exactly 100 while respecting each slider's max.
@@ -306,6 +302,19 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
   const curveTotal = Object.values(curveValues).reduce((s, v) => s + v, 0);
   const typeTotal = Object.values(typeValues).reduce((s, v) => s + v, 0);
 
+  // Card counts per slider. Rounding each slider's share on its own drifts by up to half a
+  // card apiece, so six type sliders plus the land slider described a 97- to 101-card deck
+  // while the pie in the middle insisted on 99. apportionTargets is the same allocation the
+  // generator runs, so these are the counts the build will actually aim for.
+  const typeCardCounts = useMemo(
+    () => apportionTargets<string>(typeValues, nonLandCards, 'creature'),
+    [typeValues, nonLandCards]
+  );
+  const curveCardCounts = useMemo(
+    () => apportionTargets(curveValues, nonLandCards),
+    [curveValues, nonLandCards]
+  );
+
   const commitToStore = useCallback((patch: Partial<AdvancedTargets>) => {
     const current = useStore.getState().customization.advancedTargets;
     updateCustomization({ advancedTargets: { ...current, ...patch } });
@@ -498,7 +507,7 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
                   min={0} max={TYPE_SLIDER_MAX}
                   color={TYPE_COLORS[type]}
                   icon={<CardTypeIcon type={type} size="sm" className="opacity-80" />}
-                  cardCount={typeTotal > 0 ? Math.round(((typeValues[type] ?? 0) / typeTotal) * nonLandCards) : 0}
+                  cardCount={typeCardCounts[type] ?? 0}
                   onChange={(v) => updateType(type, v)}
                   onHover={(h) => setHoveredKey(h ? type : null)}
                   highlighted={hoveredKey === type}
@@ -530,7 +539,7 @@ export function AdvancedCustomization({ open, onClose }: { open: boolean; onClos
                   min={0} max={CURVE_SLIDER_MAX}
                   color={CURVE_COLORS[cmc]}
                   icon={<span className="text-xs font-semibold text-muted-foreground">{cmc <= 6 ? cmc : '7+'}</span>}
-                  cardCount={curveTotal > 0 ? Math.round(((curveValues[cmc] ?? 0) / curveTotal) * nonLandCards) : 0}
+                  cardCount={curveCardCounts[cmc] ?? 0}
                   onChange={(v) => updateCurve(cmc, v)}
                   onHover={(h) => setHoveredKey(h ? `cmc-${cmc}` : null)}
                   highlighted={hoveredKey === `cmc-${cmc}`}

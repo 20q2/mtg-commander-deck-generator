@@ -2,6 +2,75 @@ import type { EDHRECCommanderStats } from '@/types';
 import type { Pacing } from '@/types';
 import { PACING_CURVE_MULTIPLIERS } from './roleTargets';
 
+/** The card-type buckets the generator allocates. `battle` is last and usually 0. */
+export const TYPE_TARGET_KEYS = [
+  'creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker', 'battle',
+] as const;
+
+/**
+ * Shape used when a commander has no usable EDHREC distribution. Shared with the Advanced
+ * Customization panel, which opens on these same numbers — a second copy over there drifted
+ * out of sync with this one (45% creatures here vs 49% on screen) and nothing caught it.
+ * Percentages, summing to 100.
+ */
+export const FALLBACK_TYPE_WEIGHTS: Record<string, number> = {
+  creature: 49, instant: 12, sorcery: 12, artifact: 12, enchantment: 12, planeswalker: 3,
+};
+
+/** As FALLBACK_TYPE_WEIGHTS, for the mana curve: percentage of non-lands per CMC bucket. */
+export const FALLBACK_CURVE_WEIGHTS: Record<number, number> = {
+  0: 2, 1: 12, 2: 20, 3: 25, 4: 18, 5: 12, 6: 6, 7: 5,
+};
+
+/**
+ * Move the whole rounding leftover into one bucket so the targets sum to `total` exactly.
+ *
+ * Mutates `targets`. `overflowKey` names the sink (creatures, for type targets); without
+ * one the largest bucket absorbs it, which is where the curve has always put it.
+ */
+function closeGap<K extends string | number>(
+  targets: Record<K, number>,
+  total: number,
+  overflowKey?: K
+): Record<K, number> {
+  const keys = Object.keys(targets) as K[];
+  if (keys.length === 0) return targets;
+
+  const diff = total - keys.reduce((s, k) => s + targets[k], 0);
+  if (diff === 0) return targets;
+
+  const sink = overflowKey !== undefined && targets[overflowKey] !== undefined
+    ? overflowKey
+    : keys.reduce((max, k) => (targets[k] > targets[max] ? k : max), keys[0]);
+  targets[sink] += diff;
+  return targets;
+}
+
+/**
+ * Split `total` cards across buckets in proportion to `weights`, landing on `total` exactly.
+ *
+ * Rounding each bucket on its own drifts by up to half a card per bucket, so six type
+ * sliders can describe a 97- or 101-card deck. Every allocation in the app goes through
+ * here instead — the generator's targets AND the Advanced Customization panel that displays
+ * them — so the panel shows the numbers the build will actually aim for.
+ *
+ * `weights` are normalized, so they need not already sum to 100.
+ */
+export function apportionTargets<K extends string | number>(
+  weights: Record<K, number>,
+  total: number,
+  overflowKey?: K
+): Record<K, number> {
+  const keys = Object.keys(weights) as K[];
+  const targets = {} as Record<K, number>;
+
+  const weightTotal = keys.reduce((s, k) => s + (weights[k] || 0), 0);
+  if (weightTotal <= 0) return targets;
+
+  for (const k of keys) targets[k] = Math.round(((weights[k] || 0) / weightTotal) * total);
+  return closeGap(targets, total, overflowKey);
+}
+
 /**
  * Calculate type distribution as percentages of non-land cards
  */
@@ -55,6 +124,20 @@ export function calculateCurvePercentages(manaCurve: Record<number, number>): Re
   return percentages;
 }
 
+/** Shift a curve's shape by the pacing multipliers, then re-close the gap to `total`. */
+function applyPacing(
+  targets: Record<number, number>,
+  total: number,
+  pacing: Pacing
+): Record<number, number> {
+  const mult = PACING_CURVE_MULTIPLIERS[pacing];
+  for (const cmc of Object.keys(targets).map(Number)) {
+    const phase = cmc <= 2 ? 'early' : cmc <= 4 ? 'mid' : 'late';
+    targets[cmc] = Math.round(targets[cmc] * mult[phase]);
+  }
+  return closeGap(targets, total);
+}
+
 /**
  * Calculate target counts for each CMC bucket based on:
  * 1. EDHREC mana curve percentages
@@ -66,72 +149,13 @@ export function calculateCurveTargets(
   pacing?: Pacing
 ): Record<number, number> {
   const percentages = calculateCurvePercentages(manaCurve);
-  const targets: Record<number, number> = {};
 
-  if (Object.keys(percentages).length === 0) {
-    const fallback: Record<number, number> = {
-      0: Math.round(totalNonLandCards * 0.02),
-      1: Math.round(totalNonLandCards * 0.12),
-      2: Math.round(totalNonLandCards * 0.20),
-      3: Math.round(totalNonLandCards * 0.25),
-      4: Math.round(totalNonLandCards * 0.18),
-      5: Math.round(totalNonLandCards * 0.12),
-      6: Math.round(totalNonLandCards * 0.06),
-      7: Math.round(totalNonLandCards * 0.05),
-    };
-    if (pacing && pacing !== 'balanced') {
-      const mult = PACING_CURVE_MULTIPLIERS[pacing];
-      for (const cmc of Object.keys(fallback).map(Number)) {
-        const phase = cmc <= 2 ? 'early' : cmc <= 4 ? 'mid' : 'late';
-        fallback[cmc] = Math.round(fallback[cmc] * mult[phase]);
-      }
-      let newTotal = Object.values(fallback).reduce((a, b) => a + b, 0);
-      const normDiff = totalNonLandCards - newTotal;
-      if (normDiff !== 0) {
-        const largest = Object.keys(fallback).map(Number).reduce((max, cmc) =>
-          (fallback[cmc] || 0) > (fallback[max] || 0) ? cmc : max, 3);
-        fallback[largest] = (fallback[largest] || 0) + normDiff;
-      }
-    }
-    return fallback;
-  }
+  const targets = Object.keys(percentages).length === 0
+    ? apportionTargets(FALLBACK_CURVE_WEIGHTS, totalNonLandCards)
+    : apportionTargets(percentages, totalNonLandCards);
 
-  let allocated = 0;
-  const cmcKeys = Object.keys(percentages).map(Number).sort((a, b) => a - b);
-
-  for (const cmc of cmcKeys) {
-    const target = Math.round((percentages[cmc] / 100) * totalNonLandCards);
-    targets[cmc] = target;
-    allocated += target;
-  }
-
-  // Adjust for rounding errors - add/remove from largest bucket (usually CMC 3)
-  const diff = totalNonLandCards - allocated;
-  if (diff !== 0) {
-    // Find the largest bucket to adjust
-    const largestCmc = cmcKeys.reduce((max, cmc) =>
-      (targets[cmc] || 0) > (targets[max] || 0) ? cmc : max, cmcKeys[0]);
-    targets[largestCmc] = (targets[largestCmc] || 0) + diff;
-  }
-
-  // Apply pacing multipliers to shift curve shape (skip if balanced or not specified)
-  if (pacing && pacing !== 'balanced') {
-    const mult = PACING_CURVE_MULTIPLIERS[pacing];
-    for (const cmc of cmcKeys) {
-      const phase = cmc <= 2 ? 'early' : cmc <= 4 ? 'mid' : 'late';
-      targets[cmc] = Math.round(targets[cmc] * mult[phase]);
-    }
-    // Re-normalize to maintain exact total
-    let newTotal = Object.values(targets).reduce((a, b) => a + b, 0);
-    const normDiff = totalNonLandCards - newTotal;
-    if (normDiff !== 0) {
-      const largest = cmcKeys.reduce((max, cmc) =>
-        (targets[cmc] || 0) > (targets[max] || 0) ? cmc : max, cmcKeys[0]);
-      targets[largest] = (targets[largest] || 0) + normDiff;
-    }
-  }
-
-  return targets;
+  // Shift the curve's shape (skip if balanced or not specified)
+  return pacing && pacing !== 'balanced' ? applyPacing(targets, totalNonLandCards, pacing) : targets;
 }
 
 /**
@@ -149,33 +173,14 @@ export function calculateTypeTargets(
 
   if (Object.keys(percentages).length === 0) {
     console.log('[CurveUtils] Using fallback defaults (no EDHREC data)');
-    // Fallback defaults
-    return {
-      creature: Math.round(totalNonLandCards * 0.45),
-      instant: Math.round(totalNonLandCards * 0.12),
-      sorcery: Math.round(totalNonLandCards * 0.12),
-      artifact: Math.round(totalNonLandCards * 0.12),
-      enchantment: Math.round(totalNonLandCards * 0.12),
-      planeswalker: Math.round(totalNonLandCards * 0.03),
-      battle: 0,
-    };
+    return apportionTargets(FALLBACK_TYPE_WEIGHTS, totalNonLandCards, 'creature');
   }
 
-  const targets: Record<string, number> = {};
-  let allocated = 0;
-  const types = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker', 'battle'];
-
-  for (const type of types) {
-    const target = Math.round((percentages[type] / 100) * totalNonLandCards);
-    targets[type] = target;
-    allocated += target;
-  }
-
-  // Adjust for rounding errors - add/remove from creatures (largest category usually)
-  const diff = totalNonLandCards - allocated;
-  if (diff !== 0) {
-    targets.creature = (targets.creature || 0) + diff;
-  }
+  // calculateTypePercentages also returns absolute land counts under `land`/`basicLand`/
+  // `nonbasicLand`, so pick the card-type keys out rather than apportioning the whole object.
+  const weights: Record<string, number> = {};
+  for (const type of TYPE_TARGET_KEYS) weights[type] = percentages[type] ?? 0;
+  const targets = apportionTargets(weights, totalNonLandCards, 'creature');
 
   console.log('[CurveUtils] Final type targets:', targets, 'Total:', Object.values(targets).reduce((a, b) => a + b, 0));
 
