@@ -154,6 +154,7 @@ export interface CurvePhaseAnalysis {
   rampInPhase: number;
   interactionInPhase: number;
   cardDrawInPhase: number;
+  otherInPhase: number;
   phaseRoleBreakdowns: PhaseRoleBreakdown[];
 }
 
@@ -700,6 +701,49 @@ export function getPhaseRoleTargets(
   return result;
 }
 
+/**
+ * Split a phase's card budget across ramp / interaction / card draw / other.
+ *
+ * Must be handed the NORMALIZED phase target. These four numbers render in a row directly
+ * beneath the phase tile and `other` is defined as whatever the named roles leave over, so
+ * they have to sum to the tile above them. Computing them against the pre-normalization
+ * target quietly broke that: a Midrange deck showed 8+2+5+31 = 46 under a tile reading 47.
+ *
+ * The phase split of global role targets is budget-blind — a ramp-heavy archetype (e.g.
+ * Landfall at 1.30×, EDHREC-blended) can push early ramp alone near the entire early-phase
+ * card budget, cratering "other" to 0. Cap the combined role asks at 75% of the phase
+ * target so "other" (threats, theme plays) always keeps a meaningful share, scaling roles
+ * down proportionally when they overflow.
+ */
+function buildPhaseRoleBreakdowns(
+  target: number,
+  prt: Record<PhaseRoleGroup, number> | undefined,
+  counts: { ramp: number; interaction: number; cardDraw: number; other: number },
+): PhaseRoleBreakdown[] {
+  let rampTarget = prt?.ramp ?? 0;
+  let interactionTarget = prt?.interaction ?? 0;
+  let cardDrawTarget = prt?.cardDraw ?? 0;
+
+  const rawRoleSum = rampTarget + interactionTarget + cardDrawTarget;
+  const maxRoleShare = Math.round(target * 0.75);
+  if (rawRoleSum > maxRoleShare && rawRoleSum > 0) {
+    const scale = maxRoleShare / rawRoleSum;
+    // Keep at least 1 for any role that had a nonzero ask
+    const scaleRole = (t: number) => (t > 0 ? Math.max(1, Math.round(t * scale)) : 0);
+    rampTarget = scaleRole(rampTarget);
+    interactionTarget = scaleRole(interactionTarget);
+    cardDrawTarget = scaleRole(cardDrawTarget);
+  }
+  const otherTarget = Math.max(0, target - (rampTarget + interactionTarget + cardDrawTarget));
+
+  return [
+    { roleGroup: 'ramp', label: 'Ramp', current: counts.ramp, target: rampTarget, deficit: Math.max(0, rampTarget - counts.ramp) },
+    { roleGroup: 'interaction', label: 'Interaction', current: counts.interaction, target: interactionTarget, deficit: Math.max(0, interactionTarget - counts.interaction) },
+    { roleGroup: 'cardDraw', label: 'Card Draw', current: counts.cardDraw, target: cardDrawTarget, deficit: Math.max(0, cardDrawTarget - counts.cardDraw) },
+    { roleGroup: 'other', label: 'Other', current: counts.other, target: otherTarget, deficit: Math.max(0, otherTarget - counts.other) },
+  ];
+}
+
 /** Build curve phase analysis for early (0-2), mid (3-4), late (5+) game. */
 export function getCurvePhases(
   curveBreakdowns: CurveBreakdown[],
@@ -750,41 +794,12 @@ export function getCurvePhases(
       if (!isRamp && !isInteraction && !isDraw) otherInPhase++;
     }
 
-    // Per-phase role breakdowns with targets. The phase split of global role
-    // targets is budget-blind — a ramp-heavy archetype (e.g. Landfall at 1.30×,
-    // EDHREC-blended) can push early ramp alone near the entire early-phase
-    // card budget, cratering "other" to 0. Cap the combined role asks at 75%
-    // of the phase target so "other" (threats, theme plays) always keeps a
-    // meaningful share, scaling roles down proportionally when they overflow.
-    const prt = phaseRoleTargets?.[phase];
-    const otherCount = otherInPhase;
-    let rampTarget = prt?.ramp ?? 0;
-    let interactionTarget = prt?.interaction ?? 0;
-    let cardDrawTarget = prt?.cardDraw ?? 0;
-    const rawRoleSum = rampTarget + interactionTarget + cardDrawTarget;
-    const maxRoleShare = Math.round(target * 0.75);
-    if (rawRoleSum > maxRoleShare && rawRoleSum > 0) {
-      const scale = maxRoleShare / rawRoleSum;
-      // Keep at least 1 for any role that had a nonzero ask
-      const scaleRole = (t: number) => (t > 0 ? Math.max(1, Math.round(t * scale)) : 0);
-      rampTarget = scaleRole(rampTarget);
-      interactionTarget = scaleRole(interactionTarget);
-      cardDrawTarget = scaleRole(cardDrawTarget);
-    }
-    const rolesTargetSum = rampTarget + interactionTarget + cardDrawTarget;
-    const otherTarget = Math.max(0, target - rolesTargetSum);
-    const phaseRoleBreakdowns: PhaseRoleBreakdown[] = [
-      { roleGroup: 'ramp', label: 'Ramp', current: rampInPhase, target: rampTarget, deficit: Math.max(0, rampTarget - rampInPhase) },
-      { roleGroup: 'interaction', label: 'Interaction', current: interactionInPhase, target: interactionTarget, deficit: Math.max(0, interactionTarget - interactionInPhase) },
-      { roleGroup: 'cardDraw', label: 'Card Draw', current: cardDrawInPhase, target: cardDrawTarget, deficit: Math.max(0, cardDrawTarget - cardDrawInPhase) },
-      { roleGroup: 'other', label: 'Other', current: otherCount, target: otherTarget, deficit: Math.max(0, otherTarget - otherCount) },
-    ];
-
     return {
       phase, label, cmcRange: range, current, target, cards,
-      pctOfDeck, avgCmc, rampInPhase, interactionInPhase, cardDrawInPhase,
-      phaseRoleBreakdowns,
-      // delta and grade are set after normalization
+      pctOfDeck, avgCmc, rampInPhase, interactionInPhase, cardDrawInPhase, otherInPhase,
+      // phaseRoleBreakdowns, delta and grade are all filled in after normalization,
+      // which moves `target` out from under them — see below.
+      phaseRoleBreakdowns: [] as PhaseRoleBreakdown[],
       delta: 0, grade: { letter: 'A', message: '' } as GradeResult,
     };
   });
@@ -800,6 +815,17 @@ export function getCurvePhases(
       const largest = result.reduce((max, p) => p.target > max.target ? p : max, result[0]);
       largest.target += diff;
     }
+  }
+
+  // Role breakdowns run on the normalized target so each phase's four role tiles always
+  // sum to the phase tile above them.
+  for (const p of result) {
+    p.phaseRoleBreakdowns = buildPhaseRoleBreakdowns(p.target, phaseRoleTargets?.[p.phase], {
+      ramp: p.rampInPhase,
+      interaction: p.interactionInPhase,
+      cardDraw: p.cardDrawInPhase,
+      other: p.otherInPhase,
+    });
   }
 
   // Compute delta and grade from normalized targets

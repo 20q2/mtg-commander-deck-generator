@@ -87,6 +87,11 @@ export function CurveSummaryStrip({
           const Icon = meta.icon;
           const isActive = activePhases.has(phase.phase);
           const gs = tileGradeStyles(phase.grade.letter);
+          // Role counts credit a card to every role it fills, so the role row below sums
+          // higher than the card count whenever a phase holds a multi-role card. Show that
+          // sum in parentheses so the row has something to add up to.
+          const roleCredits = phase.phaseRoleBreakdowns.reduce((n, r) => n + r.current, 0);
+          const multiRole = roleCredits - phase.current;
 
           return (
             <button
@@ -105,11 +110,21 @@ export function CurveSummaryStrip({
                   {phase.grade.letter}
                 </span>
               </div>
-              <div className="flex items-baseline justify-between">
-                <span className={`text-xl font-bold tabular-nums leading-none transition-opacity duration-200 ${gs.color} ${isActive ? '' : 'opacity-70'}`}>
-                  {phase.current}
+              <div className="flex items-baseline justify-between gap-1">
+                <span className="flex items-baseline gap-1 min-w-0">
+                  <span className={`text-xl font-bold tabular-nums leading-none transition-opacity duration-200 ${gs.color} ${isActive ? '' : 'opacity-70'}`}>
+                    {phase.current}
+                  </span>
+                  {multiRole > 0 && (
+                    <span
+                      className="text-[11px] text-muted-foreground/60 tabular-nums leading-none"
+                      title={`${roleCredits} role credits — ${multiRole} card${multiRole === 1 ? '' : 's'} here fill${multiRole === 1 ? 's' : ''} more than one role, so the role counts below add up to ${roleCredits}, not ${phase.current}.`}
+                    >
+                      ({roleCredits})
+                    </span>
+                  )}
                 </span>
-                <span className="text-xs text-muted-foreground tabular-nums">
+                <span className="text-xs text-muted-foreground tabular-nums shrink-0">
                   target: {phase.target}
                 </span>
               </div>
