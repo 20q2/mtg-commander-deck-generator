@@ -156,7 +156,13 @@ async function putGzip(key: string, body: string): Promise<number> {
     Body: gz,
     ContentType: 'application/json',
     ContentEncoding: 'gzip', // browsers transparently inflate
-    CacheControl: 'public, max-age=604800', // 7 days, matching the other weekly artifacts
+    // Fresh for an hour, then served from cache instantly while the browser
+    // revalidates in the background. A plain 7-day max-age (what this used to
+    // be, for symmetry with the other weekly artifacts) means a returning
+    // visitor can sit a whole generation behind with no way to push a
+    // correction — which is exactly what happened when combo templates
+    // shipped and existing clients kept serving the template-free copy.
+    CacheControl: 'public, max-age=3600, stale-while-revalidate=604800',
   }));
   return gz.length;
 }

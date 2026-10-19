@@ -11,15 +11,20 @@ export const PK_SUGGESTION = 'POLL#SUGGESTION';
 export const GSI_PK_ALL = 'POLL#ALL';
 const PK_VOTE_PREFIX = 'POLL#VOTE#';
 const PK_RATELIMIT_PREFIX = 'POLL#RL#';
+const PK_COMMENT_PREFIX = 'POLL#COMMENT#';
 
 export const LIMITS = {
-  submit: 3,   // suggestions per anonId per UTC day
-  vote:   60,  // vote toggles per anonId per UTC day
+  submit:  3,   // suggestions per anonId per UTC day
+  vote:    60,  // vote toggles per anonId per UTC day
+  comment: 20,  // replies per anonId per UTC day
 } as const;
+
+export type RateLimitedAction = keyof typeof LIMITS;
 
 export const MAX_TITLE = 80;
 export const MAX_DESCRIPTION = 600;
 export const MAX_DEVNOTE = 600;
+export const MAX_COMMENT = 600;
 export const MAX_EMAIL = 254;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -35,6 +40,7 @@ export interface SuggestionRecord {
   description: string;
   status: SuggestionStatus;
   voteCount: number;
+  commentCount?: number; // absent on rows written before replies existed
   devNote?: string;
   shippedVersion?: string;
   shippedAt?: string;
@@ -49,6 +55,7 @@ export interface PublicSuggestion {
   description: string;
   status: SuggestionStatus;
   voteCount: number;
+  commentCount: number;
   devNote?: string;
   shippedVersion?: string;
   shippedAt?: string;
@@ -62,9 +69,52 @@ export function toPublic(r: SuggestionRecord): PublicSuggestion {
     description: r.description,
     status: r.status,
     voteCount: r.voteCount,
+    commentCount: r.commentCount || 0,
     devNote: r.devNote,
     shippedVersion: r.shippedVersion,
     shippedAt: r.shippedAt,
+    createdAt: r.createdAt,
+  };
+}
+
+// ── Replies ────────────────────────────────────────────────────────────────
+// One partition per suggestion (`POLL#COMMENT#<suggestionId>`), sorted oldest
+// first by `${createdAt}#${id}`. Threads are flat — a reply belongs to the
+// suggestion, not to another reply.
+
+export interface CommentRecord {
+  pk: string;            // `${PK_COMMENT_PREFIX}${suggestionId}`
+  sk: string;            // `${isoCreatedAt}#${id}`
+  id: string;
+  suggestionId: string;
+  body: string;
+  anonAuthorId: string;  // never exposed — only compared, server-side
+  isDev?: boolean;       // posted with the admin bearer
+  createdAt: string;     // ISO
+}
+
+export interface PublicComment {
+  id: string;
+  suggestionId: string;
+  body: string;
+  isDev: boolean;
+  isAuthor: boolean;     // posted by whoever submitted the suggestion
+  isMine: boolean;       // posted by the anonId asking for the thread
+  createdAt: string;
+}
+
+export function toPublicComment(
+  r: CommentRecord,
+  suggestionAuthorId: string | undefined,
+  viewerAnonId: string | undefined,
+): PublicComment {
+  return {
+    id: r.id,
+    suggestionId: r.suggestionId,
+    body: r.body,
+    isDev: !!r.isDev,
+    isAuthor: !r.isDev && !!suggestionAuthorId && r.anonAuthorId === suggestionAuthorId,
+    isMine: !!viewerAnonId && r.anonAuthorId === viewerAnonId,
     createdAt: r.createdAt,
   };
 }
@@ -108,11 +158,11 @@ export function isAdmin(headers: Record<string, string | undefined> | undefined)
 }
 
 // Exports referenced by handlers added in later tasks
-export { client, TABLE_NAME, PK_VOTE_PREFIX, PK_RATELIMIT_PREFIX, randomUUID, GetItemCommand, PutItemCommand, UpdateItemCommand, DeleteItemCommand, QueryCommand, marshall, unmarshall };
+export { client, TABLE_NAME, PK_VOTE_PREFIX, PK_RATELIMIT_PREFIX, PK_COMMENT_PREFIX, randomUUID, GetItemCommand, PutItemCommand, UpdateItemCommand, DeleteItemCommand, QueryCommand, marshall, unmarshall };
 
 // Append to infra/lambda/poll.ts
 // Atomically increment the per-day counter; returns true if allowed, false if rate-limited.
-export async function checkRateLimit(anonId: string, action: 'submit' | 'vote'): Promise<boolean> {
+export async function checkRateLimit(anonId: string, action: RateLimitedAction): Promise<boolean> {
   const pk = `${PK_RATELIMIT_PREFIX}${anonId}#${action}`;
   const sk = dayBucketUTC();
   const limit = LIMITS[action];
@@ -165,6 +215,7 @@ export async function handleSubmit(body: string | undefined, headers: Record<str
     id, title, description,
     status: 'open',
     voteCount: 0,
+    commentCount: 0,
     anonAuthorId: anonId,
     ...(email ? { authorEmail: email } : {}),
     createdAt,
@@ -378,8 +429,18 @@ export async function handleDelete(body: string | undefined, headers: Record<str
     Key: marshall({ pk: PK_SUGGESTION, sk: suggestion.sk }),
   }));
 
-  // Delete all vote rows for that suggestion (query + batched delete).
-  const votePk = `${PK_VOTE_PREFIX}${suggestionId}`;
+  // Delete all vote rows and the whole reply thread for that suggestion.
+  await deletePartition(`${PK_VOTE_PREFIX}${suggestionId}`);
+  await deletePartition(`${PK_COMMENT_PREFIX}${suggestionId}`);
+
+  return jsonResponse(200, { ok: true });
+}
+
+// ── Reply handlers ─────────────────────────────────────────────────────────
+
+// Batch-delete every row in a partition. Used when a suggestion is removed —
+// its votes and its thread go with it.
+async function deletePartition(pk: string): Promise<void> {
   const { BatchWriteItemCommand } = await import('@aws-sdk/client-dynamodb');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let startKey: Record<string, any> | undefined;
@@ -387,7 +448,7 @@ export async function handleDelete(body: string | undefined, headers: Record<str
     const res = await client.send(new QueryCommand({
       TableName: TABLE_NAME,
       KeyConditionExpression: 'pk = :pk',
-      ExpressionAttributeValues: marshall({ ':pk': votePk }),
+      ExpressionAttributeValues: marshall({ ':pk': pk }),
       ProjectionExpression: 'sk',
       ExclusiveStartKey: startKey,
     }));
@@ -396,7 +457,7 @@ export async function handleDelete(body: string | undefined, headers: Record<str
       const batch = items.slice(i, i + 25).map(raw => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { sk } = unmarshall(raw as any) as { sk: string };
-        return { DeleteRequest: { Key: marshall({ pk: votePk, sk }) } };
+        return { DeleteRequest: { Key: marshall({ pk, sk }) } };
       });
       if (batch.length > 0) {
         await client.send(new BatchWriteItemCommand({ RequestItems: { [TABLE_NAME]: batch } }));
@@ -404,6 +465,126 @@ export async function handleDelete(body: string | undefined, headers: Record<str
     }
     startKey = res.LastEvaluatedKey;
   } while (startKey);
+}
 
-  return jsonResponse(200, { ok: true });
+async function listCommentRecords(suggestionId: string): Promise<CommentRecord[]> {
+  const out: CommentRecord[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let startKey: Record<string, any> | undefined;
+  do {
+    const res = await client.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: marshall({ ':pk': `${PK_COMMENT_PREFIX}${suggestionId}` }),
+      ScanIndexForward: true, // oldest first — a thread reads top to bottom
+      ExclusiveStartKey: startKey,
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const raw of res.Items || []) out.push(unmarshall(raw as any) as CommentRecord);
+    startKey = res.LastEvaluatedKey;
+  } while (startKey);
+  return out;
+}
+
+export async function handleComments(
+  query: Record<string, string | undefined> | undefined,
+  headers: Record<string, string | undefined> | undefined,
+) {
+  const anonId = headers?.['x-anon-id'] || headers?.['X-Anon-Id'];
+  const suggestionId = query?.suggestionId || '';
+  if (!suggestionId) return jsonResponse(400, { error: 'bad_suggestion_id' });
+
+  const suggestion = await getSuggestionById(suggestionId);
+  if (!suggestion) return jsonResponse(404, { error: 'not_found' });
+
+  const records = await listCommentRecords(suggestionId);
+  const viewer = isValidUuid(anonId) ? anonId : undefined;
+  return jsonResponse(200, {
+    comments: records.map(r => toPublicComment(r, suggestion.anonAuthorId, viewer)),
+  });
+}
+
+export async function handleComment(body: string | undefined, headers: Record<string, string | undefined> | undefined) {
+  const anonId = headers?.['x-anon-id'] || headers?.['X-Anon-Id'];
+  if (!isValidUuid(anonId)) return jsonResponse(400, { error: 'bad_anon_id' });
+
+  if (!body) return jsonResponse(400, { error: 'missing_body' });
+  let parsed: { suggestionId?: unknown; body?: unknown };
+  try { parsed = JSON.parse(body); } catch { return jsonResponse(400, { error: 'bad_json' }); }
+  const suggestionId = typeof parsed.suggestionId === 'string' ? parsed.suggestionId : '';
+  const text = typeof parsed.body === 'string' ? parsed.body.trim() : '';
+  if (!suggestionId) return jsonResponse(400, { error: 'bad_suggestion_id' });
+  if (text.length < 1 || text.length > MAX_COMMENT) return jsonResponse(400, { error: 'bad_comment', max: MAX_COMMENT });
+
+  const dev = isAdmin(headers);
+  if (!dev) {
+    const allowed = await checkRateLimit(anonId, 'comment');
+    if (!allowed) return jsonResponse(429, { error: 'rate_limited', action: 'comment', limit: LIMITS.comment });
+  }
+
+  const suggestion = await getSuggestionById(suggestionId);
+  if (!suggestion) return jsonResponse(404, { error: 'not_found' });
+
+  const id = randomUUID();
+  const createdAt = new Date().toISOString();
+  const record: CommentRecord = {
+    pk: `${PK_COMMENT_PREFIX}${suggestionId}`,
+    sk: `${createdAt}#${id}`,
+    id,
+    suggestionId,
+    body: text,
+    anonAuthorId: anonId,
+    ...(dev ? { isDev: true } : {}),
+    createdAt,
+  };
+  await client.send(new PutItemCommand({ TableName: TABLE_NAME, Item: marshall(record) }));
+
+  const update = await client.send(new UpdateItemCommand({
+    TableName: TABLE_NAME,
+    Key: marshall({ pk: PK_SUGGESTION, sk: suggestion.sk }),
+    UpdateExpression: 'ADD commentCount :one',
+    ExpressionAttributeValues: marshall({ ':one': 1 }),
+    ReturnValues: 'UPDATED_NEW',
+  }));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const commentCount = Number((unmarshall(update.Attributes as any) as { commentCount: number }).commentCount);
+
+  return jsonResponse(200, {
+    comment: toPublicComment(record, suggestion.anonAuthorId, anonId),
+    commentCount,
+  });
+}
+
+export async function handleCommentDelete(body: string | undefined, headers: Record<string, string | undefined> | undefined) {
+  if (!isAdmin(headers)) return jsonResponse(401, { error: 'unauthorized' });
+  if (!body) return jsonResponse(400, { error: 'missing_body' });
+  let parsed: { suggestionId?: unknown; commentId?: unknown };
+  try { parsed = JSON.parse(body); } catch { return jsonResponse(400, { error: 'bad_json' }); }
+  const suggestionId = typeof parsed.suggestionId === 'string' ? parsed.suggestionId : '';
+  const commentId = typeof parsed.commentId === 'string' ? parsed.commentId : '';
+  if (!suggestionId) return jsonResponse(400, { error: 'bad_suggestion_id' });
+  if (!commentId) return jsonResponse(400, { error: 'bad_comment_id' });
+
+  const records = await listCommentRecords(suggestionId);
+  const target = records.find(r => r.id === commentId);
+  if (!target) return jsonResponse(200, { ok: true, commentCount: records.length }); // already gone
+
+  await client.send(new DeleteItemCommand({
+    TableName: TABLE_NAME,
+    Key: marshall({ pk: target.pk, sk: target.sk }),
+  }));
+
+  // Recount from the partition rather than decrementing — self-healing against
+  // any earlier drift, and the partitions are tiny.
+  const remaining = records.length - 1;
+  const suggestion = await getSuggestionById(suggestionId);
+  if (suggestion) {
+    await client.send(new UpdateItemCommand({
+      TableName: TABLE_NAME,
+      Key: marshall({ pk: PK_SUGGESTION, sk: suggestion.sk }),
+      UpdateExpression: 'SET commentCount = :c',
+      ExpressionAttributeValues: marshall({ ':c': remaining }),
+    }));
+  }
+  return jsonResponse(200, { ok: true, commentCount: remaining });
 }

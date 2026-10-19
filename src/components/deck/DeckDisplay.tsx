@@ -35,6 +35,7 @@ import {
   Trash2,
   Eye,
   EyeOff,
+  Filter,
   MoreVertical,
   ListPlus,
   FileText,
@@ -64,6 +65,7 @@ import { AddCardsPopover } from '@/components/deck/AddCardsPanel';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import { getSwapCandidatesForCard, swapCard, pickReplacementCandidate, mostNeededBasicColor, type ReplaceMode } from '@/services/deckBuilder/cardSwap';
+import { getProducedManaSymbols } from '@/services/deckBuilder/manaSources';
 import { HEALTH_GRADE_STYLES, ROLE_GROUP_ICONS } from '@/components/deck/optimizer/constants';
 import { cardMatchesRole, loadTaggerData, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, getProtectionSubtype, type RoleKey } from '@/services/tagger/client';
 import { trackEvent } from '@/services/analytics';
@@ -206,25 +208,10 @@ function cardMatchesFilter(card: ScryfallCard, filter: StatsFilter): boolean {
       }
       return false;
     }
-    case 'manaProduction': {
-      const typeLine = card.type_line?.toLowerCase() || '';
-      if (!typeLine.includes('land')) return false;
-      const producedMana = card.produced_mana || [];
-      if (producedMana.includes(filter.value)) return true;
-      if (producedMana.length === 0) {
-        const oracleText = card.oracle_text?.toLowerCase() || '';
-        const checks: Record<string, () => boolean> = {
-          W: () => typeLine.includes('plains') || oracleText.includes('add {w}'),
-          U: () => typeLine.includes('island') || oracleText.includes('add {u}'),
-          B: () => typeLine.includes('swamp') || oracleText.includes('add {b}'),
-          R: () => typeLine.includes('mountain') || oracleText.includes('add {r}'),
-          G: () => typeLine.includes('forest') || oracleText.includes('add {g}'),
-          C: () => oracleText.includes('add {c}'),
-        };
-        return checks[filter.value]?.() ?? false;
-      }
-      return false;
-    }
+    case 'manaProduction':
+      // Same reading as the Mana Production counts (services/deckBuilder/manaSources.ts),
+      // so clicking a color lists exactly the cards it counted — dorks and rocks included.
+      return getProducedManaSymbols(card).includes(filter.value);
     case 'role':
       // Same membership rule as the Deck Roles counts and the Inspector's Roles
       // tab: every card that fills the role. Not gated on card.multiRole —
@@ -355,6 +342,7 @@ export type CardAction =
   | { type: 'mustInclude' }
   | { type: 'exclude' }
   | { type: 'hideFromCombos' }
+  | { type: 'filterCombos' }
   | { type: 'createCombo' }
   | { type: 'addToList'; listId: string; board?: 'main' | 'sideboard' | 'maybeboard' }
   | { type: 'createListAndAdd'; listName: string };
@@ -382,6 +370,8 @@ export interface CardContextMenuProps {
   hasHideFromCombos?: boolean;
   /** Whether the card is already on that hide list, so the entry reads as a toggle. */
   isHiddenFromCombos?: boolean;
+  /** Whether the panel is currently filtered to this card, so that entry reads as a toggle. */
+  isComboFiltered?: boolean;
   /** Commander row — hide deck-management actions (remove/board/must-include/exclude), keep Create combo + Add to list/deck. */
   isCommander?: boolean;
   /** Same hiding as isCommander, for contexts with no working deck at all (brew's packs). */
@@ -397,9 +387,13 @@ export interface CardContextMenuProps {
   onCut?: () => void;
   /** Whether `onCut` is currently marked, so the entry reads as a toggle. */
   isCut?: boolean;
+  /** Extra classes on the popover panel. The menu portals to <body> at z-50, so a
+   *  caller inside a floating dialog (z-150) has to lift it or the menu opens
+   *  behind the dialog. */
+  contentClassName?: string;
 }
 
-export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, hasCreateCombo, hasHideFromCombos, isHiddenFromCombos, isCommander, hideDeckActions, userLists, noun = 'deck', forceOpen, onForceClose, onFocus, removeFirst, onCut, isCut }: CardContextMenuProps) {
+export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSideboard, hasMaybeboard, addToBoard, isInSideboard, isInMaybeboard, isMustInclude, isBanned, hasCreateCombo, hasHideFromCombos, isHiddenFromCombos, isComboFiltered, isCommander, hideDeckActions, userLists, noun = 'deck', forceOpen, onForceClose, onFocus, removeFirst, onCut, isCut, contentClassName = '' }: CardContextMenuProps) {
   const workingNoun = noun === 'list' ? 'List' : 'Deck';
   const [internalOpen, setInternalOpen] = React.useState(false);
   const [showLists, setShowLists] = React.useState(false);
@@ -452,7 +446,7 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
           <MoreVertical className="w-3.5 h-3.5" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" side="bottom" className="w-48 p-1" onClick={(e) => e.stopPropagation()}>
+      <PopoverContent align="end" side="bottom" className={`w-48 p-1 ${contentClassName}`} onClick={(e) => e.stopPropagation()}>
         {(hoistRemove || onFocus) && (
           <>
             {hoistRemove && removeEntry}
@@ -510,16 +504,21 @@ export function CardContextMenu({ card, onAction, hasRemove, hasAddToDeck, hasSi
             </button>
           </>
         )}
-        {/* Combo-panel view filter. Independent of the deck and of Exclude — it only
-            decides which combos the panel lists. */}
+        {/* Combo-panel view filters — a matched pair: narrow the list to this card,
+            or drop it from the list. Independent of the deck and of Exclude; they
+            only decide which combos the panel shows. */}
         {hasHideFromCombos && (
           <>
             <div className="h-px bg-border my-1" />
+            <button className={menuBtn} onClick={() => fire({ type: 'filterCombos' })}>
+              <Filter className={`w-3.5 h-3.5 transition-colors ${isComboFiltered ? 'text-violet-400' : 'text-muted-foreground group-hover/item:text-violet-400'}`} />
+              {isComboFiltered ? 'Stop showing only this card' : 'Show only combos with this card'}
+            </button>
             <button className={menuBtn} onClick={() => fire({ type: 'hideFromCombos' })}>
               {isHiddenFromCombos
                 ? <Eye className="w-3.5 h-3.5 text-amber-400 transition-colors" />
                 : <EyeOff className="w-3.5 h-3.5 text-muted-foreground group-hover/item:text-amber-400 transition-colors" />}
-              {isHiddenFromCombos ? 'Show combos with this card' : 'Hide combos with this card'}
+              {isHiddenFromCombos ? 'Unhide combos with this card' : 'Hide combos with this card'}
             </button>
           </>
         )}
@@ -1949,35 +1948,14 @@ function calculateManaPips(cards: ScryfallCard[]): Record<string, number> {
   return pips;
 }
 
-// Calculate mana production from lands
+// Count how many cards in the deck are a source of each mana symbol. Lands, mana dorks
+// and rocks all count — see services/deckBuilder/manaSources.ts for the exact rule.
 function calculateManaProduction(cards: ScryfallCard[]): Record<string, number> {
   const production: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
 
   for (const card of cards) {
-    const typeLine = card.type_line?.toLowerCase() || '';
-    if (!typeLine.includes('land')) continue;
-
-    const producedMana = card.produced_mana || [];
-    const oracleText = card.oracle_text?.toLowerCase() || '';
-
-    // Check produced_mana field first
-    for (const mana of producedMana) {
-      if (mana === 'W') production.W++;
-      else if (mana === 'U') production.U++;
-      else if (mana === 'B') production.B++;
-      else if (mana === 'R') production.R++;
-      else if (mana === 'G') production.G++;
-      else if (mana === 'C') production.C++;
-    }
-
-    // Fallback to basic land types
-    if (producedMana.length === 0) {
-      if (typeLine.includes('plains') || oracleText.includes('add {w}')) production.W++;
-      if (typeLine.includes('island') || oracleText.includes('add {u}')) production.U++;
-      if (typeLine.includes('swamp') || oracleText.includes('add {b}')) production.B++;
-      if (typeLine.includes('mountain') || oracleText.includes('add {r}')) production.R++;
-      if (typeLine.includes('forest') || oracleText.includes('add {g}')) production.G++;
-      if (oracleText.includes('add {c}')) production.C++;
+    for (const symbol of getProducedManaSymbols(card)) {
+      if (symbol in production) production[symbol]++;
     }
   }
 
@@ -2142,7 +2120,13 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
   const manaProduction = calculateManaProduction(allCards);
 
   const totalPips = Object.values(manaPips).reduce((a, b) => a + b, 0);
-  const totalProduction = Object.values(manaProduction).reduce((a, b) => a + b, 0);
+  // Only the rows actually shown (deck colors + colorless) count toward the shares —
+  // an "any color" source like Command Tower or Birds of Paradise also produces colors
+  // outside the identity, and counting those made the listed percentages sum under 100.
+  const productionRows = Object.entries(manaProduction)
+    .filter(([color, value]) => value > 0 && (color === 'C' || colorIdentity.includes(color)))
+    .sort(([, a], [, b]) => b - a);
+  const totalProduction = productionRows.reduce((sum, [, value]) => sum + value, 0);
 
   // Prepare pie chart data
   const pieData = Object.entries(manaPips)
@@ -2436,9 +2420,7 @@ function DeckStats({ activeFilter, onFilterChange, showRoles, onToggleRoles, hid
         <div>
           <div className="text-xs text-muted-foreground mb-2">Mana Production</div>
           <div className="space-y-1">
-            {Object.entries(manaProduction)
-              .filter(([color, value]) => value > 0 && (color === 'C' || colorIdentity.includes(color)))
-              .sort(([, a], [, b]) => b - a)
+            {productionRows
               .map(([color, value]) => {
                 const percent = (value / totalProduction) * 100;
                 const isActive = activeFilter?.type === 'manaProduction' && activeFilter?.value === color;
@@ -2704,6 +2686,13 @@ interface DeckDisplayProps {
   toolbarExtra?: React.ReactNode;
   /** Slot rendered next to the Modify Deck (pencil) button in the main toolbar (e.g. a bulk-add trigger) */
   headerBulkAdd?: React.ReactNode;
+  /**
+   * The same bulk-add trigger for the floating side rail. A separate node, not a
+   * reuse of `headerBulkAdd`: both are mounted at once, so one node rendered
+   * twice would share refs and open state, and the rail's panel has to open
+   * sideways rather than downward.
+   */
+  railBulkAdd?: React.ReactNode;
   /** Slot rendered immediately before the Export button (e.g. a copy-share-link button).
    *  The owner supplies the whole control so it keeps its own copied/failed state. */
   shareAction?: React.ReactNode;
@@ -2782,7 +2771,7 @@ function DeckWarningBanner({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, headerBulkAdd, shareAction, onCopyShareLink, savedList, saveNudge, unsavedNotice, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
+export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerateProgress, regenerateMessage, onRemoveCards, onAddCards, onMoveToSideboard, onMoveToMaybeboard, toolbarExtra, headerBulkAdd, railBulkAdd, shareAction, onCopyShareLink, savedList, saveNudge, unsavedNotice, boardCounts, cardCountAction, deckFooter, renderHeaderActions, onChangeQuantity, onEditModeChange, sidebarHeader, sidebarLeftActions, sideboardNames, maybeboardNames, onSetSideboard, onSetMaybeboard, phasesDone, spellChromaDeckRef = 'generated', customCombos, onCreateCombo, archetypeBadges = false, children }: DeckDisplayProps) {
   const navigate = useNavigate();
   const { generatedDeck, commander, colorIdentity, customization, swapDeckCard, addDeckCard, setGeneratedDeck, updateCustomization, pushDeckHistory, setModifyMode } = useStore();
   const { lists: userLists, createList, updateList, deleteList } = useUserLists();
@@ -4064,6 +4053,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     const MAX_POTENTIAL = 20;
     for (const [name, list] of map) {
       list.sort((a, b) => {
+        // Assembled combos lead. Missing-card count alone no longer settles this:
+        // a combo with every named card but an unfilled slot also has 0 missing.
+        if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
         const aMissing = a.missingCards.length;
         const bMissing = b.missingCards.length;
         if (aMissing !== bMissing) return aMissing - bMissing;
@@ -5762,6 +5754,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
 
             {/* Divider */}
             <div className="h-px bg-border/60 mx-1.5 my-0.5" />
+
+            {/* Add cards */}
+            {!readOnly && !isEditMode && railBulkAdd}
 
             {/* Modify / Exit */}
             {!readOnly && !isEditMode && (

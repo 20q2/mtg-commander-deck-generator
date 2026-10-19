@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.3.49",
+    "notes": [
+      "Deck Generation > Combos that need an unnamed piece (persist creatures, mana rocks) have much better generator support, and display as a necessary piece in the combo viewer",
+      "Right click cards in the combo viewer to show/hide combos using that card",
+      "Fixed a bug where combo data could sometimes go stale and cause combos to display in strange ways"      
+    ]
+  },
+  {
     "version": "1.3.48",
     "notes": [
       "Inspector > Tempo: the ramp / interaction / draw / other targets under each phase now add up to that phase's target — they could come up a card short before (thank you LuisMiguelMedina for the report)",

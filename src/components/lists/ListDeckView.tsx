@@ -9,6 +9,7 @@ import { useStore } from '@/store';
 import { getCardsByNames, getCardByName, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard, normalizeCardNameKey } from '@/services/scryfall/client';
 import { ManaCost } from '@/components/ui/mtg-icons';
 import { fetchCommanderCombos, fetchColorIdentityCombos, formatCommanderNameForUrl } from '@/services/edhrec/client';
+import { detectCombosInDeck, recomputeComboCompleteness, mergeComboPools } from '@/services/combos/detect';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { DeckDisplay, CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
@@ -34,12 +35,14 @@ import {
   isCacheFresh,
   cacheMatchesCommander,
   cacheMatchesContent,
+  cacheMatchesSchema,
+  ENRICHMENT_SCHEMA_VERSION,
 } from '@/services/deckBuilder/deckEnrichmentCache';
 import { type CollectionImporterHandle } from '@/components/collection/CollectionImporter';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { buildThemeFit, literalThemeMembers } from '@/services/deckBuilder/themeFit';
 import { rebuildRelevancyMap } from '@/services/deckBuilder/relevancyMap';
-import { AddCardsPanel } from '@/components/deck/AddCardsPanel';
+import { AddCardsPanel, type AddCardsPanelProps } from '@/components/deck/AddCardsPanel';
 import { findSwapCandidates } from '@/services/deckBuilder/swapFinder';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -246,69 +249,6 @@ function getArtCropUrl(card: ScryfallCard | null): string | null {
   return null;
 }
 
-function detectCombosInDeck(
-  combos: EDHRECCombo[],
-  allCardNames: Set<string>,
-  commanderCard: ScryfallCard | null,
-  partnerCard: ScryfallCard | null,
-): DetectedCombo[] | undefined {
-  if (combos.length === 0) return undefined;
-
-  // Defensive dedupe by card set. The same combo is surfaced more than once two
-  // ways: (1) EDHREC lists a card set as multiple combo entries that differ only
-  // by a result-variant suffix in the comboId ("3470-5702--143" vs "--131"), and
-  // (2) the same combo appears on both the commander page (source 'commander')
-  // and the color-identity page (source 'color-identity'). Keying on comboId
-  // misses case (1) entirely, so dedupe on the card set instead. Callers list
-  // commander-source combos first, so keeping the first occurrence preserves the
-  // commander provenance and drops the duplicate "Synergy" copy.
-  const seenCardSets = new Set<string>();
-  const uniqueCombos = combos.filter(c => {
-    const key = c.cards.map(card => card.name).sort().join('|');
-    if (seenCardSets.has(key)) return false;
-    seenCardSets.add(key);
-    return true;
-  });
-
-  const detected = uniqueCombos
-    .map(combo => {
-      const comboCardNames = combo.cards.map(c => c.name);
-      const missingCards = comboCardNames.filter(name => !allCardNames.has(name));
-      const source = combo.source ?? 'commander';
-      return {
-        comboId: combo.comboId,
-        cards: comboCardNames,
-        templates: combo.templates,
-        results: combo.results,
-        isComplete: missingCards.length === 0,
-        missingCards,
-        deckCount: combo.deckCount,
-        bracket: combo.bracket,
-        source,
-      } as DetectedCombo;
-    })
-    .filter(dc => dc.isComplete || dc.missingCards.length <= 2);
-
-  const commanderNames = new Set<string>();
-  if (commanderCard) {
-    commanderNames.add(commanderCard.name);
-    if (commanderCard.name.includes(' // ')) commanderNames.add(commanderCard.name.split(' // ')[0]);
-  }
-  if (partnerCard) {
-    commanderNames.add(partnerCard.name);
-    if (partnerCard.name.includes(' // ')) commanderNames.add(partnerCard.name.split(' // ')[0]);
-  }
-
-  detected.sort((a, b) => {
-    if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
-    const aHasCommander = a.cards.some(n => commanderNames.has(n));
-    const bHasCommander = b.cards.some(n => commanderNames.has(n));
-    if (aHasCommander !== bHasCommander) return aHasCommander ? -1 : 1;
-    return b.deckCount - a.deckCount;
-  });
-
-  return detected.length > 0 ? detected : undefined;
-}
 
 // Defensive card-set dedupe for combos coming straight out of the enrichment
 // cache. Fresh detection flows through detectCombosInDeck (which dedupes), but
@@ -664,6 +604,107 @@ function BoardsCollapsible({ sideboardCards, maybeboardCards, onBoardCardAction,
 // Derive the primary card type (for CardTypeIcon) from a Scryfall type_line.
 // "Legendary Artifact Creature — Golem" → "creature". Creature wins so the
 // claw shows for artifact/enchantment creatures.
+/**
+ * The always-available "add cards" trigger + its panel. Rendered twice: once in
+ * the deck toolbar, and once in DeckDisplay's floating side rail (which is what
+ * you're left with after the toolbar scrolls off). Each instance owns its own
+ * open state and importer handle — a shared one would collide, since both are
+ * mounted at the same time even though only one is visible.
+ */
+function HeaderBulkAdd({
+  variant,
+  existingNames,
+  onAddCards,
+  onAddCard,
+  swapEnabled,
+  getSwapPlan,
+  onConfirmSwap,
+}: Pick<AddCardsPanelProps, 'existingNames' | 'onAddCards' | 'onAddCard' | 'swapEnabled' | 'getSwapPlan' | 'onConfirmSwap'> & {
+  variant: 'toolbar' | 'rail';
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const importerRef = useRef<CollectionImporterHandle>(null);
+
+  // Closing flushes pasted-but-un-imported text rather than dropping it; an
+  // import that turned up unknown names keeps the panel open to report them.
+  const closeImporting = useCallback(async () => {
+    const imp = importerRef.current;
+    if (imp?.hasPending()) {
+      const result = await imp.triggerImport();
+      if (result && result.notFound.length > 0) return;
+    }
+    setOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClick = (e: MouseEvent) => {
+      // The swap flyout is portalled to body, so it is "outside" by DOM but
+      // very much inside by intent — clicking an option must not dismiss this.
+      if ((e.target as Element | null)?.closest?.('[data-swap-flyout]')) return;
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        closeImporting();
+      }
+    };
+    window.addEventListener('mousedown', handleClick);
+    return () => window.removeEventListener('mousedown', handleClick);
+  }, [open, closeImporting]);
+
+  const isRail = variant === 'rail';
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => { if (open) closeImporting(); else setOpen(true); }}
+              aria-label="Add cards"
+              // Open reads as the accent, not a neutral grey: this button
+              // owns a panel that covers the deck, so it should be obvious
+              // which control put it there.
+              className={isRail
+                ? `p-2 rounded-lg transition-colors ${open ? 'bg-violet-500/20 text-violet-100' : 'text-muted-foreground hover:text-foreground hover:bg-accent'}`
+                : `flex items-center rounded-md p-1.5 border transition-colors ${
+                    open
+                      ? 'border-violet-400/50 bg-violet-500/20 text-violet-100'
+                      : 'border-border/50 bg-card/50 text-muted-foreground hover:text-foreground'
+                  }`}
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side={isRail ? 'right' : 'bottom'}>Add Cards</TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      {open && (
+        // The rail sits against the left edge, so its panel opens outward to the
+        // right; the toolbar button is at the right edge and opens downward.
+        <div
+          className={`absolute z-50 w-[min(90vw,24rem)] rounded-lg border border-border bg-card shadow-2xl overflow-hidden ${
+            isRail ? 'left-full ml-2 top-0' : 'top-full mt-2 right-0'
+          }`}
+        >
+          <AddCardsPanel
+            ref={importerRef}
+            autoFocus
+            existingNames={existingNames}
+            onAddCards={onAddCards}
+            onAddCard={onAddCard}
+            label="Add Cards"
+            showDragDropHint
+            swapEnabled={swapEnabled}
+            getSwapPlan={getSwapPlan}
+            onConfirmSwap={onConfirmSwap}
+            onCancel={() => setOpen(false)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function primaryTypeFromLine(typeLine: string | undefined): string {
   const tl = (typeLine || '').split('//')[0].split('—')[0].toLowerCase();
   const order = ['creature', 'planeswalker', 'land', 'battle', 'artifact', 'enchantment', 'instant', 'sorcery', 'tribal'];
@@ -1063,21 +1104,6 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
     setShowBulkAdd(false);
   }, []);
 
-  // Header bulk-add (a second Bulk Add trigger placed next to the Modify Deck
-  // pencil, always visible without entering edit mode). Independent state so it
-  // never conflicts with the edit-mode Bulk Add panel above.
-  const [showHeaderBulkAdd, setShowHeaderBulkAdd] = useState(false);
-  const headerBulkAddRef = useRef<HTMLDivElement>(null);
-  const headerBulkImporterRef = useRef<CollectionImporterHandle>(null);
-  const closeHeaderBulkAddImporting = useCallback(async () => {
-    const imp = headerBulkImporterRef.current;
-    if (imp?.hasPending()) {
-      const result = await imp.triggerImport();
-      if (result && result.notFound.length > 0) return;
-    }
-    setShowHeaderBulkAdd(false);
-  }, []);
-
   // Primer inline editing state
   const [editingPrimer, setEditingPrimer] = useState(false);
   const [primerDraft, setPrimerDraft] = useState('');
@@ -1185,6 +1211,7 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
       };
       await writeEnrichmentCache({
         listId: list.id,
+        schemaVersion: ENRICHMENT_SCHEMA_VERSION,
         commanderName: list.commanderName ?? null,
         partnerName: list.partnerCommanderName ?? null,
         contentHash: computeContentHash(listHashInput(list)),
@@ -1227,7 +1254,17 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
         categories: payload.categories,
         stats: payload.stats,
         collectionBinderIds: list.collectionBinderIds,
-        detectedCombos: dedupeCombosByCardSet(payload.detectedCombos),
+        // Re-detect from the restored raw pool rather than trusting the cached
+        // detectedCombos: completeness now depends on whether the deck fills each
+        // combo's unnamed slots, and a payload written before that shipped records
+        // slot-short combos as complete.
+        detectedCombos: rawCombosRef.current.length > 0
+          ? detectCombosInDeck(rawCombosRef.current, payload.deckCards, payload.commanderCard, payload.partnerCard)
+          : dedupeCombosByCardSet(
+              payload.detectedCombos
+                ? recomputeComboCompleteness(payload.detectedCombos, payload.deckCards, payload.commanderCard, payload.partnerCard)
+                : undefined,
+            ),
         roleCounts: payload.roleCounts,
         roleTargets: payload.roleTargets,
         rampSubtypeCounts: payload.rampSubtypeCounts,
@@ -1380,19 +1417,6 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
       }));
       markPhaseDone('tagger');
 
-      const allDeckNames = new Set<string>();
-      if (commanderCard) {
-        allDeckNames.add(commanderCard.name);
-        if (commanderCard.name.includes(' // ')) allDeckNames.add(commanderCard.name.split(' // ')[0]);
-      }
-      if (partnerCard) {
-        allDeckNames.add(partnerCard.name);
-        if (partnerCard.name.includes(' // ')) allDeckNames.add(partnerCard.name.split(' // ')[0]);
-      }
-      for (const c of deckCards) {
-        allDeckNames.add(c.name);
-        if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
-      }
       const listColors = new Set<string>();
       for (const c of cards) for (const ci of c.color_identity || []) listColors.add(ci.toUpperCase());
       const listColorArray = ['W', 'U', 'B', 'R', 'G'].filter(c => listColors.has(c));
@@ -1404,14 +1428,12 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
             commanderCard ? fetchCommanderCombos(commanderCard.name).catch(() => [] as EDHRECCombo[]) : Promise.resolve([] as EDHRECCombo[]),
             fetchColorIdentityCombos(listColorArray).catch(() => [] as EDHRECCombo[]),
           ]);
-          const cmdCombos: EDHRECCombo[] = a.map(c => ({ ...c, source: 'commander' as const }));
-          const colCombos: EDHRECCombo[] = b.map(c => ({ ...c, source: 'color-identity' as const }));
-          const byId = new Map<string, EDHRECCombo>();
-          for (const c of cmdCombos) byId.set(c.comboId, c);
-          for (const c of colCombos) if (!byId.has(c.comboId)) byId.set(c.comboId, c);
-          const merged = [...byId.values()];
+          const merged = mergeComboPools(
+            a.map(c => ({ ...c, source: 'commander' as const })),
+            b.map(c => ({ ...c, source: 'color-identity' as const })),
+          );
           rawCombosRef.current = merged;
-          const detected = detectCombosInDeck(merged, allDeckNames, commanderCard, partnerCard);
+          const detected = detectCombosInDeck(merged, deckCards, commanderCard, partnerCard);
           if (!cancelled) {
             useStore.setState(state => ({
               generatedDeck: state.generatedDeck ? { ...state.generatedDeck, detectedCombos: detected } : null,
@@ -1573,10 +1595,6 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
         // color-identity combos for their colors. (Gating this on commander used
         // to wipe the cached combos coldLoad had written.)
         {
-          const allDeckNames = new Set<string>();
-          if (commanderCard) allDeckNames.add(commanderCard.name);
-          if (partnerCard) allDeckNames.add(partnerCard.name);
-          for (const c of deckCards) allDeckNames.add(c.name);
           const listColors = new Set<string>();
           for (const c of cards) for (const ci of c.color_identity || []) listColors.add(ci.toUpperCase());
           const listColorArray = ['W', 'U', 'B', 'R', 'G'].filter(c => listColors.has(c));
@@ -1587,12 +1605,12 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
                 : Promise.resolve([] as EDHRECCombo[]),
               fetchColorIdentityCombos(listColorArray).catch(() => [] as EDHRECCombo[]),
             ]);
-            const merged: EDHRECCombo[] = [
-              ...a.map(c => ({ ...c, source: 'commander' as const })),
-              ...b.map(c => ({ ...c, source: 'color-identity' as const })),
-            ];
+            const merged: EDHRECCombo[] = mergeComboPools(
+              a.map(c => ({ ...c, source: 'commander' as const })),
+              b.map(c => ({ ...c, source: 'color-identity' as const })),
+            );
             rawCombosRef.current = merged;
-            detectedCombos = detectCombosInDeck(merged, allDeckNames, commanderCard, partnerCard);
+            detectedCombos = detectCombosInDeck(merged, deckCards, commanderCard, partnerCard);
           } catch { /* non-critical */ }
           if (cancelled) return;
         }
@@ -1618,14 +1636,21 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
           if (cancelled) return;
         }
 
-        // Repaint if the refresh resolved cards the hydrated payload was missing —
-        // otherwise a warm load off a stale cache sits at a partial deck until the
-        // user navigates away and back. Skipped once the user has edited the list
-        // (the incremental effect owns the deck from then on).
+        // Adopt the refreshed analysis whenever the list hasn't changed under us.
+        // Skipped once the user has edited the list (the incremental effect owns
+        // the deck from then on), and a degraded refresh is only adopted when it's
+        // strictly more complete than what's on screen.
+        //
+        // This used to fire ONLY when the refresh resolved cards the cached payload
+        // was missing. On the common path — cache complete but out of date — every
+        // refreshed field was computed and then thrown away, while persistCache
+        // still wrote it to disk. So fresh data needed two loads to appear: one to
+        // persist it, another to read it back. That's what made combo slots stay
+        // invisible after the combo index regenerated.
         if (prevCardsRef.current === list.cards) {
           const displayed = useStore.getState().generatedDeck;
           const displayedCount = displayed ? Object.values(displayed.categories).flat().length : 0;
-          if (displayed && displayedCount < deckCards.length) {
+          if (displayed && (!degraded || displayedCount < deckCards.length)) {
             setSideboardCards(sbCards);
             setMaybeboardCards(mbCards);
             useStore.setState({
@@ -1683,6 +1708,7 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
 
         if (
           cached
+          && cacheMatchesSchema(cached)
           && cacheMatchesCommander(cached, list.commanderName, list.partnerCommanderName)
           && cacheMatchesContent(cached, listHashInput(list))
           && isCacheFresh(cached)
@@ -1724,21 +1750,8 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
     const stats = computeStatsFromCards(allDeckCards);
 
     // Re-evaluate combo completeness
-    const allDeckNames = new Set<string>();
-    if (currentDeck.commander) {
-      allDeckNames.add(currentDeck.commander.name);
-      if (currentDeck.commander.name.includes(' // ')) allDeckNames.add(currentDeck.commander.name.split(' // ')[0]);
-    }
-    if (currentDeck.partnerCommander) {
-      allDeckNames.add(currentDeck.partnerCommander.name);
-      if (currentDeck.partnerCommander.name.includes(' // ')) allDeckNames.add(currentDeck.partnerCommander.name.split(' // ')[0]);
-    }
-    for (const c of allDeckCards) {
-      allDeckNames.add(c.name);
-      if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
-    }
     const detectedCombos = rawCombosRef.current.length > 0
-      ? detectCombosInDeck(rawCombosRef.current, allDeckNames, currentDeck.commander, currentDeck.partnerCommander)
+      ? detectCombosInDeck(rawCombosRef.current, allDeckCards, currentDeck.commander, currentDeck.partnerCommander)
       : currentDeck.detectedCombos;
 
     const enrichResult = await enrichDeckCards(
@@ -1811,6 +1824,7 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
     };
     await writeEnrichmentCache({
       listId: list.id,
+      schemaVersion: ENRICHMENT_SCHEMA_VERSION,
       commanderName: list.commanderName ?? null,
       partnerName: list.partnerCommanderName ?? null,
       contentHash: computeContentHash(listHashInput(list)),
@@ -1941,21 +1955,6 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
     window.addEventListener('mousedown', handleClick);
     return () => window.removeEventListener('mousedown', handleClick);
   }, [showBulkAdd, closeBulkAddImporting]);
-
-  // Close header bulk add on outside click
-  useEffect(() => {
-    if (!showHeaderBulkAdd) return;
-    const handleClick = (e: MouseEvent) => {
-      // The swap flyout is portalled to body, so it is "outside" by DOM but
-      // very much inside by intent — clicking an option must not dismiss this.
-      if ((e.target as Element | null)?.closest?.('[data-swap-flyout]')) return;
-      if (headerBulkAddRef.current && !headerBulkAddRef.current.contains(e.target as Node)) {
-        closeHeaderBulkAddImporting();
-      }
-    };
-    window.addEventListener('mousedown', handleClick);
-    return () => window.removeEventListener('mousedown', handleClick);
-  }, [showHeaderBulkAdd, closeHeaderBulkAddImporting]);
 
   // Debounced card search
   useEffect(() => {
@@ -2924,46 +2923,26 @@ export function ListDeckView({ list, onBack, unsaved, onViewAsList, onEdit, onDu
           shareAction={shareButton}
           onCopyShareLink={unsaved ? undefined : handleCopyShareLink}
           headerBulkAdd={onAddCards ? (
-            <div className="relative" ref={headerBulkAddRef}>
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => { if (showHeaderBulkAdd) closeHeaderBulkAddImporting(); else setShowHeaderBulkAdd(true); }}
-                      aria-label="Add cards"
-                      // Open reads as the accent, not a neutral grey: this button
-                      // owns a panel that covers the deck, so it should be obvious
-                      // which control put it there.
-                      className={`flex items-center rounded-md p-1.5 border transition-colors ${
-                        showHeaderBulkAdd
-                          ? 'border-violet-400/50 bg-violet-500/20 text-violet-100'
-                          : 'border-border/50 bg-card/50 text-muted-foreground hover:text-foreground'
-                      }`}
-                    >
-                      <Plus className="w-4 h-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Add Cards</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-              {showHeaderBulkAdd && (
-                <div className="absolute top-full mt-2 right-0 z-50 w-[min(90vw,24rem)] rounded-lg border border-border bg-card shadow-2xl overflow-hidden">
-                  <AddCardsPanel
-                    ref={headerBulkImporterRef}
-                    autoFocus
-                    existingNames={allListNames}
-                    onAddCards={handleBulkImport}
-                    onAddCard={handleAddCardByName}
-                    label="Add Cards"
-                    showDragDropHint
-                    swapEnabled={swapReady}
-                    getSwapPlan={getSwapPlan}
-                    onConfirmSwap={handleConfirmSwap}
-                    onCancel={() => setShowHeaderBulkAdd(false)}
-                  />
-                </div>
-              )}
-            </div>
+            <HeaderBulkAdd
+              variant="toolbar"
+              existingNames={allListNames}
+              onAddCards={handleBulkImport}
+              onAddCard={handleAddCardByName}
+              swapEnabled={swapReady}
+              getSwapPlan={getSwapPlan}
+              onConfirmSwap={handleConfirmSwap}
+            />
+          ) : undefined}
+          railBulkAdd={onAddCards ? (
+            <HeaderBulkAdd
+              variant="rail"
+              existingNames={allListNames}
+              onAddCards={handleBulkImport}
+              onAddCard={handleAddCardByName}
+              swapEnabled={swapReady}
+              getSwapPlan={getSwapPlan}
+              onConfirmSwap={handleConfirmSwap}
+            />
           ) : undefined}
           toolbarExtra={onAddCards ? (
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">

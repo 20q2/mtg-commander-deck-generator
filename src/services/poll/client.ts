@@ -1,5 +1,5 @@
 // src/services/poll/client.ts
-import type { Suggestion, ListResponse } from './types';
+import type { Suggestion, ListResponse, PollComment, CommentsResponse } from './types';
 import { PollApiError } from './types';
 import { getOrCreateAnonId } from './anonId';
 import { getAdminSecret } from './adminSecret';
@@ -11,7 +11,10 @@ function requireUrl(): string {
   return URL.trim();
 }
 
-async function call(action: string, init: RequestInit & { admin?: boolean } = {}): Promise<unknown> {
+async function call(
+  action: string,
+  init: RequestInit & { admin?: boolean; query?: Record<string, string> } = {},
+): Promise<unknown> {
   const base = requireUrl();
   const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
   if (!headers['X-Anon-Id']) headers['X-Anon-Id'] = getOrCreateAnonId();
@@ -21,7 +24,10 @@ async function call(action: string, init: RequestInit & { admin?: boolean } = {}
     if (!s) throw new PollApiError('Admin secret not set', 401, null);
     headers['Authorization'] = `Bearer ${s}`;
   }
-  const res = await fetch(`${base}?action=${action}&_t=${Date.now()}`, {
+  const query = init.query
+    ? Object.entries(init.query).map(([k, v]) => `&${k}=${encodeURIComponent(v)}`).join('')
+    : '';
+  const res = await fetch(`${base}?action=${action}${query}&_t=${Date.now()}`, {
     method: init.method || 'GET',
     headers,
     body: init.body,
@@ -74,4 +80,34 @@ export async function deleteSuggestion(suggestionId: string): Promise<{ ok: true
     admin: true,
     body: JSON.stringify({ suggestionId }),
   })) as { ok: true };
+}
+
+export async function listComments(suggestionId: string): Promise<CommentsResponse> {
+  return (await call('poll-comments', {
+    method: 'GET',
+    query: { suggestionId },
+  })) as CommentsResponse;
+}
+
+export async function postComment(
+  suggestionId: string,
+  body: string,
+  opts: { admin?: boolean } = {},
+): Promise<{ comment: PollComment; commentCount: number }> {
+  return (await call('poll-comment', {
+    method: 'POST',
+    admin: opts.admin,
+    body: JSON.stringify({ suggestionId, body }),
+  })) as { comment: PollComment; commentCount: number };
+}
+
+export async function deleteComment(
+  suggestionId: string,
+  commentId: string,
+): Promise<{ ok: true; commentCount: number }> {
+  return (await call('poll-comment-delete', {
+    method: 'POST',
+    admin: true,
+    body: JSON.stringify({ suggestionId, commentId }),
+  })) as { ok: true; commentCount: number };
 }

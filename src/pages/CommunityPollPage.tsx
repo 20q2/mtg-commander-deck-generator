@@ -75,6 +75,10 @@ export function CommunityPollPage({ admin = false }: Props) {
     }
   };
 
+  const onCommentCountChange = useCallback((id: string, commentCount: number) => {
+    setSuggestions(prev => prev.map(s => s.id === id ? { ...s, commentCount } : s));
+  }, []);
+
   const onToggle = async (id: string) => {
     const currentlyVoted = myVotes.has(id);
     const targetVoted = !currentlyVoted;
@@ -150,6 +154,8 @@ export function CommunityPollPage({ admin = false }: Props) {
             onTabChange={setTab}
             onToggleVote={onToggle}
             voteDisabled={voteDisabled}
+            admin={admin}
+            onCommentCountChange={onCommentCountChange}
             renderAdminControls={admin ? (s) => (
               <AdminControls
                 suggestion={s}

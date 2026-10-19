@@ -20,9 +20,10 @@ import type {
   ManaMix,
   BracketLevel,
   BudgetOption,
-  CollectionStrategy,
-} from '@/types';
+  CollectionStrategy, ComboTemplate } from '@/types';
 import { searchCards, getCardByName, getCardsByNames, getCheapestPrintings, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, frontFaceName, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetsFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, normalizeCardNameKey, CHANNEL_LANDS } from '@/services/scryfall/client';
+import { assessCombo, recomputeComboCompleteness, mergeComboPools } from '@/services/combos/detect';
+import { fitTemplate, fitTemplates } from '@/services/combos/templateFit';
 import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos, fetchColorIdentityCombos, fetchTagPageData, edhrecColorSegment } from '@/services/edhrec/client';
 import { blendArchetypeData, buildArchetypeSourceLabel } from './archetypeBlend';
 import {
@@ -4350,14 +4351,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   // Merge commander-source and color-identity-source combos; on collision (same comboId),
   // commander source wins — it has higher provenance and uses the looser ≤2 threshold.
   let detectedCombos: DetectedCombo[] | undefined;
-  const allCombosForDetection: EDHRECCombo[] = (() => {
-    const byId = new Map<string, EDHRECCombo>();
-    for (const c of combos) byId.set(c.comboId, c);
-    for (const c of colorIdentityCombos) {
-      if (!byId.has(c.comboId)) byId.set(c.comboId, c);
-    }
-    return [...byId.values()];
-  })();
+  const allCombosForDetection: EDHRECCombo[] = mergeComboPools(combos, colorIdentityCombos);
 
   if (allCombosForDetection.length > 0) {
     const allDeckNames = new Set<string>();
@@ -4375,18 +4369,27 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
     }
 
+    const allDeckCards = [commander, partnerCommander, ...Object.values(categories).flat()]
+      .filter((c): c is ScryfallCard => !!c);
+
     detectedCombos = allCombosForDetection
       .filter(combo => !combo.cards.some(c => bannedCards.has(c.name)))
       .map(combo => {
         const comboCardNames = combo.cards.map(c => c.name);
-        const missingCards = comboCardNames.filter(name => !allDeckNames.has(name));
+        const { missingCards, templateFits, isComplete } = assessCombo(
+          { cards: comboCardNames, templates: combo.templates },
+          allDeckNames,
+          allDeckCards,
+        );
         const source = combo.source ?? 'commander';
 
         return {
           comboId: combo.comboId,
           cards: comboCardNames,
+          templates: combo.templates,
+          templateFits: templateFits.length > 0 ? templateFits : undefined,
           results: combo.results,
-          isComplete: missingCards.length === 0,
+          isComplete,
           missingCards,
           deckCount: combo.deckCount,
           bracket: combo.bracket,
@@ -4468,7 +4471,16 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   if (detectedCombos && edhrecData && comboCountSetting > 0) {
     const ORPHAN_INCLUSION_THRESHOLD = 25; // below this %, the card is considered combo-dependent
     const MAX_AUDIT_SWAPS = 4;
+    // Slot-filling gets its own small budget rather than competing for the one
+    // above. Phase 1's swaps each complete 5-6 combos at once and would always
+    // win the shared budget, so sharing it meant slot-filling simply never ran.
+    //
+    // Scaled by the user's Combos dial, which is already the "how much do I care
+    // about combos" control: Normal doesn't go hunting for enablers, while a deck
+    // set to Many is explicitly asking for exactly this.
+    const MAX_SLOT_SWAPS = comboCountSetting >= 3 ? 3 : comboCountSetting === 2 ? 2 : 0;
     let auditSwaps = 0;
+    let slotSwaps = 0;
 
     // Build inclusion index from EDHREC pool
     const auditInclusion = new Map<string, number>();
@@ -4479,6 +4491,80 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       ...customization.mustIncludeCards.map(n => n.toLowerCase()),
       ...customization.tempMustIncludeCards.map(n => n.toLowerCase()),
     ]);
+
+    // A combo's unnamed slots ("creature with persist") have to be filled by
+    // something actually in the deck before it counts as assembled. Without this
+    // the audit marks a combo complete on its named cards alone, which both lies
+    // to the UI and protects a piece like Mikaeus from eviction for a combo the
+    // deck can't run. Re-evaluated against the live deck, since the audit moves
+    // cards around as it goes.
+    const auditSlotsFilled = (dc: DetectedCombo): boolean => {
+      if (!dc.templates?.length) return true;
+      const deckCards = [commander, partnerCommander, ...Object.values(categories).flat()]
+        .filter((c): c is ScryfallCard => !!c);
+      return fitTemplates(dc.templates, deckCards, new Set(dc.cards)).every(f => f.satisfied);
+    };
+
+    /** The combo's unnamed slots that the live deck doesn't fill. */
+    const auditUnfilledSlots = (dc: DetectedCombo) => {
+      if (!dc.templates?.length) return [];
+      const deckCards = [commander, partnerCommander, ...Object.values(categories).flat()]
+        .filter((c): c is ScryfallCard => !!c);
+      return fitTemplates(dc.templates, deckCards, new Set(dc.cards)).filter(f => !f.satisfied);
+    };
+
+    /**
+     * Best card to fill a combo's single unnamed slot, or null.
+     *
+     * Candidates come from Scryfall rather than the EDHREC pool: the pool only
+     * holds cards already recommended for this commander, and if one had filled
+     * the slot ordinary selection would usually have taken it. The gap this
+     * closes is the interesting case — a combo one flexible card away, where
+     * that card isn't on the commander's page at all.
+     *
+     * Ranking: under a budget cap money leads (a budget deck would rather have a
+     * clunkier cheap enabler than no combo); otherwise mana value leads, since a
+     * two-drop assembles the combo turns before a five-drop. EDHREC play rate
+     * breaks ties, price last.
+     */
+    const findSlotFiller = async (dc: DetectedCombo): Promise<{ slot: ComboTemplate; card: ScryfallCard } | null> => {
+      const unfilled = auditUnfilledSlots(dc);
+      if (unfilled.length !== 1) return null; // one swap, one slot
+      const slot = unfilled[0].template;
+      if (!slot.scryfallQuery?.trim()) return null;
+      if ((slot.quantity ?? 1) > 1) return null;
+
+      let candidates: ScryfallCard[] = [];
+      try {
+        const res = await searchCards(slot.scryfallQuery, colorIdentity, { order: 'cmc', dir: 'asc' });
+        candidates = res.data ?? [];
+      } catch {
+        return null; // search failed — leave the combo short rather than guess
+      }
+
+      const priceOf = (c: ScryfallCard): number => {
+        const p = parseFloat(getCardPrice(c, currency) ?? '');
+        return Number.isFinite(p) ? p : Infinity;
+      };
+
+      const card = candidates
+        .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
+        .filter(c => passesUserConstraints(c))
+        // Scryfall already ran the query; re-checking locally catches any
+        // disagreement between its search and our evaluator before we commit.
+        .filter(c => fitTemplate(slot, [c], new Set(dc.cards)).satisfied)
+        .sort((a, b) => {
+          if (maxCardPrice !== null) {
+            const pa = priceOf(a), pb = priceOf(b);
+            if (pa !== pb) return pa - pb;
+          }
+          if (a.cmc !== b.cmc) return a.cmc - b.cmc;
+          const ia = auditInclusion.get(a.name) ?? 0, ib = auditInclusion.get(b.name) ?? 0;
+          if (ia !== ib) return ib - ia;
+          return priceOf(a) - priceOf(b);
+        })[0];
+      return card ? { slot, card } : null;
+    };
 
     // Track cards that are part of a COMPLETE combo — never evict them
     const completeComboCards = new Set<string>();
@@ -4582,8 +4668,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
             if (dc.isComplete) continue;
             const stillMissing = dc.missingCards.filter(n => !usedNames.has(n));
             if (stillMissing.length === 0) {
-              dc.isComplete = true;
               dc.missingCards = [];
+              dc.isComplete = auditSlotsFilled(dc);
             }
           }
           // Update completeComboCards so newly completed combo pieces are protected
@@ -4593,6 +4679,40 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           console.log(`[DeckGen] Combo audit: added multi-combo enabler ${name} (completes ${combosCompleted} combos) → evicted ${weak.card.name} (${auditInclusion.get(weak.card.name) ?? 0}%)`);
         }
       }
+    }
+
+    // ── Phase 1.5: Fill an unnamed combo slot ──
+    // A combo whose named pieces are all in the deck but whose unnamed slot
+    // ("creature with persist") is empty can't be assembled. Left alone, Phase 2
+    // evicts those pieces as orphans — but if one card fills the slot, that
+    // completes the combo for a single swap, which is the outcome someone gets
+    // by turning the Combos dial up. Runs before Phase 2 so a filled slot
+    // protects the pieces from eviction.
+    for (const dc of detectedCombos) {
+      if (slotSwaps >= MAX_SLOT_SWAPS) break;
+      if (dc.isComplete || !dc.templates?.length) continue;
+      if (dc.missingCards.some(n => !usedNames.has(n))) continue; // named pieces not all present
+      if (!comboFitsBracket(dc.bracket, bracketLevel)) continue;
+
+      const filler = await findSlotFiller(dc);
+      if (!filler) continue;
+
+      const weak = auditWeakest();
+      if (!weak) break;
+      // Add before evicting, so a rejected add never shrinks the deck.
+      if (!auditAdd(filler.card)) continue;
+      auditRemove(weak.card, weak.category);
+      slotSwaps++;
+
+      dc.missingCards = [];
+      dc.isComplete = auditSlotsFilled(dc);
+      if (dc.isComplete) {
+        // The filler is load-bearing for this combo now — protect it from being
+        // chosen as the "weakest" eviction in a later phase.
+        for (const n of dc.cards) completeComboCards.add(n);
+        completeComboCards.add(filler.card.name);
+      }
+      console.log(`[DeckGen] Combo audit: filled "${filler.slot.name}" for ${dc.cards.join(' + ')} → added ${filler.card.name} (mv ${filler.card.cmc}, ${getCardPrice(filler.card, currency) ?? '?'}), evicted ${weak.card.name}`);
     }
 
     // ── Phase 2: Per-combo completion / orphan eviction (existing logic) ──
@@ -4620,23 +4740,34 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         .filter((c): c is ScryfallCard => !!c)
         .filter(c => passesUserConstraints(c));
 
-      // If all "missing" pieces are actually already in the deck now, mark complete and move on
+      // Every named piece is in the deck. That's only "complete" if the combo's
+      // unnamed slots are filled too — otherwise it stays a near-miss and its
+      // orphaned pieces remain eligible for eviction below.
       if (trulyMissing.length === 0) {
-        dc.isComplete = true;
         dc.missingCards = [];
-        continue;
+        if (auditSlotsFilled(dc)) { dc.isComplete = true; continue; }
       }
+
+      // A combo that also needs an unnamed slot is only completable if we can
+      // fill that slot too — otherwise assembling the named pieces leaves a
+      // combo that still can't be cast. Requiring the slot to be filled ALREADY
+      // (rather than fillable) would mean generation could never assemble a
+      // slot-combo at all, so look for a filler and budget for it here.
+      const needsSlot = auditUnfilledSlots(dc).length > 0;
+      const slotFill = needsSlot ? await findSlotFiller(dc) : null;
+      const slotCost = slotFill ? 1 : 0;
 
       // Over-bracket combos are never completed — their orphaned pieces get evicted below instead.
       const canComplete = comboFitsBracket(dc.bracket, bracketLevel)
         && missingResolved.length === trulyMissing.length
-        && auditSwaps + trulyMissing.length <= MAX_AUDIT_SWAPS;
+        && (!needsSlot || !!slotFill)
+        && auditSwaps + trulyMissing.length + slotCost <= MAX_AUDIT_SWAPS;
 
       if (canComplete) {
         // Swap in the missing pieces by evicting the weakest non-essential cards
         const evicted = new Set<string>();
         let ok = true;
-        for (const missing of missingResolved) {
+        for (const missing of [...missingResolved, ...(slotFill ? [slotFill.card] : [])]) {
           if (usedNames.has(missing.name)) continue; // already in deck from a prior combo
           const weak = auditWeakest(evicted);
           if (!weak) { ok = false; break; }
@@ -4647,9 +4778,12 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           auditSwaps++;
         }
         if (ok) {
-          console.log(`[DeckGen] Combo audit: completed combo ${dc.comboId} → added ${missingResolved.map(c => c.name).join(', ')}`);
-          dc.isComplete = true;
+          const added = [...missingResolved.map(c => c.name), ...(slotFill ? [`${slotFill.card.name} (fills "${slotFill.slot.name}")`] : [])];
+          console.log(`[DeckGen] Combo audit: completed combo ${dc.comboId} → added ${added.join(', ')}`);
+          dc.isComplete = auditSlotsFilled(dc);
           dc.missingCards = [];
+          // Protect the slot filler the same way the named pieces are protected.
+          if (dc.isComplete && slotFill) completeComboCards.add(slotFill.card.name);
         }
       } else {
         // Can't complete — evict the orphaned low-value pieces, replace with best EDHREC candidates
@@ -4678,29 +4812,18 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       }
     }
 
-    // Rebuild detectedCombos if deck changed so completeness flags are accurate
-    if (auditSwaps > 0) {
-      const newDeckNames = new Set<string>();
-      if (commander) {
-        newDeckNames.add(commander.name);
-        if (commander.name.includes(' // ')) newDeckNames.add(commander.name.split(' // ')[0]);
-      }
-      if (partnerCommander) {
-        newDeckNames.add(partnerCommander.name);
-        if (partnerCommander.name.includes(' // ')) newDeckNames.add(partnerCommander.name.split(' // ')[0]);
-      }
-      for (const c of Object.values(categories).flat()) {
-        newDeckNames.add(c.name);
-        if (c.name.includes(' // ')) newDeckNames.add(c.name.split(' // ')[0]);
-      }
-      detectedCombos = detectedCombos
-        .map(dc => {
-          const missing = dc.cards.filter(n => !newDeckNames.has(n));
-          return { ...dc, isComplete: missing.length === 0, missingCards: missing };
-        })
-        .filter(dc => dc.isComplete || dc.missingCards.length <= 2);
+    // Rebuild detectedCombos if deck changed so completeness flags are accurate.
+    // Slot fills count: they change the deck too, and a filled slot is exactly
+    // the kind of change a stale isComplete flag would misreport.
+    if (auditSwaps > 0 || slotSwaps > 0) {
+      detectedCombos = recomputeComboCompleteness(
+        detectedCombos,
+        Object.values(categories).flat(),
+        commander,
+        partnerCommander,
+      ).filter(dc => dc.isComplete || dc.missingCards.length <= 2);
       if (detectedCombos.length === 0) detectedCombos = undefined;
-      console.log(`[DeckGen] Combo audit complete: ${auditSwaps} swap(s) applied`);
+      console.log(`[DeckGen] Combo audit complete: ${auditSwaps} swap(s) applied${slotSwaps > 0 ? `, ${slotSwaps} slot fill(s)` : ''}`);
     }
   }
 

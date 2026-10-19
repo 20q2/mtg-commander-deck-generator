@@ -2,6 +2,7 @@ import type { ScryfallCard, GeneratedDeck, DeckCategory } from '@/types';
 import { calculateStats, countColorPips } from './deckGenerator';
 import { getCardRole, getRampSubtype, getRemovalSubtype, getBoardwipeSubtype, getCardDrawSubtype, type RoleKey } from '@/services/tagger/client';
 import { getFrontFaceTypeLine } from '@/services/scryfall/client';
+import { recomputeComboCompleteness } from '@/services/combos/detect';
 import { estimateBracket } from './bracketEstimator';
 import { rebuildRelevancyMap } from './relevancyMap';
 
@@ -133,25 +134,12 @@ export function swapCard(
   // Recalculate combo completeness based on updated deck card names
   let newDetectedCombos = deck.detectedCombos;
   if (deck.detectedCombos && deck.detectedCombos.length > 0) {
-    const allDeckNames = new Set<string>();
-    if (deck.commander) {
-      allDeckNames.add(deck.commander.name);
-      if (deck.commander.name.includes(' // ')) allDeckNames.add(deck.commander.name.split(' // ')[0]);
-    }
-    if (deck.partnerCommander) {
-      allDeckNames.add(deck.partnerCommander.name);
-      if (deck.partnerCommander.name.includes(' // ')) allDeckNames.add(deck.partnerCommander.name.split(' // ')[0]);
-    }
-    for (const c of Object.values(newCategories).flat()) {
-      allDeckNames.add(c.name);
-      if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
-    }
-
-    newDetectedCombos = deck.detectedCombos
-      .map(combo => {
-        const missingCards = combo.cards.filter(name => !allDeckNames.has(name));
-        return { ...combo, isComplete: missingCards.length === 0, missingCards };
-      })
+    newDetectedCombos = recomputeComboCompleteness(
+      deck.detectedCombos,
+      Object.values(newCategories).flat(),
+      deck.commander,
+      deck.partnerCommander,
+    )
       .filter(dc => dc.isComplete || dc.missingCards.length <= 2)
       .sort((a, b) => {
         if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
@@ -317,25 +305,12 @@ export function addCard(deck: GeneratedDeck, newCard: ScryfallCard): SwapResult 
   // Recalculate combo completeness with the added card
   let newDetectedCombos = deck.detectedCombos;
   if (deck.detectedCombos && deck.detectedCombos.length > 0) {
-    const allDeckNames = new Set<string>();
-    if (deck.commander) {
-      allDeckNames.add(deck.commander.name);
-      if (deck.commander.name.includes(' // ')) allDeckNames.add(deck.commander.name.split(' // ')[0]);
-    }
-    if (deck.partnerCommander) {
-      allDeckNames.add(deck.partnerCommander.name);
-      if (deck.partnerCommander.name.includes(' // ')) allDeckNames.add(deck.partnerCommander.name.split(' // ')[0]);
-    }
-    for (const c of Object.values(newCategories).flat()) {
-      allDeckNames.add(c.name);
-      if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
-    }
-
-    newDetectedCombos = deck.detectedCombos
-      .map(combo => {
-        const missingCards = combo.cards.filter(name => !allDeckNames.has(name));
-        return { ...combo, isComplete: missingCards.length === 0, missingCards };
-      })
+    newDetectedCombos = recomputeComboCompleteness(
+      deck.detectedCombos,
+      Object.values(newCategories).flat(),
+      deck.commander,
+      deck.partnerCommander,
+    )
       .filter(dc => dc.isComplete || dc.missingCards.length <= 2)
       .sort((a, b) => {
         if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
@@ -479,25 +454,12 @@ export function removeCards(deck: GeneratedDeck, names: string[]): SwapResult {
   // Recalculate combo completeness now that the named cards are gone
   let newDetectedCombos = deck.detectedCombos;
   if (deck.detectedCombos && deck.detectedCombos.length > 0) {
-    const allDeckNames = new Set<string>();
-    if (deck.commander) {
-      allDeckNames.add(deck.commander.name);
-      if (deck.commander.name.includes(' // ')) allDeckNames.add(deck.commander.name.split(' // ')[0]);
-    }
-    if (deck.partnerCommander) {
-      allDeckNames.add(deck.partnerCommander.name);
-      if (deck.partnerCommander.name.includes(' // ')) allDeckNames.add(deck.partnerCommander.name.split(' // ')[0]);
-    }
-    for (const c of Object.values(newCategories).flat()) {
-      allDeckNames.add(c.name);
-      if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
-    }
-
-    newDetectedCombos = deck.detectedCombos
-      .map(combo => {
-        const missingCards = combo.cards.filter(name => !allDeckNames.has(name));
-        return { ...combo, isComplete: missingCards.length === 0, missingCards };
-      })
+    newDetectedCombos = recomputeComboCompleteness(
+      deck.detectedCombos,
+      Object.values(newCategories).flat(),
+      deck.commander,
+      deck.partnerCommander,
+    )
       .filter(dc => dc.isComplete || dc.missingCards.length <= 2)
       .sort((a, b) => {
         if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;

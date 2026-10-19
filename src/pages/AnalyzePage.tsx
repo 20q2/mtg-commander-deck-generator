@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { findSwapCandidates } from '@/services/deckBuilder/swapFinder';
+import { recomputeComboCompleteness } from '@/services/combos/detect';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, FlaskConical } from 'lucide-react';
 import { TAB_SLUG_BY_KEY, TAB_KEY_BY_SLUG, type TabKey } from '@/components/deck/optimizer/constants';
@@ -45,22 +46,13 @@ function listSegment(list: UserCardList): string {
     : '';
 }
 
-// Recompute isComplete/missingCards on the stored detected combos by checking
-// each combo's card list against the deck's current names. The raw combos list
-// is dropped after hydration, so we work from the previously-detected combos
-// (which retain their full `cards` array) and just refresh the missing set.
+// Refresh completeness on the stored detected combos against the deck's current
+// contents. The raw combo pool is dropped after hydration, so we work from the
+// previously-detected combos (which retain their `cards` and `templates`).
 function recomputeDetectedCombos(deck: GeneratedDeck): GeneratedDeck['detectedCombos'] {
   if (!deck.detectedCombos || deck.detectedCombos.length === 0) return deck.detectedCombos;
-  const allNames = new Set<string>();
-  for (const arr of Object.values(deck.categories)) {
-    for (const c of arr) allNames.add(c.name);
-  }
-  if (deck.commander) allNames.add(deck.commander.name);
-  if (deck.partnerCommander) allNames.add(deck.partnerCommander.name);
-  return deck.detectedCombos.map(dc => {
-    const missingCards = dc.cards.filter(n => !allNames.has(n));
-    return { ...dc, missingCards, isComplete: missingCards.length === 0 };
-  });
+  const deckCards = Object.values(deck.categories).flat();
+  return recomputeComboCompleteness(deck.detectedCombos, deckCards, deck.commander, deck.partnerCommander);
 }
 
 function countCards(deck: GeneratedDeck): number {

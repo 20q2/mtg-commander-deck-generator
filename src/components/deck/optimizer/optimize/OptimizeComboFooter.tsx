@@ -1,6 +1,10 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { ChevronDown, Check, AlertTriangle, Ban, Plus } from 'lucide-react';
 import type { DetectedCombo } from '@/types';
+import { unfilledSlots } from '@/services/combos/detect';
+import { templateLabel, slotSearchQuery, slotSearchUrl } from '@/services/combos/templateFit';
+import { SlotSearchPanel } from '@/components/deck/SlotSearchPanel';
+import { useDeckColorIdentity, useDeckNamesLower } from '@/hooks/useDeckFacts';
 import type { OptimizeCard } from '@/services/deckBuilder/deckAnalyzer';
 import { scryfallImg } from '../constants';
 
@@ -21,19 +25,28 @@ export function OptimizeComboFooter({
   combos, bannedNames, addColumnNames, uncheckedAdditions,
   onToggleAdd, onAddExtraCandidate, highlightedComboId,
 }: OptimizeComboFooterProps) {
-  const { complete, nearMisses, excluded } = useMemo(() => {
+  const { complete, nearMisses, slotShort, excluded } = useMemo(() => {
     const isBanned = (c: DetectedCombo) => c.cards.some(n => bannedNames.has(n.toLowerCase()));
     const sortByDeckCount = (a: DetectedCombo, b: DetectedCombo) => b.deckCount - a.deckCount;
     return {
       complete:   combos.filter(c =>  c.isComplete && !isBanned(c)).sort(sortByDeckCount),
       nearMisses: combos.filter(c => !c.isComplete && c.missingCards.length === 1 && !isBanned(c)).sort(sortByDeckCount),
+      // Every named card is here, but an unnamed slot isn't filled — there is no
+      // card to pick into the Add column, so these get their own lane rather than
+      // disappearing between "complete" and "one card away".
+      slotShort:  combos.filter(c => !c.isComplete && c.missingCards.length === 0 && !isBanned(c)).sort(sortByDeckCount),
       excluded:   combos.filter(isBanned),
     };
   }, [combos, bannedNames]);
 
-  const hasContent = complete.length > 0 || nearMisses.length > 0;
+  const hasContent = complete.length > 0 || nearMisses.length > 0 || slotShort.length > 0;
   const [expanded, setExpanded] = useState(hasContent);
   const [showExcluded, setShowExcluded] = useState(false);
+  const deckColorIdentity = useDeckColorIdentity();
+  const deckNamesLower = useDeckNamesLower();
+  // The slot being browsed, if any — the same in-app card browser the combo
+  // panel opens, so "missing a piece" can be resolved without leaving the page.
+  const [slotSearch, setSlotSearch] = useState<{ label: string; query: string; url: string | null; subtitle: string } | null>(null);
 
   if (combos.length === 0) return null;
 
@@ -47,6 +60,7 @@ export function OptimizeComboFooter({
         <span className="text-sm font-semibold">🔗 Combos</span>
         <span className="text-[11px] text-muted-foreground/70">
           {complete.length} complete · {nearMisses.length} one card away
+          {slotShort.length > 0 ? ` · ${slotShort.length} missing a piece` : ''}
           {excluded.length > 0 ? ` · ${excluded.length} excluded` : ''}
         </span>
         <ChevronDown className={`w-4 h-4 ml-auto text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
@@ -116,6 +130,54 @@ export function OptimizeComboFooter({
             </div>
           )}
 
+          {slotShort.length > 0 && (
+            <div>
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-amber-400/80 mb-2">Missing a piece</h4>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {slotShort.map(combo => {
+                  const slots = unfilledSlots(combo);
+                  return (
+                    <ComboCard
+                      key={combo.comboId}
+                      combo={combo}
+                      tone="near-miss"
+                      highlighted={highlightedComboId === combo.comboId}
+                      action={
+                        <div className="text-[11px] text-amber-300/90">
+                          Needs{' '}
+                          {slots.map((s, i) => {
+                            const label = templateLabel(s.template).toLowerCase();
+                            const query = slotSearchQuery(s.template.scryfallQuery, deckColorIdentity);
+                            return (
+                              <Fragment key={i}>
+                                {i > 0 && ' + '}
+                                {query ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSlotSearch({
+                                      label,
+                                      query,
+                                      url: slotSearchUrl(s.template.scryfallQuery, deckColorIdentity),
+                                      subtitle: `Fills the open slot in ${combo.cards.join(' + ')}`,
+                                    })}
+                                    className="underline underline-offset-2 hover:text-amber-200"
+                                    title="Browse cards that fill this slot, in your colours"
+                                  >
+                                    {label}
+                                  </button>
+                                ) : label}
+                              </Fragment>
+                            );
+                          })}
+                        </div>
+                      }
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {excluded.length > 0 && (
             <div>
               <button
@@ -136,6 +198,27 @@ export function OptimizeComboFooter({
             </div>
           )}
         </div>
+      )}
+
+      {slotSearch && (
+        <SlotSearchPanel
+          label={slotSearch.label}
+          subtitle={slotSearch.subtitle}
+          query={slotSearch.query}
+          scryfallUrl={slotSearch.url}
+          deckCardNames={deckNamesLower}
+          onAdd={(name) => {
+            // Lands in the Add column as an extra candidate, the same place a
+            // picked near-miss card goes — nothing is committed until Apply.
+            onAddExtraCandidate({
+              name,
+              reason: `Fills the ${slotSearch.label.toLowerCase()} slot`,
+              reasonCategory: 'from-combos',
+              inclusion: null,
+            });
+          }}
+          onClose={() => setSlotSearch(null)}
+        />
       )}
     </section>
   );

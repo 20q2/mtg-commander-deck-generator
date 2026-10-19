@@ -1620,6 +1620,7 @@ export async function fetchCommanderCombos(commanderName: string): Promise<EDHRE
         rank: entry.combo.rank || 0,
         bracket: entry.combo.comboVote?.bracket || 'unknown',
         prereqCount: entry.combo.nonCardPrerequisiteCount || 0,
+        href: entry.href,
       };
     });
 
@@ -1655,8 +1656,10 @@ export async function fetchColorIdentityCombos(colorIdentity: string[]): Promise
     const combos: EDHRECCombo[] = spellbook.map(e => {
       // EDHREC's combo detail page lives at /combos/{identity-slug}/{id} —
       // reconstructable because the artifact carries each combo's identity.
-      comboHrefMap.set(e.i, `/combos/${colorIdentityToSlug(e.d === 'C' ? [] : e.d.split(''))}/${e.i}`);
+      const href = `/combos/${colorIdentityToSlug(e.d === 'C' ? [] : e.d.split(''))}/${e.i}`;
+      comboHrefMap.set(e.i, href);
       return {
+        href,
         comboId: e.i,
         cards: e.c.map(name => ({ name, id: '' })),
         templates: e.t?.map(t => ({ name: t.n, scryfallQuery: t.q, ...(t.x ? { quantity: t.x } : {}) })),
@@ -1729,12 +1732,15 @@ interface RawComboDetailResponse {
  * Fetch detailed combo info (prerequisites, steps, results) from EDHREC's
  * combo detail page JSON. Uses the href captured during combo list fetch.
  */
-export async function fetchComboDetails(comboId: string): Promise<ComboDetails> {
+export async function fetchComboDetails(comboId: string, knownHref?: string): Promise<ComboDetails> {
   const cached = comboDetailsCache.get(comboId);
   if (cached) return cached;
 
-  const href = comboHrefMap.get(comboId);
+  // The map is only populated by a combo fetch; a deck hydrated from the
+  // enrichment cache has none. The combo carries its own href for that case.
+  const href = comboHrefMap.get(comboId) ?? knownHref;
   if (!href) throw new Error(`No EDHREC href for combo ${comboId}`);
+  comboHrefMap.set(comboId, href);
 
   const data = await edhrecFetch<RawComboDetailResponse>(`/pages${href}.json`);
   const combo = data.combo;

@@ -22,6 +22,7 @@ import {
   omnipresenceColor,
   omnipresenceBoost,
 } from './cutRanking';
+import { getLandProducedColors } from './manaSources';
 
 export interface RoleDeficit {
   role: string;
@@ -356,41 +357,6 @@ export function computeLandDropProbabilities(
     results.push({ turn, probability: Math.max(0, Math.min(1, 1 - pLess)) });
   }
   return results;
-}
-
-// Determine which colors a land produces from produced_mana + oracle text fallback
-function getLandProducedColors(card: ScryfallCard): string[] {
-  const colors: Set<string> = new Set();
-  const producedMana = card.produced_mana || [];
-  const oracleText = (card.oracle_text || '').toLowerCase();
-  const typeLine = (card.type_line || '').toLowerCase();
-
-  // Urborg / Yavimaya make themselves a Swamp / Forest too, so they genuinely tap
-  // for their granted color even though Scryfall records no mana ability. Counted
-  // as one source here — the far larger "every land becomes a source" upside is
-  // conditional on drawing them, so it drives the recommendation boost instead of
-  // inflating this count. Seeded before the fallback so it isn't read as colorless.
-  const granted = omnipresenceColor(card.name);
-  if (granted) colors.add(granted);
-
-  for (const mana of producedMana) {
-    if (['W', 'U', 'B', 'R', 'G'].includes(mana)) colors.add(mana);
-  }
-
-  // Fallback: check basic land types and oracle text
-  if (colors.size === 0) {
-    if (typeLine.includes('plains') || oracleText.includes('add {w}')) colors.add('W');
-    if (typeLine.includes('island') || oracleText.includes('add {u}')) colors.add('U');
-    if (typeLine.includes('swamp') || oracleText.includes('add {b}')) colors.add('B');
-    if (typeLine.includes('mountain') || oracleText.includes('add {r}')) colors.add('R');
-    if (typeLine.includes('forest') || oracleText.includes('add {g}')) colors.add('G');
-    // "any color" / "any type" patterns
-    if (oracleText.includes('any color') || oracleText.includes('any type')) {
-      for (const c of ['W', 'U', 'B', 'R', 'G']) colors.add(c);
-    }
-  }
-
-  return [...colors];
 }
 
 /** Resolve produced colors for a recommendation card via Scryfall cache, with EDHREC color_identity fallback. */

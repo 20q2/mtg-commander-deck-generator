@@ -79,7 +79,12 @@ export async function fetchSpellbookCombosBySlug(slug: string): Promise<Spellboo
 
   const promise = (async () => {
     try {
-      const res = await fetch(`${BASE}/${slug}.json`);
+      // S3 stamps these with a long max-age, so a browser that fetched an
+      // artifact before the weekly Lambda re-ran keeps serving it without
+      // revalidating — which in dev reads as "my change didn't work" when the
+      // code is fine and the data is a generation old. Production still wants
+      // the cache; dev never does.
+      const res = await fetch(`${BASE}/${slug}.json`, import.meta.env.DEV ? { cache: 'no-store' } : undefined);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: SpellbookComboFile = await res.json();
       if (!Array.isArray(data.combos)) throw new Error('malformed combo file');

@@ -12,11 +12,14 @@ interface Props {
   onTabChange: (tab: Tab) => void;
   onToggleVote: (id: string) => void;
   voteDisabled?: boolean;
+  admin?: boolean;
+  onCommentCountChange: (id: string, count: number) => void;
   renderAdminControls?: (s: Suggestion) => ReactNode;
 }
 
 export function SuggestionList({
-  suggestions, myVotes, tab, onTabChange, onToggleVote, voteDisabled, renderAdminControls,
+  suggestions, myVotes, tab, onTabChange, onToggleVote, voteDisabled,
+  admin, onCommentCountChange, renderAdminControls,
 }: Props) {
   const counts = useMemo(() => {
     let open = 0, shipped = 0;
@@ -77,6 +80,8 @@ export function SuggestionList({
               voted={myVotes.has(s.id)}
               onToggleVote={() => onToggleVote(s.id)}
               voteDisabled={voteDisabled}
+              admin={admin}
+              onCommentCountChange={(count) => onCommentCountChange(s.id, count)}
               adminControls={renderAdminControls?.(s)}
             />
           ))}

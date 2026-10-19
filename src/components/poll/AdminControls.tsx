@@ -52,10 +52,14 @@ export function AdminControls({ suggestion, onSetDevNote, onMarkShipped, onDelet
         </div>
       ) : (
         <div className="flex gap-2 flex-wrap">
-          <Button size="sm" variant="outline" onClick={() => setNoteOpen(true)} disabled={busy}>
-            <MessageSquarePlus className="w-3.5 h-3.5 mr-1.5" />
-            {suggestion.devNote ? 'Edit dev note' : 'Add dev note'}
-          </Button>
+          {/* New dev commentary goes in the reply thread. This only edits/clears
+              the pinned note on suggestions that already have one. */}
+          {suggestion.devNote && (
+            <Button size="sm" variant="outline" onClick={() => setNoteOpen(true)} disabled={busy}>
+              <MessageSquarePlus className="w-3.5 h-3.5 mr-1.5" />
+              Edit pinned note
+            </Button>
+          )}
           {suggestion.status !== 'shipped' && (
             <Button size="sm" variant="outline" onClick={handleShip} disabled={busy}>
               <PackageCheck className="w-3.5 h-3.5 mr-1.5" />

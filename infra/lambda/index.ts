@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import {
   handleSubmit, handleList, handleVote,
   handleDevNote, handleShip, handleDelete,
+  handleComments, handleComment, handleCommentDelete,
 } from './poll';
 
 const client = new DynamoDBClient({});
@@ -32,6 +33,9 @@ export async function handler(event: {
     if (action === 'poll-devnote' && method === 'POST') return handleDevNote(event.body, event.headers);
     if (action === 'poll-ship' && method === 'POST') return handleShip(event.body, event.headers);
     if (action === 'poll-delete' && method === 'POST') return handleDelete(event.body, event.headers);
+    if (action === 'poll-comments' && method === 'GET') return handleComments(event.queryStringParameters, event.headers);
+    if (action === 'poll-comment' && method === 'POST') return handleComment(event.body, event.headers);
+    if (action === 'poll-comment-delete' && method === 'POST') return handleCommentDelete(event.body, event.headers);
 
     if (method === 'POST') {
       // No action → legacy analytics ingest.

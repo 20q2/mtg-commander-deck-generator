@@ -1,9 +1,11 @@
-import { useState, useCallback, useEffect, useMemo, useRef, Fragment } from 'react';
-import type { DetectedCombo, ScryfallCard, LoadPhase, UserCombo } from '@/types';
+import { useState, useCallback, useEffect, useMemo, Fragment } from 'react';
+import type { ComboTemplate, ComboTemplateFit, DetectedCombo, ScryfallCard, LoadPhase, UserCombo } from '@/types';
 import { getCardByName, getCardsByNames, getCardImageUrl, useScryfallImage } from '@/services/scryfall/client';
 import { getCollectionNameSet } from '@/services/collection/db';
 import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import { comboFitsBracket } from '@/services/deckBuilder/bracketEstimator';
+import { templateLabel, slotSearchQuery, slotSearchUrl } from '@/services/combos/templateFit';
+import { SlotSearchPanel } from '@/components/deck/SlotSearchPanel';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ManaText } from '@/components/ui/mtg-icons';
@@ -13,7 +15,78 @@ import { Sparkles, Check, AlertTriangle, ChevronDown, Plus, Package, Ban, Pin, X
 import { trackEvent } from '@/services/analytics';
 import { useStore } from '@/store';
 import { useUserLists } from '@/hooks/useUserLists';
+import { useDeckColorIdentity, useDeckNamesLower } from '@/hooks/useDeckFacts';
 import { createPortal } from 'react-dom';
+
+// An unnamed combo slot ("Creature with Persist") measured against the deck.
+// 'unknown' covers both a combo detected before slot-checking shipped and a slot
+// whose Scryfall query the local evaluator can't model — neither is a reason to
+// tell the user their combo is broken, so it reads neutral, not red.
+type SlotState = 'filled' | 'empty' | 'unknown';
+
+const SLOT_STYLES: Record<SlotState, { box: string; icon: string; text: string; Icon: typeof Check }> = {
+  filled: {
+    box: 'border-green-400/50 bg-green-500/10 hover:bg-green-500/20 hover:border-green-400/80',
+    icon: 'text-green-300/80',
+    text: 'text-green-100/90',
+    Icon: Check,
+  },
+  empty: {
+    box: 'border-dashed border-red-400/50 bg-red-500/10 hover:bg-red-500/20 hover:border-red-400/80',
+    icon: 'text-red-300/80',
+    text: 'text-red-100/90',
+    Icon: AlertTriangle,
+  },
+  unknown: {
+    box: 'border-dashed border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/20 hover:border-amber-400/80',
+    icon: 'text-amber-300/80',
+    text: 'text-amber-100/90',
+    Icon: HelpCircle,
+  },
+};
+
+/**
+ * How a slot reads in a combo's title: "a persist creature", "2× mana rock".
+ * Lower-cased with an article so it sits among proper card names as a role to
+ * fill rather than a card to search for by name.
+ */
+function slotPhrase(t: ComboTemplate): string {
+  const label = t.name.toLowerCase();
+  if (t.quantity && t.quantity > 1) return `${t.quantity}× ${label}`;
+  return `${/^[aeiou]/.test(label) ? 'an' : 'a'} ${label}`;
+}
+
+/** Tooltip for a slot, shared by the title phrase and the chip below it. */
+function slotTitleFor(t: ComboTemplate, fit: ComboTemplateFit | undefined): string {
+  if (fit?.satisfied && fit.verified) {
+    const names = fit.filledBy;
+    return `${templateLabel(t)} — filled by ${names.slice(0, 6).join(', ')}${names.length > 6 ? `, +${names.length - 6} more` : ''}`;
+  }
+  if (fit && !fit.verified) {
+    return `This combo also needs ${templateLabel(t)}. We couldn't check your deck for it automatically.`;
+  }
+  return `Your deck has no ${t.name.toLowerCase()} — this combo can't be assembled yet.`;
+}
+
+/**
+ * An unfilled slot's chip. Opens the in-app browser of cards that would fill the
+ * slot when the template ships a query to search; a plain box otherwise, so a
+ * blank-query template doesn't offer a search for nothing.
+ */
+function SlotChip({ onClick, className, style, title, children }: {
+  onClick: (() => void) | null;
+  className: string;
+  style: React.CSSProperties;
+  title: string;
+  children: React.ReactNode;
+}) {
+  if (!onClick) return <div className={className} style={style} title={title}>{children}</div>;
+  return (
+    <button type="button" onClick={onClick} className={`${className} active:scale-95`} style={style} title={title}>
+      {children}
+    </button>
+  );
+}
 
 interface ComboDisplayProps {
   combos: DetectedCombo[];
@@ -133,6 +206,14 @@ function extractMeaningfulPrereqs(prereqs: string[], cardNames: string[]): strin
 export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, forceExpanded, deckBracket, phasesDone, customCombos, deckCardNames, onAddCombo, onEditCombo, onDeleteCombo, seedCard, onSeedConsumed }: ComboDisplayProps) {
   const combosReady = !phasesDone || phasesDone.has('combos');
   const commander = useStore(s => s.commander);
+  const deckColorIdentity = useDeckColorIdentity();
+
+  // The slot the user is browsing cards for, if any. Opening a slot runs its
+  // Scryfall query in-app rather than handing off to a Scryfall tab.
+  const [slotSearch, setSlotSearch] = useState<{ label: string; query: string; url: string | null; subtitle: string } | null>(null);
+
+  const deckNamesLower = useDeckNamesLower(deckCardNames);
+
   const bannedCards = useStore(s => s.customization.bannedCards);
   // Scope owned combo pieces to the binders this deck was built from (falls back to the
   // live customization for an in-progress build that isn't stored on a deck yet), so a saved
@@ -191,8 +272,11 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   const [cardFilter, setCardFilter] = useState<string | null>(null);
   const [cardImages, setCardImages] = useState<Map<string, string>>(new Map());
   const [collectionNames, setCollectionNames] = useState<Set<string> | null>(null);
-  const [contextMenuCard, setContextMenuCard] = useState<string | null>(null);
-  const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  // The one open card menu, if any. `at` records which surface was right-clicked
+  // so the popover anchors where the click happened — the art, or the card's name
+  // in the combo title — rather than always at the thumbnail.
+  const [openMenu, setOpenMenu] = useState<{ comboId: string; name: string; at: 'art' | 'name' } | null>(null);
+  const closeMenu = useCallback(() => setOpenMenu(null), []);
   const [hoverPreview, setHoverPreview] = useState<{ name: string; top: number; left: number; placement: 'right' | 'left' } | null>(null);
   const hoverImage = useScryfallImage(hoverPreview?.name ?? null, 'normal');
   const { lists: userLists, updateList, createList } = useUserLists();
@@ -371,12 +455,22 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     return () => { cancelled = true; };
   }, [comboFormOpen, deckCardNames]);
 
-  // When right-click sets contextMenuCard, click the trigger button after render
-  useEffect(() => {
-    if (!contextMenuCard || !contextMenuRef.current) return;
-    const el = contextMenuRef.current.querySelector<HTMLButtonElement>('[data-combo-menu-trigger] button');
-    el?.click();
-  }, [contextMenuCard]);
+  /**
+   * Open a card's context menu at the surface that was right-clicked. The menu
+   * renders in place anchored to that surface, so this only has to make sure the
+   * Scryfall card is loaded first — `CardContextMenu` needs it to render at all.
+   */
+  const openCardMenu = useCallback((comboId: string, name: string, at: 'art' | 'name') => {
+    if (cardDataCache.has(name)) {
+      setOpenMenu({ comboId, name, at });
+      return;
+    }
+    void getCardByName(name).then(card => {
+      if (!card) return;
+      cardDataCache.set(name, card);
+      setOpenMenu({ comboId, name, at });
+    });
+  }, []);
 
   // Load collection names when expanded
   useEffect(() => {
@@ -416,7 +510,12 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
   useEffect(() => {
     if (!expanded) return;
 
-    const allNames = [...new Set(renderedCombos.flatMap(c => c.cards))];
+    // Named combo pieces plus the card filling each satisfied slot — a filled
+    // slot renders as that card's actual image, so it needs the same prefetch.
+    const allNames = [...new Set(renderedCombos.flatMap(c => [
+      ...c.cards,
+      ...(c.templateFits ?? []).flatMap(f => (f.satisfied && f.verified && f.filledBy[0]) ? [f.filledBy[0]] : []),
+    ]))];
     const missing = allNames.filter(n => !cardImages.has(n) && !cardDataCache.has(n));
     // Build images from already-cached cards first
     const newImages = new Map(cardImages);
@@ -474,8 +573,8 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
 
   const tempBannedCards = useStore(s => s.customization.tempBannedCards ?? []);
 
-  const handleAddMustInclude = useCallback((name: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleAddMustInclude = useCallback((name: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     // Inspector / list-deck context: add directly to the deck rather than
     // touching must-include + triggering a regen (regen doesn't run there).
     if (onAddToDeck) {
@@ -535,6 +634,11 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         updateCustomization({ bannedCards: [...bannedCards, name] });
         setToastMessage(`Excluded "${name}"`);
         break;
+      case 'filterCombos': {
+        const front = name.includes(' // ') ? name.split(' // ')[0] : name;
+        setCardFilter(prev => (prev === front ? null : front));
+        break;
+      }
       case 'hideFromCombos': {
         const hidden = hiddenComboCards.some(n => n.toLowerCase() === name.toLowerCase());
         setHiddenComboCards(hidden
@@ -629,10 +733,38 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     // chips: they're a card you still have to supply, not a footnote, so they
     // stay visible even with Details off.
     const templates = combo.templates ?? [];
+    const templateFits = combo.templateFits ?? [];
     const itemCount = combo.cards.length + templates.length + (showingPrereqs ? allPrereqs.length : 0);
     const availablePx = 340 - Math.max(0, itemCount - 1) * 18;
     const itemWidth = Math.min(80, Math.max(40, Math.floor(availablePx / Math.max(1, itemCount))));
     const itemHeight = Math.round(itemWidth * 680 / 488);
+
+    // One menu definition, rendered at whichever surface was right-clicked so
+    // the art and the title name give identical options.
+    const renderCardMenu = (name: string, at: 'art' | 'name') => {
+      const card = cardDataCache.get(name);
+      if (!card) return null;
+      const isMissing = combo.missingCards.includes(name);
+      const front = name.includes(' // ') ? name.split(' // ')[0] : name;
+      return (
+        <CardContextMenu
+          card={card}
+          onAction={handleComboCardAction}
+          hasRemove={!isMissing && !!onRemoveFromDeck}
+          hasAddToDeck={isMissing && !!onAddToDeck}
+          hasSideboard={!!onMoveToSideboard}
+          hasMaybeboard={!!onMoveToMaybeboard}
+          isMustInclude={mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)}
+          isBanned={bannedSet.has(name.toLowerCase())}
+          hasHideFromCombos
+          isHiddenFromCombos={hiddenCardSet.has(name.toLowerCase())}
+          isComboFiltered={cardFilter === front}
+          userLists={userLists}
+          forceOpen={openMenu?.comboId === combo.comboId && openMenu.name === name && openMenu.at === at}
+          onForceClose={closeMenu}
+        />
+      );
+    };
 
     return (
       <div
@@ -669,13 +801,10 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         {/* Title + metadata */}
         <div className={`mb-2 min-w-0 ${combo.source === 'color-identity' || combo.source === 'user' ? 'pr-16' : ''}`}>
           {(() => {
-            // A combo whose named cards are all present but which also needs an
-            // unnamed slot isn't assembled yet — we can't tell whether the deck
-            // fills that slot, so it reads amber (with the slot named below)
-            // rather than claiming a green "you have this".
-            const needsSlot = combo.isComplete && templates.length > 0;
-            const tone = isExcluded ? 'text-red-400' : (combo.isComplete && !needsSlot) ? 'text-green-500' : 'text-amber-500';
-            const Icon = isExcluded ? Ban : (combo.isComplete && !needsSlot) ? Check : AlertTriangle;
+            // isComplete already accounts for unnamed slots (see
+            // services/combos/detect.ts), so the tone just follows it.
+            const tone = isExcluded ? 'text-red-400' : combo.isComplete ? 'text-green-500' : 'text-amber-500';
+            const Icon = isExcluded ? Ban : combo.isComplete ? Check : AlertTriangle;
             return (
               <span className={`flex items-start gap-1 text-xs font-medium min-w-0 ${tone}`}>
                 <Icon className="w-3 h-3 shrink-0 mt-0.5" />
@@ -685,24 +814,63 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                     const isActive = cardFilter === front;
                     const comboCount = cardComboMap.get(front)?.length ?? 0;
                     const filterable = comboCount > 1;
+                    // Right-clicking a name opens the same menu as right-clicking
+                    // its art, anchored to the name rather than the thumbnail.
+                    const handleNameContextMenu = (e: React.MouseEvent<HTMLElement>) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      openCardMenu(combo.comboId, n, 'name');
+                    };
                     return (
                       <Fragment key={n}>
                         {i > 0 && <span className="text-muted-foreground/70 mx-0.5">+</span>}
-                        {filterable ? (
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); toggleCardFilter(n); }}
-                            className={`underline-offset-2 hover:underline hover:text-foreground transition-colors ${isActive ? 'underline text-foreground' : ''}`}
-                            title={isActive ? `Clear filter (${front})` : `Filter combos by ${front} (${comboCount} combos)`}
-                          >
-                            {front}
-                          </button>
-                        ) : (
-                          <span title={`${front} appears in only this combo`}>{front}</span>
-                        )}
+                        {/* Stays inline (not inline-block) so long card names can
+                            still wrap mid-name inside the title. */}
+                        <span className="relative">
+                          {filterable ? (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); toggleCardFilter(n); }}
+                              onContextMenu={handleNameContextMenu}
+                              className={`underline-offset-2 hover:underline hover:text-foreground transition-colors ${isActive ? 'underline text-foreground' : ''}`}
+                              title={isActive ? `Clear filter (${front})` : `Show more combos with ${front} (${comboCount} combos)`}
+                            >
+                              {front}
+                            </button>
+                          ) : (
+                            <span
+                              onContextMenu={handleNameContextMenu}
+                              className="cursor-context-menu"
+                              title={`${front} appears in only this combo`}
+                            >
+                              {front}
+                            </span>
+                          )}
+                          {/* Invisible trigger stretched over the name, so the menu
+                              drops from the text you right-clicked. Mounted only
+                              while open — at most one across the whole panel. */}
+                          {openMenu?.comboId === combo.comboId && openMenu.name === n && openMenu.at === 'name' && (
+                            <span className="absolute inset-0 opacity-0 pointer-events-none [&>button]:block [&>button]:w-full [&>button]:h-full">
+                              {renderCardMenu(n, 'name')}
+                            </span>
+                          )}
+                        </span>
                       </Fragment>
                     );
                   })}
+                  {/* The unnamed slots are pieces of the combo too — "Mikaeus +
+                      Phyrexian Altar" is really a three-card combo. Listing them
+                      in the title says so up front; italics and the muted tone
+                      keep them readable as a role to fill rather than a card to
+                      go find by name. */}
+                  {templates.map((tpl, i) => (
+                    <Fragment key={`tpl-name-${i}`}>
+                      <span className="text-muted-foreground/70 mx-0.5">+</span>
+                      <span className="italic opacity-90" title={slotTitleFor(tpl, templateFits[i])}>
+                        {slotPhrase(tpl)}
+                      </span>
+                    </Fragment>
+                  ))}
                 </span>
               </span>
             );
@@ -712,11 +880,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
               ? (combo.results[0] || 'Custom combo')
               : `${combo.deckCount.toLocaleString()} decks · Bracket ${combo.bracket}`}
           </span>
-          {templates.length > 0 && (
-            <span className="text-[10px] text-amber-300/80 mt-0.5 block">
-              Also needs {templates.map(t => `${t.quantity && t.quantity > 1 ? `${t.quantity}× ` : ''}${t.name.toLowerCase()}`).join(' + ')}
-            </span>
-          )}
+
         </div>
 
         {/* Card images with + separators */}
@@ -737,21 +901,12 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                   style={{ width: itemWidth }}
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    contextMenuRef.current = e.currentTarget as HTMLDivElement;
-                    if (cardDataCache.has(name)) {
-                      setContextMenuCard(name);
-                    } else {
-                      getCardByName(name).then(card => {
-                        if (card) {
-                          cardDataCache.set(name, card);
-                          setContextMenuCard(name);
-                        }
-                      });
-                    }
+                    openCardMenu(combo.comboId, name, 'art');
                   }}
-                >
-                <div
-                  onClick={() => openPreviewForCard(name, combo.cards)}
+                  // Hover lives on the whole cell, not the art: the OWNED/MISSING
+                  // overlay and its "Add to Deck" button are siblings of the art,
+                  // so tracking the art alone dropped the preview the moment you
+                  // reached for the button the preview had just talked you into.
                   onMouseEnter={(e) => {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     const viewportW = window.innerWidth;
@@ -765,6 +920,9 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                     });
                   }}
                   onMouseLeave={() => setHoverPreview(null)}
+                >
+                <div
+                  onClick={() => openPreviewForCard(name, combo.cards)}
                   className={`relative rounded-md overflow-hidden transition-all cursor-pointer active:scale-90 ${
                     isBanned ? 'opacity-50 ring-1 ring-red-500/60'
                     : isMissing && collectionNames?.has(name) ? 'opacity-50 ring-1 ring-emerald-500/60'
@@ -871,49 +1029,106 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
                     </span>
                   )}
                   {cardDataCache.has(name) && (
-                    <span data-combo-menu-trigger className={`absolute top-0.5 right-0.5 z-10 transition-opacity ${contextMenuCard === name ? 'opacity-100' : 'opacity-0 group-hover/combo:opacity-100'}`}>
-                      <CardContextMenu
-                        card={cardDataCache.get(name)!}
-                        onAction={handleComboCardAction}
-                        hasRemove={!isMissing && !!onRemoveFromDeck}
-                        hasAddToDeck={isMissing && !!onAddToDeck}
-                        hasSideboard={!!onMoveToSideboard}
-                        hasMaybeboard={!!onMoveToMaybeboard}
-                        isMustInclude={mustIncludeCards.includes(name) || tempMustIncludeCards.includes(name)}
-                        isBanned={isBanned}
-                        hasHideFromCombos
-                        isHiddenFromCombos={hiddenCardSet.has(name.toLowerCase())}
-                        userLists={userLists}
-                        onForceClose={() => setContextMenuCard(null)}
-                      />
+                    <span className={`absolute top-0.5 right-0.5 z-10 transition-opacity ${openMenu?.comboId === combo.comboId && openMenu.name === name ? 'opacity-100' : 'opacity-0 group-hover/combo:opacity-100'}`}>
+                      {renderCardMenu(name, 'art')}
                     </span>
                   )}
                 </div>
               </Fragment>
             );
           })}
-          {templates.map((tpl, idx) => (
-            <Fragment key={`tpl-${idx}`}>
-              {(combo.cards.length > 0 || idx > 0) && (
-                <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
-              )}
-              <a
-                href={`https://scryfall.com/search?q=${encodeURIComponent(tpl.scryfallQuery)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-md border border-dashed border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/20 hover:border-amber-400/80 overflow-y-auto overflow-x-hidden transition-colors"
-                style={{ width: itemWidth, height: itemHeight }}
-                title={`This combo also needs ${tpl.quantity && tpl.quantity > 1 ? `${tpl.quantity}× ` : 'a '}${tpl.name}${tpl.scryfallQuery ? ` — search Scryfall: ${tpl.scryfallQuery}` : ''}`}
-              >
-                <div className="flex flex-col items-center justify-center gap-1 min-h-full px-1.5 py-2">
-                  <HelpCircle className="w-3 h-3 text-amber-300/80 shrink-0" />
-                  <span className="text-[9px] text-amber-100/90 leading-tight text-center break-words">
-                    {tpl.quantity && tpl.quantity > 1 ? `${tpl.quantity}× ` : ''}{tpl.name}
-                  </span>
-                </div>
-              </a>
-            </Fragment>
-          ))}
+          {templates.map((tpl, idx) => {
+            // A slot card, shown exactly like the named pieces: green when the
+            // deck fills it (and saying which card does), red when it doesn't.
+            const fit = templateFits[idx];
+            const state: SlotState = !fit ? 'unknown' : !fit.verified ? 'unknown' : fit.satisfied ? 'filled' : 'empty';
+            const style = SLOT_STYLES[state];
+            const fillers = fit?.filledBy ?? [];
+            const fillerLabel = state !== 'filled'
+              ? null
+              : fillers.length === 1
+                ? fillers[0]
+                : `${fillers.length} cards`;
+            const filler = state === 'filled' ? fillers[0] : undefined;
+            const fillerImg = filler ? cardImages.get(filler) : undefined;
+            const slotQuery = slotSearchQuery(tpl.scryfallQuery, deckColorIdentity);
+            const slotTitle = slotTitleFor(tpl, fit)
+              + (slotQuery ? ' Click to browse cards that fill it, in your colours.' : '');
+
+            return (
+              <Fragment key={`tpl-${idx}`}>
+                {(combo.cards.length > 0 || idx > 0) && (
+                  <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
+                )}
+                {filler && fillerImg ? (
+                  // A filled slot is a real card, so it reads as one: the actual
+                  // art, banded with the role it's filling. The dashed emerald
+                  // ring marks it as a slot rather than a named combo piece —
+                  // swapping this card for another persist creature keeps the
+                  // combo, swapping a named piece doesn't.
+                  <div
+                    className="relative rounded-md overflow-hidden cursor-pointer transition-all active:scale-90 outline outline-2 outline-dashed -outline-offset-2 outline-emerald-400/80 hover:outline-emerald-300"
+                    style={{ width: itemWidth, height: itemHeight }}
+                    title={slotTitle}
+                    onClick={() => openPreviewForCard(filler, combo.cards)}
+                    onMouseEnter={(e) => {
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      const placement: 'right' | 'left' = (window.innerWidth - rect.right > 220) ? 'right' : 'left';
+                      setHoverPreview({
+                        name: filler,
+                        top: rect.top + rect.height / 2,
+                        left: placement === 'right' ? rect.right + 8 : rect.left - 8,
+                        placement,
+                      });
+                    }}
+                    onMouseLeave={() => setHoverPreview(null)}
+                  >
+                    <img src={fillerImg} alt={filler} className="w-full h-full object-cover" loading="lazy" />
+                    <div className="absolute inset-x-0 bottom-0 bg-emerald-950/85 backdrop-blur-[2px] border-t border-emerald-400/50 px-1 py-0.5">
+                      <span className="block text-[8px] font-semibold leading-tight text-center text-emerald-100 break-words">
+                        {templateLabel(tpl)}
+                      </span>
+                    </div>
+                    {fillers.length > 1 && (
+                      <span
+                        className="absolute top-0.5 right-0.5 px-1 rounded bg-emerald-950/85 text-[8px] font-semibold text-emerald-200"
+                        title={`${fillers.length} cards in your deck fill this slot`}
+                      >
+                        +{fillers.length - 1}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <SlotChip
+                    onClick={slotQuery ? () => setSlotSearch({
+                      label: templateLabel(tpl),
+                      query: slotQuery,
+                      url: slotSearchUrl(tpl.scryfallQuery, deckColorIdentity),
+                      subtitle: combo.cards.length > 0 ? `Fills the open slot in ${combo.cards.join(' + ')}` : '',
+                    }) : null}
+                    className={`rounded-md border overflow-y-auto overflow-x-hidden transition-colors ${style.box}`}
+                    style={{ width: itemWidth, height: itemHeight }}
+                    title={slotTitle}
+                  >
+                    <div className="flex flex-col items-center justify-center gap-1 min-h-full px-1.5 py-2">
+                      <style.Icon className={`w-3 h-3 shrink-0 ${style.icon}`} />
+                      <span className={`text-[9px] leading-tight text-center break-words ${style.text}`}>
+                        {templateLabel(tpl)}
+                      </span>
+                      {fillerLabel && (
+                        <span className="text-[8px] leading-tight text-center break-words text-green-200/70">
+                          {fillerLabel}
+                        </span>
+                      )}
+                      {state === 'empty' && (
+                        <span className="text-[8px] leading-tight text-center text-red-200/70">not in deck</span>
+                      )}
+                    </div>
+                  </SlotChip>
+                )}
+              </Fragment>
+            );
+          })}
           {allPrereqs.map((prereq, idx) => (
             <Fragment key={`prereq-${idx}`}>
               <Plus
@@ -1001,9 +1216,15 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
           onClick={() => {
             const willExpand = expandedCombo !== combo.comboId;
             setExpandedCombo(willExpand ? combo.comboId : null);
-            if (willExpand && !comboDetails.has(combo.comboId)) {
+            // Re-fetch on a previous failure as well as a first open: the href a
+            // detail fetch needs can arrive after the first attempt (a deck
+            // hydrated from cache gets it when the background refresh lands), so
+            // caching 'error' for the session would strand the combo on the
+            // results-only fallback until a reload.
+            const prior = comboDetails.get(combo.comboId);
+            if (willExpand && (prior === undefined || prior === 'error')) {
               setComboDetails(prev => new Map(prev).set(combo.comboId, 'loading'));
-              fetchComboDetails(combo.comboId)
+              fetchComboDetails(combo.comboId, combo.href)
                 .then(details => setComboDetails(prev => new Map(prev).set(combo.comboId, details)))
                 .catch(() => setComboDetails(prev => new Map(prev).set(combo.comboId, 'error')));
             }
@@ -1375,6 +1596,20 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
         hideMustInclude={hideMustInclude}
         onRegenerate={onRegenerate}
       />
+      {slotSearch && (
+        <SlotSearchPanel
+          label={slotSearch.label}
+          subtitle={slotSearch.subtitle}
+          query={slotSearch.query}
+          scryfallUrl={slotSearch.url}
+          deckCardNames={deckNamesLower}
+          ownedNames={collectionNames}
+          onAdd={(!hideMustInclude || !!onAddToDeck) ? (name) => handleAddMustInclude(name) : undefined}
+          onSideboard={onMoveToSideboard ? (name) => onMoveToSideboard([name]) : undefined}
+          onMaybeboard={onMoveToMaybeboard ? (name) => onMoveToMaybeboard([name]) : undefined}
+          onClose={() => setSlotSearch(null)}
+        />
+      )}
       {hoverPreview && createPortal(
         <div
           className="pointer-events-none fixed z-[110] animate-fade-in"

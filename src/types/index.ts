@@ -284,6 +284,22 @@ export interface ComboTemplate {
   quantity?: number;
 }
 
+/** One template slot measured against a deck — see services/combos/templateFit.ts. */
+export interface ComboTemplateFit {
+  template: ComboTemplate;
+  /** Deck cards that fill the slot (the combo's own named pieces excluded). */
+  filledBy: string[];
+  /** Enough matching cards present for the slot's quantity. */
+  satisfied: boolean;
+  /**
+   * False when the slot's Scryfall query uses grammar the local evaluator
+   * doesn't model. Such a slot counts as satisfied (optimistic — falsely
+   * calling a working combo broken is the worse error) but is flagged so the
+   * UI can say "couldn't check" rather than claim the deck fills it.
+   */
+  verified: boolean;
+}
+
 export interface EDHRECCombo {
   comboId: string;
   cards: { name: string; id: string }[];
@@ -294,6 +310,13 @@ export interface EDHRECCombo {
   rank: number;
   bracket: string;
   prereqCount: number;
+  /**
+   * EDHREC detail-page path for this combo. Carried on the combo rather than
+   * left only in the client's module-level href map, because a deck restored
+   * from the enrichment cache has combos but never ran the fetch that fills
+   * that map — and without a href its "Show details" can only fail.
+   */
+  href?: string;
   // Stamped by callers after fetching. 'commander' = from commander's combo page;
   // 'color-identity' = from color-identity combo page (off-commander detection).
   source?: 'commander' | 'color-identity';
@@ -302,14 +325,18 @@ export interface EDHRECCombo {
 export interface DetectedCombo {
   comboId: string;
   cards: string[];
-  /**
-   * Unnamed card slots the combo also needs. NOTE: `isComplete` reflects the
-   * named cards only — a combo with an unsatisfied template can read complete
-   * while being unassemblable, so the UI shows these as their own requirement.
-   */
+  /** Unnamed card slots the combo also needs. */
   templates?: ComboTemplate[];
+  /**
+   * Each template measured against the deck. Absent when the combo has no
+   * templates. `isComplete` requires every one of these satisfied.
+   */
+  templateFits?: ComboTemplateFit[];
   results: string[];
+  /** Every named card present AND every unnamed slot filled. */
   isComplete: boolean;
+  /** EDHREC detail-page path — see EDHRECCombo.href. */
+  href?: string;
   missingCards: string[];
   deckCount: number;
   bracket: string;

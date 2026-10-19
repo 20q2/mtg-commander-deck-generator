@@ -4,6 +4,7 @@
 import { getCardsByNames, getFrontFaceTypeLine } from '@/services/scryfall/client';
 import { enrichDeckCards } from '@/services/deckBuilder/deckEnricher';
 import { fetchCommanderCombos, fetchColorIdentityCombos } from '@/services/edhrec/client';
+import { detectCombosInDeck, mergeComboPools } from '@/services/combos/detect';
 import { useStore } from '@/store';
 import type { GeneratedDeck, DeckStats, DetectedCombo, EDHRECCombo, ScryfallCard } from '@/types';
 
@@ -33,56 +34,6 @@ export function installAnalyzedDeck(deck: GeneratedDeck, colorIdentity: string[]
   });
 }
 
-// Combo detection helper — inlined here (and duplicated in ListDeckView.tsx today).
-// Extracting it to a shared module is out of scope for this feature; the function
-// is small and self-contained.
-function detectCombosInDeck(
-  combos: EDHRECCombo[],
-  allCardNames: Set<string>,
-  commanderCard: ScryfallCard | null,
-  partnerCard: ScryfallCard | null,
-): DetectedCombo[] | undefined {
-  if (combos.length === 0) return undefined;
-
-  const detected = combos
-    .map(combo => {
-      const comboCardNames = combo.cards.map(c => c.name);
-      const missingCards = comboCardNames.filter(name => !allCardNames.has(name));
-      const source = combo.source ?? 'commander';
-      return {
-        comboId: combo.comboId,
-        cards: comboCardNames,
-        templates: combo.templates,
-        results: combo.results,
-        isComplete: missingCards.length === 0,
-        missingCards,
-        deckCount: combo.deckCount,
-        bracket: combo.bracket,
-        source,
-      } as DetectedCombo;
-    })
-    .filter(dc => dc.isComplete || dc.missingCards.length <= 2);
-
-  const commanderNames = new Set<string>();
-  if (commanderCard) {
-    commanderNames.add(commanderCard.name);
-    if (commanderCard.name.includes(' // ')) commanderNames.add(commanderCard.name.split(' // ')[0]);
-  }
-  if (partnerCard) {
-    commanderNames.add(partnerCard.name);
-    if (partnerCard.name.includes(' // ')) commanderNames.add(partnerCard.name.split(' // ')[0]);
-  }
-
-  detected.sort((a, b) => {
-    if (a.isComplete !== b.isComplete) return a.isComplete ? -1 : 1;
-    const aHasCommander = a.cards.some(n => commanderNames.has(n));
-    const bHasCommander = b.cards.some(n => commanderNames.has(n));
-    if (aHasCommander !== bHasCommander) return aHasCommander ? -1 : 1;
-    return b.deckCount - a.deckCount;
-  });
-
-  return detected.length > 0 ? detected : undefined;
-}
 
 export type HydrateStage = 'fetching-cards' | 'detecting-combos' | 'analyzing-roles' | 'done';
 
@@ -191,20 +142,6 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
 
   const stats = computeStatsFromCards(deckCards);
 
-  const allDeckNames = new Set<string>();
-  if (commanderCard) {
-    allDeckNames.add(commanderCard.name);
-    if (commanderCard.name.includes(' // ')) allDeckNames.add(commanderCard.name.split(' // ')[0]);
-  }
-  if (partnerCard) {
-    allDeckNames.add(partnerCard.name);
-    if (partnerCard.name.includes(' // ')) allDeckNames.add(partnerCard.name.split(' // ')[0]);
-  }
-  for (const c of deckCards) {
-    allDeckNames.add(c.name);
-    if (c.name.includes(' // ')) allDeckNames.add(c.name.split(' // ')[0]);
-  }
-
   // Compute color identity from the full card set so we can fetch off-commander
   // (color-identity) combos in parallel with the commander combos.
   const allColors = new Set<string>();
@@ -223,13 +160,9 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
     const commanderCombos: EDHRECCombo[] = commanderCombosRaw.map(c => ({ ...c, source: 'commander' as const }));
     const colorCombos: EDHRECCombo[] = colorCombosRaw.map(c => ({ ...c, source: 'color-identity' as const }));
 
-    // Merge, dedupe by comboId — commander source wins on collision.
-    const byId = new Map<string, EDHRECCombo>();
-    for (const c of commanderCombos) byId.set(c.comboId, c);
-    for (const c of colorCombos) if (!byId.has(c.comboId)) byId.set(c.comboId, c);
-    const mergedCombos = [...byId.values()];
+    const mergedCombos = mergeComboPools(commanderCombos, colorCombos);
 
-    detectedCombos = detectCombosInDeck(mergedCombos, allDeckNames, commanderCard, partnerCard);
+    detectedCombos = detectCombosInDeck(mergedCombos, deckCards, commanderCard, partnerCard);
   } catch {
     // Combo fetch failed — not critical
   }
