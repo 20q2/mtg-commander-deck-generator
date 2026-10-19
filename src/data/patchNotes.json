@@ -2,6 +2,7 @@
   {
     "version": "1.3.49",
     "notes": [
+      "Community Poll > You can now respond to community poll suggestions",
       "Deck Generation > Combos that need an unnamed piece (persist creatures, mana rocks) have much better generator support, and display as a necessary piece in the combo viewer",
       "Right click cards in the combo viewer to show/hide combos using that card",
       "Fixed a bug where combo data could sometimes go stale and cause combos to display in strange ways"      
