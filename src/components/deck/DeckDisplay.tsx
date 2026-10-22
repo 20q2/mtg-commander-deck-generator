@@ -60,7 +60,8 @@ import { CardTypeIcon, ManaCost } from '@/components/ui/mtg-icons';
 import { PieChart } from '@/components/ui/pie-chart';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { parseCollectionList, stripBackFace } from '@/services/collection/parseCollectionList';
-import { getCardsByNames } from '@/services/scryfall/client';
+import { getCardsByNames, getArenaLegalNames, frontFaceName } from '@/services/scryfall/client';
+import { formatForArena, formatForMoxfield, type PrintingMap } from '@/services/export/deckTextFormats';
 import { AddCardsPopover } from '@/components/deck/AddCardsPanel';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
@@ -1046,9 +1047,17 @@ interface CategoryColumnProps {
   isSingleton?: boolean;
   showPinBan?: boolean;
   mdfcLandCount?: number;
+  /** Cards with this type on their front face that are listed under another type. */
+  crossTypeCards?: CrossTypeCard[];
 }
 
-function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, buildCollectionNames, distinguishOwned, collectionBinderMap, mustIncludeNames, bannedNames, cardInclusionMap, cardEdhrecMetaMap, showArchetypeColumn, cardRelevancyMap, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true, mdfcLandCount }: CategoryColumnProps) {
+interface CrossTypeCard {
+  name: string;
+  quantity: number;
+  listedUnder: CardType;
+}
+
+function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgCardPrice, currency = 'USD', cardComboMap, cardTypeMap, showRoleColumn, removedCards, isEditMode, selectedCards, onToggleSelect, onToggleCategory, collectionNames, buildCollectionNames, distinguishOwned, collectionBinderMap, mustIncludeNames, bannedNames, cardInclusionMap, cardEdhrecMetaMap, showArchetypeColumn, cardRelevancyMap, showEdhRank, showPrice = true, onCardAction, showCardMenu, cardMenuProps, onChangeQuantity, isSingleton, showPinBan = true, mdfcLandCount, crossTypeCards }: CategoryColumnProps) {
 
   if (cards.length === 0) return null;
 
@@ -1096,6 +1105,31 @@ function CategoryColumn({ type, cards, onPreview, onHover, matchingCardIds, avgC
               <span className="text-muted-foreground text-[10px] font-normal lowercase tracking-normal ml-1">
                 ({totalCards + mdfcLandCount} with mdfc)
               </span>
+            )}
+            {crossTypeCards && crossTypeCards.length > 0 && (
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span
+                      className="text-muted-foreground text-[10px] font-normal lowercase tracking-normal ml-1 cursor-help"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      ({totalCards + crossTypeCards.reduce((sum, c) => sum + c.quantity, 0)} total)
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="start" className="normal-case tracking-normal font-normal">
+                    <div className="mb-1 opacity-70">Also counted, listed elsewhere:</div>
+                    <ul className="space-y-0.5">
+                      {crossTypeCards.map(c => (
+                        <li key={c.name} className="flex justify-between gap-4">
+                          <span>{c.quantity > 1 ? `${c.quantity}× ` : ''}{c.name}</span>
+                          <span className="opacity-70">{c.listedUnder}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
           </span>
         </div>
@@ -1193,6 +1227,16 @@ function FloatingPreview({ card, rowRect, showBack }: FloatingPreviewProps) {
 }
 
 // Export modal
+/** How the Export modal spells the list out. 'standard' is the plain `<qty> <name>` list most
+ *  sites accept; the other two are the house formats of the places people paste into. */
+type ListFormat = 'standard' | 'arena' | 'moxfield';
+
+const LIST_FORMATS: { key: ListFormat; label: string; hint: string }[] = [
+  { key: 'standard', label: 'Standard', hint: 'Plain list — names only, accepted almost everywhere' },
+  { key: 'arena', label: 'Arena', hint: 'Sectioned list MTG Arena imports directly' },
+  { key: 'moxfield', label: 'Moxfield', hint: 'Every line pinned to the printing shown here' },
+];
+
 interface ExportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -1200,6 +1244,12 @@ interface ExportModalProps {
   onExport: (format: 'clipboard' | 'download', collectionFilter: 'all' | 'collection' | 'missing') => void;
   onSaveToList: (name: string, cards: string[]) => void;
   defaultListName: string;
+  /** Commander name(s), routed to the Arena format's `Commander` section. */
+  commanderNames: string[];
+  /** Card name → the printing it is shown as, for the Moxfield format's `(SET) <number>`. */
+  printings: PrintingMap;
+  /** Start on the Arena format — on when the deck was built in Arena-only mode. */
+  defaultArenaFormat?: boolean;
   /** Card name → the collections holding it, across every binder. Null while loading or
    *  when no collection exists. Drives the per-collection export chips. */
   collectionEntries?: Map<string, { id: string; name: string }[]> | null;
@@ -1208,7 +1258,7 @@ interface ExportModalProps {
   onCopyShareLink?: () => void | Promise<void>;
 }
 
-function ExportModal({ isOpen, onClose, generateDeckList, onExport, onSaveToList, defaultListName, collectionEntries, onCopyShareLink }: ExportModalProps) {
+function ExportModal({ isOpen, onClose, generateDeckList, onExport, onSaveToList, defaultListName, commanderNames, printings, defaultArenaFormat, collectionEntries, onCopyShareLink }: ExportModalProps) {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showListNameInput, setShowListNameInput] = useState(false);
@@ -1217,6 +1267,10 @@ function ExportModal({ isOpen, onClose, generateDeckList, onExport, onSaveToList
 
   const [exportTarget, setExportTarget] = useState<ExportTarget>({ kind: 'all' });
   const [chipMenuOpen, setChipMenuOpen] = useState(false);
+  const [listFormat, setListFormat] = useState<ListFormat>(defaultArenaFormat ? 'arena' : 'standard');
+  /** Deck names Arena has no card for. null = not checked yet / lookup failed. */
+  const [arenaMissing, setArenaMissing] = useState<string[] | null>(null);
+  const [arenaChecking, setArenaChecking] = useState(false);
 
   const fullList = useMemo(() => generateDeckList(), [generateDeckList]);
   const lines = useMemo(() => parseDeckLines(fullList), [fullList]);
@@ -1254,17 +1308,59 @@ function ExportModal({ isOpen, onClose, generateDeckList, onExport, onSaveToList
     setTimeout(() => setLinkCopied(false), 2000);
   }, [onCopyShareLink]);
 
-  const deckList = useMemo(
+  // The list the active chip selects, always in plain `<qty> <name>` form. Both the card
+  // count and the Arena rewrite read this, so neither can disagree with the chips.
+  const targetList = useMemo(
     () => (exportTarget.kind === 'all' ? fullList : filterDeckLines(lines, exportTarget, collectionEntries ?? new Map())),
     [fullList, lines, exportTarget, collectionEntries]
   );
 
-  const cardCount = useMemo(() => {
-    return deckList.split('\n').filter(l => l.trim()).reduce((sum, line) => {
-      const match = line.match(/^(\d+)\s/);
-      return sum + (match ? parseInt(match[1], 10) : 1);
-    }, 0);
-  }, [deckList]);
+  const deckList = useMemo(() => {
+    if (listFormat === 'arena') return formatForArena(targetList, { deckName: defaultListName, commanderNames });
+    if (listFormat === 'moxfield') return formatForMoxfield(targetList, printings);
+    return targetList;
+  }, [listFormat, targetList, defaultListName, commanderNames, printings]);
+
+  // Counted off the plain list — the Arena format's section headers aren't cards.
+  const cardCount = useMemo(
+    () => parseDeckLines(targetList).reduce((sum, line) => sum + line.quantity, 0),
+    [targetList]
+  );
+
+  // Which cards Arena simply doesn't have. Runs only while the Arena format is selected, and
+  // only over the names in the current list; getArenaLegalNames caches per name, so switching
+  // chips or reopening the modal re-asks Scryfall nothing. A deck built in Arena-only mode
+  // comes back empty — this is for exporting a paper deck, where the import would otherwise
+  // fail silently on the cards outside Arena's pool.
+  useEffect(() => {
+    if (!isOpen || listFormat !== 'arena') return;
+    const names = [...new Set(parseDeckLines(targetList).map(l => l.name))];
+    if (names.length === 0) {
+      setArenaMissing([]);
+      return;
+    }
+    let cancelled = false;
+    setArenaChecking(true);
+    getArenaLegalNames(names)
+      .then((legal) => {
+        if (cancelled) return;
+        setArenaMissing(names.filter(n => !legal.has(n) && !legal.has(frontFaceName(n))));
+      })
+      .catch(() => { if (!cancelled) setArenaMissing(null); })
+      .finally(() => { if (!cancelled) setArenaChecking(false); });
+    return () => { cancelled = true; };
+  }, [isOpen, listFormat, targetList]);
+
+  // The notice stays mounted so it can collapse as well as open. Not gated on arenaChecking:
+  // a re-check (switching chips) keeps the previous list up until the new one lands, rather
+  // than collapsing and reopening around a lookup that is usually a cache hit.
+  const showArenaNotice = listFormat === 'arena' && !!arenaMissing && arenaMissing.length > 0;
+  // What the notice last said — held while it collapses, so the text doesn't empty mid-close.
+  const arenaNoticeRef = useRef<string[]>([]);
+  useEffect(() => {
+    if (showArenaNotice) arenaNoticeRef.current = arenaMissing;
+  }, [showArenaNotice, arenaMissing]);
+  const arenaNoticeNames = showArenaNotice ? arenaMissing : arenaNoticeRef.current;
 
   // Save Deck ignores the active export chip — it always saves the whole deck.
   const parseCardNames = useCallback(() => {
@@ -1337,16 +1433,18 @@ function ExportModal({ isOpen, onClose, generateDeckList, onExport, onSaveToList
               <Download className="w-5 h-5 mb-1" />
               <span className="text-xs">Download</span>
             </Button>
-            <Button onClick={handleSaveToList} variant="outline" className="flex-col h-auto py-3" disabled={saved}>
-              {saved ? <Check className="w-5 h-5 mb-1 text-green-500" /> : <Bookmark className="w-5 h-5 mb-1" />}
-              <span className="text-xs">{saved ? 'Saved!' : 'Save Deck'}</span>
-            </Button>
             {onCopyShareLink && (
               <Button onClick={handleCopyLink} variant="outline" className="flex-col h-auto py-3">
                 {linkCopied ? <Check className="w-5 h-5 mb-1 text-green-500" /> : <Share className="w-5 h-5 mb-1" />}
                 <span className="text-xs">{linkCopied ? 'Link copied!' : 'Copy Link'}</span>
               </Button>
             )}
+            {/* Last in the row: the other three hand the list off as-is, this one creates
+                something new and opens the name field below. */}
+            <Button onClick={handleSaveToList} variant="outline" className="flex-col h-auto py-3" disabled={saved}>
+              {saved ? <Check className="w-5 h-5 mb-1 text-green-500" /> : <Bookmark className="w-5 h-5 mb-1" />}
+              <span className="text-xs">{saved ? 'Saved!' : 'Save Deck'}</span>
+            </Button>
           </div>
 
           {showListNameInput && (
@@ -1422,12 +1520,76 @@ function ExportModal({ isOpen, onClose, generateDeckList, onExport, onSaveToList
             </div>
           )}
 
-          <textarea
-            readOnly
-            value={deckList}
-            onClick={(e) => (e.target as HTMLTextAreaElement).select()}
-            className="w-full h-64 bg-background border border-border rounded-lg p-3 font-mono text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-          />
+          {/* Opens and collapses on a grid-rows transition so the list below slides rather than
+              jumps. The gap sits inside (pt-4 in place of the stack's margin) so it travels with it. */}
+          <div
+            aria-hidden={!showArenaNotice}
+            className={`!mt-0 grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
+              showArenaNotice ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+            }`}
+          >
+            <div className="min-h-0 overflow-hidden">
+              <div className="pt-4">
+                <div className="flex gap-2.5 text-xs bg-amber-500/10 border border-amber-500/30 rounded-lg px-3.5 py-3">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-px" />
+                  <div className="min-w-0 space-y-1.5 leading-relaxed">
+                    <p className="font-semibold text-amber-200">
+                      Arena doesn't have {arenaNoticeNames.length === 1 ? 'one card' : `${arenaNoticeNames.length} cards`} in this deck
+                    </p>
+                    <p className="text-amber-100/70">
+                      {arenaNoticeNames.slice(0, 6).join(', ')}
+                      {arenaNoticeNames.length > 6 ? `, and ${arenaNoticeNames.length - 6} more` : ''}
+                    </p>
+                    <p className="text-amber-300/80">
+                      The import will drop {arenaNoticeNames.length === 1 ? 'it' : 'them'}, leaving the deck short. Rebuild with{' '}
+                      <span className="font-semibold text-amber-200">Limit to Arena cards</span> on for a list that imports whole.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* The format switch rides on the list it rewrites rather than sitting in a row of
+              its own — a second pill row under the collection chips read as more chips. */}
+          <div className="rounded-lg border border-border overflow-hidden">
+            <div className="flex items-center justify-between gap-2 px-2 py-1.5 bg-card/60 border-b border-border">
+              <span className="text-xs text-muted-foreground pl-1 flex items-center gap-1.5 min-w-0">
+                {listFormat === 'arena' && arenaChecking ? (
+                  <>
+                    <Loader2Icon className="w-3 h-3 animate-spin shrink-0" />
+                    <span className="truncate">Checking Arena availability…</span>
+                  </>
+                ) : (
+                  <span className="truncate">{cardCount} cards</span>
+                )}
+              </span>
+              <div className="flex shrink-0 bg-card/50 rounded-lg px-1 py-0.5 border border-border/50 items-center">
+                {LIST_FORMATS.map(opt => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setListFormat(opt.key)}
+                    title={opt.hint}
+                    aria-pressed={listFormat === opt.key}
+                    className={`px-2 py-0.5 rounded text-xs transition-colors ${
+                      listFormat === opt.key
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <textarea
+              readOnly
+              value={deckList}
+              onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+              className="block w-full h-64 bg-background p-3 font-mono text-sm resize-none focus:outline-none"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -1823,7 +1985,7 @@ function TextEditorView({ generateDeckList, onAddCards, onRemoveCards, onChangeQ
         readOnly={!canEdit}
         onClick={!canEdit ? (e) => (e.target as HTMLTextAreaElement).select() : undefined}
         spellCheck={false}
-        className="w-full flex-1 min-h-[520px] bg-background border border-border rounded-none p-3 font-mono text-xs resize-y focus:outline-none focus:ring-2 focus:ring-primary/50 leading-tight"
+        className={`w-full flex-1 min-h-[520px] bg-background border border-border rounded-none p-3 font-mono text-xs resize-y focus:outline-none leading-tight${canEdit ? ' focus:ring-2 focus:ring-primary/50' : ''}`}
         placeholder="1 Card Name&#10;2 Another Card&#10;..."
       />
 
@@ -3365,6 +3527,26 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return count;
   }, [groupedCards, generatedDeck]);
 
+  // Each card is grouped under one primary type, so a header's count misses
+  // multi-type cards filed elsewhere (an artifact creature sits under Creature).
+  // Collect, per type, the cards listed elsewhere that also have it on their
+  // front face, so headers can show the real total and name the extras.
+  const crossTypeCards = useMemo(() => {
+    const extras = {} as Record<CardType, CrossTypeCard[]>;
+    for (const type of TYPE_ORDER) extras[type] = [];
+    for (const listedUnder of TYPE_ORDER) {
+      if (listedUnder === 'Commander') continue;
+      for (const { card, quantity } of groupedCards[listedUnder] || []) {
+        const typeLine = getFrontFaceTypeLine(card).toLowerCase();
+        for (const t of TYPE_ORDER) {
+          if (t === 'Commander' || t === listedUnder) continue;
+          if (typeLine.includes(t.toLowerCase())) extras[t].push({ name: card.name, quantity, listedUnder });
+        }
+      }
+    }
+    return extras;
+  }, [groupedCards]);
+
   const groupedForDisplay = useMemo(() => {
     const entries: { entry: { card: ScryfallCard; quantity: number }; type: string }[] = [];
     for (const type of TYPE_ORDER) {
@@ -4179,6 +4361,25 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     });
 
     return lines.join('\n');
+  }, [groupedCards]);
+
+  // Read off the same Commander group the list is built from, so a format without a command
+  // zone (where groupedCards leaves it empty) contributes no Commander section either.
+  const commanderNamesForExport = useMemo(
+    () => (groupedCards.Commander ?? []).map(({ card }) => card.name),
+    [groupedCards]
+  );
+
+  // The printing each card is shown and priced as — what the Moxfield format pins to, so a
+  // paste lands on the same printings (and therefore the same total) the deck was costed at.
+  const printingsForExport = useMemo((): PrintingMap => {
+    const map: PrintingMap = new Map();
+    for (const { card } of Object.values(groupedCards).flat()) {
+      if (card.set && card.collector_number) {
+        map.set(card.name, { set: card.set, collectorNumber: card.collector_number });
+      }
+    }
+    return map;
   }, [groupedCards]);
 
   const mustIncludeNames = useMemo(() => {
@@ -5349,6 +5550,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
                     isSingleton={formatConfig.hasCommander}
                     showPinBan={showIcons && showPinBan}
                     mdfcLandCount={type === 'Land' ? mdfcLandCount : undefined}
+                    crossTypeCards={crossTypeCards[type]}
                   />
                 ))}
               </div>
@@ -5591,6 +5793,9 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
           setShowSavedToast(true);
         }}
         defaultListName={commander ? `${commander.name} Deck` : 'My Deck'}
+        commanderNames={commanderNamesForExport}
+        printings={printingsForExport}
+        defaultArenaFormat={customization.arenaOnly}
       />
       {toastMessage && createPortal(
         <div className="fixed bottom-6 right-6 z-50 px-4 py-3 bg-emerald-600/90 text-white text-sm rounded-lg shadow-lg animate-fade-in max-w-sm flex items-center gap-2">

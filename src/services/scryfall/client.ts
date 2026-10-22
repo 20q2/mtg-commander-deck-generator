@@ -241,7 +241,27 @@ function commanderNameRelevance(name: string, query: string): number {
   return best;
 }
 
-export async function searchCommanders(query: string): Promise<ScryfallCard[]> {
+export interface CommanderSearchOptions {
+  /** Search MTG Arena's commander pool (Scryfall's `brawl` legality) instead of paper
+   *  Commander. Two things change: Arena lets ANY planeswalker head a deck, not just the
+   *  ones printed with "can be your commander", and the pool has legends that exist only
+   *  on Arena (Gitrog, Horror of Zhava; Davriel, Soul Broker) which paper Commander marks
+   *  `not_legal`. Both are invisible to the paper search. */
+  arena?: boolean;
+}
+
+/** Arena's commander pool: any legendary creature or planeswalker Arena has, minus Arena's
+ *  ban list — all of which `brawl: legal` already encodes. Paper Commander legality is
+ *  deliberately not consulted; Arena-only legends are `commander: not_legal` by design, and
+ *  gating on it is exactly what hid them. */
+function isArenaCommanderLegal(card: ScryfallCard): boolean {
+  return card.legalities?.brawl === 'legal';
+}
+
+export async function searchCommanders(
+  query: string,
+  options: CommanderSearchOptions = {}
+): Promise<ScryfallCard[]> {
   if (!query.trim()) return [];
 
   try {
@@ -260,13 +280,20 @@ export async function searchCommanders(query: string): Promise<ScryfallCard[]> {
     // substring), with EDHREC rank as a tiebreaker within each tier. This keeps
     // the card you literally typed at the top instead of whatever happens to be
     // most popular.
-    const encodedQuery = encodeURIComponent(`is:commander -is:funny ${query}`);
+    //
+    // Arena mode swaps the pool: `f:brawl` narrows to cards Arena actually has (and Arena's
+    // ban list), and `t:planeswalker` joins `is:commander` because Arena allows any
+    // planeswalker as a commander while paper does not.
+    const base = options.arena
+      ? `f:brawl -is:funny (is:commander or t:planeswalker)`
+      : `is:commander -is:funny`;
+    const encodedQuery = encodeURIComponent(`${base} ${query}`);
     const response = await scryfallFetch<ScryfallSearchResponse>(
       `/cards/search?q=${encodedQuery}&order=edhrec`
     );
 
     return response.data
-      .filter(isCommanderLegalOrUpcoming)
+      .filter(options.arena ? isArenaCommanderLegal : isCommanderLegalOrUpcoming)
       .map((card) => ({ card, rel: commanderNameRelevance(card.name, query) }))
       .sort((a, b) => {
         if (b.rel !== a.rel) return b.rel - a.rel;

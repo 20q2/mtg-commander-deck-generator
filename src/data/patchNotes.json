@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.50",
+    "notes": [
+      "Foundry > New MTG Arena toggle - should help you find commanders that are legal in Arena, please mind the ones that dont have EDHRec data",
+      "New deck export options (moxfield, arena)"      
+    ]
+  },
+  {
     "version": "1.3.49",
     "notes": [
       "Community Poll > You can now respond to community poll suggestions",

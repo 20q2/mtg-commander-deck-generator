@@ -11,6 +11,7 @@ import {
 import { fetchTopCommanders, fetchAllCommanderNames, fetchCommandersIncludingColors, formatCommanderNameForUrl, isPartnerPair } from '@/services/edhrec/client';
 import { StrategyBrowser } from '@/components/commander/StrategyBrowser';
 import { ColorFilterChips } from '@/components/commander/ColorFilterChips';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from '@/components/ui/popover';
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
@@ -86,6 +87,11 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
   const [ownedOnly, setOwnedOnly] = useState(() => localStorage.getItem('ownedCommandersOnly') === 'true');
   const navigate = useNavigate();
   const { setCommander } = useStore();
+  // Arena mode is the same build-wide switch the customizer owns (and persists), surfaced
+  // here because it has to apply BEFORE the pick: Arena allows commanders paper doesn't,
+  // so turning it on after choosing is too late to see them.
+  const arenaOnly = useStore((state) => state.customization.arenaOnly);
+  const updateCustomization = useStore((state) => state.updateCustomization);
   const { cards: collectionCards, count: collectionCount } = useCollection();
   // All legendary creatures in the collection
   const collectionLegends = useMemo(
@@ -181,7 +187,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     const timer = setTimeout(async () => {
       setIsSearching(true);
       try {
-        const searchResults = await searchCommanders(query);
+        const searchResults = await searchCommanders(query, { arena: arenaOnly });
         setResults(searchResults.slice(0, 10));
         setShowResults(true);
         trackEvent('commander_searched', { query, resultCount: searchResults.length });
@@ -194,7 +200,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [query, ownedOnly]);
+  }, [query, ownedOnly, arenaOnly]);
 
   // Show local results immediately when ownedOnly
   useEffect(() => {
@@ -313,7 +319,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
         </div>
         <Input
           type="text"
-          placeholder={ownedOnly ? 'Search your commanders...' : 'Search for a commander...'}
+          placeholder={ownedOnly ? 'Search your commanders...' : arenaOnly ? 'Search Arena commanders...' : 'Search for a commander...'}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => {
@@ -329,10 +335,53 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
         )}
       </div>
 
-      {/* Owned Only Toggle */}
-      {collectionCount > 0 && (
-        <div className="flex justify-end mt-2">
-          <label className="flex items-center gap-2 cursor-pointer select-none group">
+      {/* Pool toggles — which commanders the search is allowed to return */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2">
+        {!ownedOnly && (
+          <label className="flex items-center cursor-pointer select-none group" aria-label="MTG Arena commanders">
+            <input
+              type="checkbox"
+              checked={arenaOnly}
+              onChange={(e) => { updateCustomization({ arenaOnly: e.target.checked }); setResults([]); setShowResults(false); }}
+              className="rounded border-border accent-primary w-3.5 h-3.5"
+            />
+            {/* Slides out while on, naming the mode the bare logo only implies, and pushes the
+                logo right as it grows. Spacing is margin/padding rather than flex gap, and the
+                padding sits on the clipped child, not the grid item: padding can't shrink below
+                itself, so on the item it held the "collapsed" track open as a phantom gap. */}
+            <span
+              className={`grid transition-[grid-template-columns,opacity] duration-300 ease-out ${
+                arenaOnly ? 'grid-cols-[1fr] opacity-100' : 'grid-cols-[0fr] opacity-0'
+              }`}
+              aria-hidden="true"
+            >
+              <span className="min-w-0 overflow-hidden">
+                <span className="block whitespace-nowrap pl-1.5 text-xs text-foreground">Arena only</span>
+              </span>
+            </span>
+            <InfoTooltip text="MTG Arena commanders: searches the commanders Arena has, including planeswalkers and Arena-only legends that aren't legal in paper Commander. Also builds the deck from Arena cards only.">
+              {/* Arena logo as a mask so it takes the text colour: dim when off, white when on. */}
+              <span
+                className={`block ml-1.5 w-[18px] h-3.5 bg-current transition-colors ${
+                  arenaOnly ? 'text-foreground' : 'text-muted-foreground group-hover:text-foreground'
+                }`}
+                style={{
+                  WebkitMaskImage: `url(${import.meta.env.BASE_URL}arena-logo-mask.png)`,
+                  maskImage: `url(${import.meta.env.BASE_URL}arena-logo-mask.png)`,
+                  WebkitMaskSize: 'contain',
+                  maskSize: 'contain',
+                  WebkitMaskRepeat: 'no-repeat',
+                  maskRepeat: 'no-repeat',
+                  WebkitMaskPosition: 'center',
+                  maskPosition: 'center',
+                }}
+                aria-hidden="true"
+              />
+            </InfoTooltip>
+          </label>
+        )}
+        {collectionCount > 0 && (
+          <label className="ml-auto flex items-center gap-2 cursor-pointer select-none group">
             <input
               type="checkbox"
               checked={ownedOnly}
@@ -343,8 +392,8 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
               Commanders I own{collectionLegends.length > 0 ? ` (${collectionLegends.length.toLocaleString()} legends)` : ''}
             </span>
           </label>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Search Results Dropdown */}
       {showDropdown && (

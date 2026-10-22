@@ -20,6 +20,9 @@ export interface ScryfallCard {
   layout?: string; // Scryfall layout: "normal", "modal_dfc", "transform", etc.
   set: string;
   set_name: string;
+  /** Printing's number within its set ("216", "FUT-174", "123p"). Pairs with `set` to name an
+   *  exact printing, which is how Moxfield-style decklists pin one. */
+  collector_number?: string;
   released_at?: string; // ISO "YYYY-MM-DD" — distinguishes not-yet-released (legal-soon) cards from permanently-illegal ones
   /** True when this printing is a reprint — guards released_at from reading a late printing as "new". */
   reprint?: boolean;
