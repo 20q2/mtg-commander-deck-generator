@@ -4,6 +4,7 @@ import { useAutoAnimate } from '@formkit/auto-animate/react';
 import { useNavigate } from 'react-router-dom';
 import { ManaCost, CardTypeIcon } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
+import { Input } from '@/components/ui/input';
 import { getCardByName } from '@/services/scryfall/client';
 import {
   Search, Trash2, Minus, Plus, Copy, Download, AlertTriangle,
@@ -245,6 +246,7 @@ export function CollectionManager({
   const itemsPerPage = viewMode === 'grid' ? ITEMS_PER_PAGE_GRID : ITEMS_PER_PAGE_LIST;
   const totalPages = Math.max(1, Math.ceil(filteredCards.length / itemsPerPage));
   const currentPage = Math.min(page, totalPages);
+  const pageNumbers = getPageNumbers(currentPage, totalPages);
   const paginatedCards = filteredCards.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
@@ -683,6 +685,7 @@ export function CollectionManager({
           onRemove={removeCard}
           onPreview={handlePreview}
           readOnly={readOnly}
+          showRank={sortKey === 'edhrecRank'}
         />
       ) : (
         <ListView
@@ -713,9 +716,12 @@ export function CollectionManager({
       {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between pt-2">
-          <p className="text-xs text-muted-foreground">
-            Page {currentPage} of {totalPages}
-          </p>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            Page
+            {/* Keyed on the page so arrow/number clicks reset any half-typed draft */}
+            <PageJumpInput key={currentPage} current={currentPage} total={totalPages} onJump={setPage} />
+            of {totalPages}
+          </label>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
@@ -725,9 +731,18 @@ export function CollectionManager({
               <ChevronLeft className="w-4 h-4" />
             </button>
             {/* Page number buttons */}
-            {getPageNumbers(currentPage, totalPages).map((p, i) =>
+            {pageNumbers.map((p, i) =>
               p === null ? (
-                <span key={`ellipsis-${i}`} className="px-1 text-xs text-muted-foreground">...</span>
+                // Ellipsis jumps to the middle of the pages it hides (always flanked by numbers)
+                <button
+                  key={`ellipsis-${i}`}
+                  onClick={() => setPage(gapMidpoint(pageNumbers, i))}
+                  title={`Jump to page ${gapMidpoint(pageNumbers, i)}`}
+                  aria-label={`Jump to page ${gapMidpoint(pageNumbers, i)}`}
+                  className="w-7 h-7 rounded-md text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                >
+                  …
+                </button>
               ) : (
                 <button
                   key={p}
@@ -773,12 +788,15 @@ function GridView({
   onRemove,
   onPreview,
   readOnly,
+  showRank,
 }: {
   cards: CollectionCard[];
   onUpdateQuantity: (name: string, qty: number) => void;
   onRemove: (name: string) => void;
   onPreview: (name: string) => void;
   readOnly: boolean;
+  /** Badge each card with its EDHREC rank — on while the grid is sorted by it. */
+  showRank: boolean;
 }) {
   const [parent] = useAutoAnimate({ duration: 250 });
 
@@ -792,6 +810,7 @@ function GridView({
           onRemove={onRemove}
           onPreview={onPreview}
           readOnly={readOnly}
+          showRank={showRank}
         />
       ))}
     </div>
@@ -804,12 +823,14 @@ function GridCard({
   onRemove,
   onPreview,
   readOnly,
+  showRank,
 }: {
   card: CollectionCard;
   onUpdateQuantity: (name: string, qty: number) => void;
   onRemove: (name: string) => void;
   onPreview: (name: string) => void;
   readOnly: boolean;
+  showRank: boolean;
 }) {
   const [showControls, setShowControls] = useState(false);
 
@@ -834,6 +855,16 @@ function GridCard({
           onClick={() => onPreview(card.name)}
         >
           <span className="text-[10px] text-muted-foreground text-center leading-tight">{card.name}</span>
+        </div>
+      )}
+
+      {/* EDHREC rank badge — top-left, opposite the quantity badge */}
+      {showRank && card.edhrecRank != null && (
+        <div
+          title={`EDHREC rank #${card.edhrecRank.toLocaleString()}: how popular this card is across all Commander decks`}
+          className="absolute top-1 left-1 bg-black/75 text-violet-200 text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md shadow ring-1 ring-white/10"
+        >
+          #{card.edhrecRank.toLocaleString()}
         </div>
       )}
 
@@ -1082,6 +1113,45 @@ function CheckboxDropdown({ allLabel, noun, options, selected, onToggle, onClear
 }
 
 // --- Pagination helper ---
+
+/** Editable "current page" box — type a number, Enter (or blur) to jump; out-of-range clamps. */
+function PageJumpInput({ current, total, onJump }: { current: number; total: number; onJump: (page: number) => void }) {
+  const [draft, setDraft] = useState(String(current));
+
+  const commit = () => {
+    const n = parseInt(draft, 10);
+    if (Number.isNaN(n)) {
+      setDraft(String(current));
+      return;
+    }
+    const clamped = Math.min(total, Math.max(1, n));
+    setDraft(String(clamped));
+    if (clamped !== current) onJump(clamped);
+  };
+
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      value={draft}
+      onChange={e => setDraft(e.target.value.replace(/\D/g, ''))}
+      onBlur={commit}
+      onKeyDown={e => {
+        if (e.key === 'Enter') commit();
+        if (e.key === 'Escape') setDraft(String(current));
+      }}
+      onFocus={e => e.target.select()}
+      aria-label={`Page number, 1 to ${total}`}
+      className="h-7 px-1 rounded-md text-xs md:text-xs text-center tabular-nums"
+      style={{ width: `${Math.max(2, String(total).length) + 2}ch` }}
+    />
+  );
+}
+
+/** Page halfway across the ellipsis at `i` — getPageNumbers always flanks a null with numbers. */
+function gapMidpoint(pages: (number | null)[], i: number): number {
+  return Math.round(((pages[i - 1] as number) + (pages[i + 1] as number)) / 2);
+}
 
 function getPageNumbers(current: number, total: number): (number | null)[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);

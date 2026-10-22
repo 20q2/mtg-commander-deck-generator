@@ -85,6 +85,7 @@ interface RawEDHRECResponse {
   basic?: number;
   nonbasic?: number;
   num_decks_avg?: number;
+  bracket_counts?: Record<string, number>; // decks per declared bracket, "1".."5"
   deck_size?: number; // Non-commander deck size
   // Similar commanders
   similar?: Array<{
@@ -397,6 +398,7 @@ function parseEdhrecResponse(
   const stats: EDHRECCommanderStats = {
     avgPrice: response.avg_price || 0,
     numDecks: pageDeckCount(response),
+    bracketCounts: response.bracket_counts,
     deckSize: response.deck_size || 81, // Default to 81 if missing
     manaCurve: parseManaCurve(response.panels?.mana_curve),
     typeDistribution: {

@@ -12,6 +12,28 @@ export interface CommanderReadiness {
   percent: number;
   /** Cards in the staple pool that the player owns (canonical Scryfall names). */
   ownedNames: string[];
+  /** EDHREC decks built with this commander — the popularity signal. 0 when unknown. */
+  numDecks: number;
+  /** Mean self-declared bracket (1-5) across this commander's EDHREC decks — the power
+   *  signal. Undefined when too few decks declare a bracket to trust the mean. */
+  avgBracket?: number;
+  /** How many decks declared a bracket (the sample behind avgBracket). */
+  bracketSample: number;
+}
+
+/** Fewer bracket-declaring decks than this and the mean is noise — leave power unknown. */
+const MIN_BRACKET_SAMPLE = 10;
+
+function averageBracket(counts: Record<string, number> | undefined): { avg?: number; sample: number } {
+  let sample = 0;
+  let weighted = 0;
+  for (const [bracket, n] of Object.entries(counts ?? {})) {
+    const b = Number(bracket);
+    if (!(b >= 1 && b <= 5) || !(n > 0)) continue;
+    sample += n;
+    weighted += b * n;
+  }
+  return { avg: sample >= MIN_BRACKET_SAMPLE ? weighted / sample : undefined, sample };
 }
 
 /** How many top non-land staples to count toward readiness. */
@@ -62,12 +84,16 @@ export async function computeCommanderReadiness(
       if (owned.has(staple.name)) ownedNames.push(staple.name);
     }
 
+    const bracket = averageBracket(data.stats.bracketCounts);
     const result: CommanderReadiness = {
       commanderName,
       ownedCount: ownedNames.length,
       totalCount: pool.length,
       percent: pool.length > 0 ? (ownedNames.length / pool.length) * 100 : 0,
       ownedNames,
+      numDecks: data.stats.numDecks,
+      avgBracket: bracket.avg,
+      bracketSample: bracket.sample,
     };
     readinessCache.set(cacheKey, result);
     return result;
@@ -79,6 +105,8 @@ export async function computeCommanderReadiness(
       totalCount: 0,
       percent: 0,
       ownedNames: [],
+      numDecks: 0,
+      bracketSample: 0,
     };
     return result;
   }

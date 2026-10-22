@@ -3173,17 +3173,17 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return () => obs.disconnect();
   }, []);
 
-  // Close show menu on outside click
+  // Close show menu on outside click. Either toolbar may be unmounted (the header one only
+  // renders with renderHeaderActions), so a missing ref simply doesn't count as "inside".
   useEffect(() => {
     if (!showMenu) return;
-    const handler = (e: MouseEvent) => {
-      if (
-        showMenuRef.current && !showMenuRef.current.contains(e.target as Node) &&
-        (!showMenuMobileRef.current || !showMenuMobileRef.current.contains(e.target as Node))
-      ) { setShowMenu(false); }
+    const handler = (e: PointerEvent) => {
+      const target = e.target as Node;
+      const inside = [showMenuRef, showMenuMobileRef].some(r => r.current?.contains(target));
+      if (!inside) setShowMenu(false);
     };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('pointerdown', handler);
+    return () => document.removeEventListener('pointerdown', handler);
   }, [showMenu]);
 
   // Load owned-name sets for both scopes at once. The build set is scoped to the deck's own

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, Crown, Search, X } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, Crown, Image, ImageOff, Search, X } from 'lucide-react';
 import { CommanderSpotlight, CommanderTile, SuggestionTile, type SpotlightCommander } from './CommanderTile';
 import {
   computeCommanderReadiness,
@@ -15,7 +15,7 @@ interface CollectionCommandersProps {
   cards: CollectionCard[];
 }
 
-type SortKey = 'readiness' | 'name' | 'recent';
+type SortKey = 'readiness' | 'popularity' | 'power' | 'rank' | 'name' | 'recent';
 type ColorFilterMode = 'at-least' | 'exact' | 'exclude';
 
 /** A spotlight carousel entry — either an owned commander or a suggestion. */
@@ -25,6 +25,17 @@ type SpotlightEntry = { cmd: SpotlightCommander; r: CommanderReadiness; discover
 const AUTOPLAY_MS = 6000;
 
 const COLOR_CHIPS = ['W', 'U', 'B', 'R', 'G', 'C'] as const;
+
+/** Remembers whether tiles show the art face (default) or the plain card scan. */
+const ART_MODE_KEY = 'collection-commanders-art';
+
+function readArtMode(): boolean {
+  try {
+    return localStorage.getItem(ART_MODE_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+}
 
 function isLegendaryCreature(card: CollectionCard): boolean {
   const tl = (card.typeLine ?? '').split(' // ')[0].toLowerCase();
@@ -135,6 +146,15 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
   const [colorFilter, setColorFilter] = useState<Set<string>>(new Set());
   const [colorFilterMode, setColorFilterMode] = useState<ColorFilterMode>('at-least');
   const [searchQuery, setSearchQuery] = useState('');
+  const [artMode, setArtMode] = useState(readArtMode);
+  const toggleArtMode = () => {
+    setArtMode(on => {
+      try {
+        localStorage.setItem(ART_MODE_KEY, on ? 'off' : 'on');
+      } catch { /* storage unavailable — the toggle still works for this visit */ }
+      return !on;
+    });
+  };
   // The Spotlight is the hero; the full list is opt-in via a collapsible.
   const [listOpen, setListOpen] = useState(false);
   // "Commanders you don't own" is a second opt-in collapsible below the list.
@@ -160,18 +180,29 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
   }, [legendaries, colorFilter, colorFilterMode, searchQuery]);
 
   const visible = useMemo(() => {
+    // Readiness-derived metrics sort descending; still-loading or unknown commanders sink.
+    const metric = (c: CollectionCard): number => {
+      const r = readinessByName.get(c.name);
+      if (!r) return -1;
+      if (sortKey === 'popularity') return r.numDecks;
+      if (sortKey === 'power') return r.avgBracket ?? -1;
+      return r.percent;
+    };
     return [...filtered].sort((a, b) => {
       switch (sortKey) {
-        case 'readiness': {
-          const pa = readinessByName.get(a.name)?.percent ?? -1;
-          const pb = readinessByName.get(b.name)?.percent ?? -1;
-          if (pa !== pb) return pb - pa;
-          return a.name.localeCompare(b.name);
-        }
         case 'name':
           return a.name.localeCompare(b.name);
         case 'recent':
           return b.addedAt - a.addedAt;
+        case 'rank': {
+          // Lower rank = more played; unranked cards sink.
+          const d = (a.edhrecRank ?? Infinity) - (b.edhrecRank ?? Infinity);
+          return d !== 0 && !Number.isNaN(d) ? d : a.name.localeCompare(b.name);
+        }
+        default: {
+          const d = metric(b) - metric(a);
+          return d !== 0 ? d : a.name.localeCompare(b.name);
+        }
       }
     });
   }, [filtered, sortKey, readinessByName]);
@@ -420,14 +451,27 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
                 </div>
               )}
 
-              {/* Sort */}
-              <div className="relative ml-auto">
+              {/* Art face toggle + sort */}
+              <button
+                type="button"
+                onClick={toggleArtMode}
+                aria-pressed={artMode}
+                title={artMode ? 'Show card scans' : 'Show full art'}
+                aria-label={artMode ? 'Show card scans' : 'Show full art'}
+                className="ml-auto inline-flex items-center justify-center w-7 h-7 rounded-md bg-background border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-colors focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                {artMode ? <Image className="w-3.5 h-3.5" /> : <ImageOff className="w-3.5 h-3.5" />}
+              </button>
+              <div className="relative">
                 <select
                   value={sortKey}
                   onChange={(e) => setSortKey(e.target.value as SortKey)}
                   className="appearance-none pl-2.5 pr-7 py-1 text-xs rounded-md bg-background border border-border cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   <option value="readiness">Sort: Readiness</option>
+                  <option value="power">Sort: Power (avg bracket)</option>
+                  <option value="popularity">Sort: Popularity</option>
+                  <option value="rank">Sort: EDHREC rank</option>
                   <option value="name">Sort: Name</option>
                   <option value="recent">Sort: Recently added</option>
                 </select>
@@ -455,6 +499,8 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
                     readiness={readinessByName.get(cmd.name)}
                     loading={loading && !readinessByName.has(cmd.name)}
                     savedDeck={savedDecksByCommander.get(cmd.name)}
+                    metric={sortKey === 'power' || sortKey === 'popularity' || sortKey === 'rank' ? sortKey : undefined}
+                    artMode={artMode}
                   />
                 ))}
               </div>
@@ -516,6 +562,7 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
                     key={s.commander.name}
                     commander={{ name: s.commander.name, colorIdentity: s.commander.colorIdentity }}
                     readiness={s.readiness}
+                    artMode={artMode}
                   />
                 ))}
               </div>

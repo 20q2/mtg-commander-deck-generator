@@ -178,6 +178,9 @@ export interface EDHRECCard {
 export interface EDHRECCommanderStats {
   avgPrice: number;
   numDecks: number;
+  /** Decks per self-declared bracket ("1".."5"); only a subset of numDecks declare one.
+   *  Present on base commander pages only. */
+  bracketCounts?: Record<string, number>;
   deckSize: number; // Non-commander deck size from EDHREC (typically ~81)
   manaCurve: Record<number, number>; // CMC -> count (e.g., { 1: 10, 2: 12, 3: 20, ... })
   typeDistribution: {
