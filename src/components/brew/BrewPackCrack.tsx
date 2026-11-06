@@ -4,7 +4,7 @@ import { useStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { getCardImageUrl, getCardPrice } from '@/services/scryfall/client';
-import { playPackCrack } from '@/services/brew/brewSound';
+import { playPackCrack, playCardArrive, playPull, type PullTier } from '@/services/brew/brewSound';
 import { useBrewSuggest } from '@/services/brew/brewSuggest';
 import type { BrewOption, BrewCandidate, PickReason } from '@/services/brew/engine';
 import type { ScryfallCard } from '@/types';
@@ -33,6 +33,11 @@ const STAGE_MS = 1250;    // fall-away + fly-to-center + the anticipation creep,
 const SOUND_LEAD_MS = 120; // (CSS path) the tear sound starts just before the burst
 const GHOST_MS = 950;     // how long the burst wrapper (strip + falling body) stays mounted
 const TEAR_SEC = 0.48;    // (3D path) the tear-noise length — matches the scene's TEAR_MS sweep
+/** Gap between cards as the fan erupts. They used to arrive in one lump; dealt out one after another
+ *  the eruption reads as a riffle, and it gives each card a beat of its own to land a sound on. */
+const CARD_STAGGER_MS = 55;
+/** How long a commit waits when it had to turn the bonus over first — the flip is 720ms. */
+const FOIL_FLIP_HOLD_MS = 1100;
 
 // --- Spring-driven tilt: the pack has mass. It lags the pointer, overshoots, and wobbles back
 //     to rest instead of snapping. Springs run per-element on rAF and write CSS vars directly. ---
@@ -205,6 +210,12 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
   // Right-clicked fan card (name) → its context menu is force-opened. One at a time.
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  /**
+   * The windfall arrives FACE DOWN and stays that way until the player turns it over. It is the one
+   * card in the fan whose identity is withheld: everything else is on the table the moment the pack
+   * opens, so the bonus is the only thing left to find out. Reset per crack.
+   */
+  const [foilFlipped, setFoilFlipped] = useState(false);
   // Suggestions on/off — the fan highlights the engine's top pick(s) when on. The toggle itself now
   // lives in the HUD (BrewHealthStrip); we just read the shared, persisted value here.
   const [suggestOn] = useBrewSuggest();
@@ -310,6 +321,40 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
     });
   }, [ghost]);
 
+  /**
+   * The sound of the fan landing. Each card gets a paper tick on the beat it actually arrives (the
+   * eruption is staggered by CARD_STAGGER_MS below), and once they are all down the pack says how it
+   * went: a plain "opened" chord, or a brighter one when there is something worth finding in there.
+   *
+   * The windfall deliberately does NOT pay off here — it is still face down at this point, and its
+   * tier fires on the flip instead. Hearing "huge" before you turn the card over would give the
+   * ending away.
+   */
+  useEffect(() => {
+    const co = brewNode?.options.find(o => o.id === cracked);
+    if (!co) return;
+    const count = co.cards.length + (co.goldCard ? 1 : 0);
+    const ids: number[] = [];
+    // Keyed on the CRACK, not on the eruption: reduced motion skips the fly-out entirely, and a
+    // player who turned animation off has not asked for silence. They just get the chord, with no
+    // riffle in front of it — there are no cards flying for the ticks to belong to.
+    if (!reduceMotion) {
+      for (let i = 0; i < count; i++) {
+        ids.push(window.setTimeout(() => playCardArrive(i), CARD_STAGGER_MS * i));
+      }
+    }
+    // "Something's in here": a combo piece, a game changer, or the engine's own top pick. The chord
+    // is the same information the chips carry — it just gets there before you have read them.
+    const notable = co.reasons.some(rs => rs.some(r => r.kind === 'combo' || r.kind === 'comboPiece' || r.kind === 'gameChanger'))
+      || (co.cardScores?.length ?? 0) > 0;
+    ids.push(window.setTimeout(
+      () => playPull(notable ? 'good' : 'open'),
+      reduceMotion ? 0 : CARD_STAGGER_MS * count + 260,
+    ));
+    return () => ids.forEach(clearTimeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cracked]);
+
   // Publish the "what if I keep these?" preview to the deck-stats charts: your kept selection plus
   // the card under the cursor. The charts draw it as a dashed projection. Cleared while committing
   // (the real bars are about to update) and on unmount.
@@ -338,6 +383,7 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
     onCracked?.(true);   // the pick is the commitment — the parent hides Back/reroll
     setKeep(option.goldCard ? new Set([option.goldCard.name]) : new Set());
     setCut(new Set());
+    setFoilFlipped(false);
     if (reduceMotion) { setCracked(option.id); return; }
     if (scene && brewNode) {
       // 3D ceremony: the scene owns the fall / fly / loom / crack (tear sweep → strip pop →
@@ -419,11 +465,30 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
     }
   }
 
+  /**
+   * Turn the windfall face up. This is the payoff beat the rest of the fan does not get: the tier
+   * chord fires here, not when the pack landed, so the reward is heard at the moment it is seen.
+   */
+  function flipFoil(tier: PullTier) {
+    if (foilFlipped) return;
+    setFoilFlipped(true);
+    setHover(null);   // a preview of a card you have not turned over yet would spoil it
+    playPull(tier);
+  }
+
   // Lock in the kept cards as one decision. The synthetic option keeps the pack's identity
   // (id/label/flavor/engineScore → affinity, Rival, and pack-window bookkeeping all still work);
   // a kept foil stays on `goldCard` so the store's windfall moment + Treasury hook fire as before.
   function commitKeeps(option: BrewOption) {
     if (committing || keep.size === 0) return;
+    // You can commit without ever turning the bonus over — it arrives pre-kept, so the round is
+    // valid either way. Rather than block the button, turn it over first and hold the commit for the
+    // flip: the one thing that must never happen is a windfall landing in the deck unseen.
+    if (option.goldCard && keep.has(option.goldCard.name) && !foilFlipped) {
+      flipFoil(option.windfallTier === 'rainbow' ? 'huge' : 'big');
+      timers.current.push(window.setTimeout(() => commitKeeps(option), FOIL_FLIP_HOLD_MS));
+      return;
+    }
     setCommitting(true);
     // The cut is locked in now that the round is passing: ban each marked card from the rest of the
     // run (deferred from the click so the slice could linger as feedback until this moment).
@@ -479,7 +544,7 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
           <fl.Icon className="w-4 h-4" /> {crackedOption.label}
         </div>
         <div className="flex flex-wrap items-start justify-center gap-3 sm:gap-4">
-          {fan.map(({ card, isFoil, reasons: cardReasons }) => {
+          {fan.map(({ card, isFoil, reasons: cardReasons }, i) => {
             const kept = keep.has(card.name);
             const priceNum = Number(getCardPrice(card.scryfall, customization.currency) ?? NaN);
             const typeGlyph = cardTypeGlyph(card.scryfall.type_line);
@@ -495,6 +560,10 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
             // windfall is never killable (it's a reward, not a recurring offer).
             const isRepeat = !isFoil && seen.has(card.name);
             const isCut = cut.has(card.name);
+            // Still face down: the bonus has not been turned over yet. Everything that would give it
+            // away — its name, its price, its reward burst — waits behind this.
+            const foilHidden = isFoil && !foilFlipped;
+            const foilTier: PullTier = isRainbow ? 'huge' : 'big';
             // The surprise bonus card: a warm glow ring + a sunburst behind it (below). Not "foil" —
             // it's a free extra card, so it reads as a reward, not a print treatment.
             const bonusRing = isRainbow
@@ -506,7 +575,10 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
               <div key={card.name} className="group/fan relative w-[172px] sm:w-[200px]">
               <button
                 data-fan-card
-                onClick={() => { if (!isCut) toggleKeep(card.name); }}
+                onClick={() => {
+                  if (foilHidden) { flipFoil(foilTier); return; }   // first click turns it over, not keeps it
+                  if (!isCut) toggleKeep(card.name);
+                }}
                 onContextMenu={(e: ReactMouseEvent<HTMLElement>) => {
                   // Right-click opens the card menu instead of the browser's — the only way to cut a
                   // card that hasn't repeated yet.
@@ -517,10 +589,14 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                 }}
                 // A cut card gets no preview: floating a big pristine copy of the card you just struck
                 // reads as a duplicate of it, and there's nothing left to inspect.
-                onMouseEnter={canHover ? (e: ReactMouseEvent<HTMLElement>) => { if (!isCut) setHover({ card: card.scryfall, rect: e.currentTarget.getBoundingClientRect() }); } : undefined}
+                onMouseEnter={canHover ? (e: ReactMouseEvent<HTMLElement>) => { if (!isCut && !foilHidden) setHover({ card: card.scryfall, rect: e.currentTarget.getBoundingClientRect() }); } : undefined}
                 onMouseLeave={canHover ? () => setHover(null) : undefined}
                 disabled={committing}
-                aria-pressed={kept}
+                aria-pressed={foilHidden ? undefined : kept}
+                aria-label={foilHidden ? 'Face-down bonus card — click to turn it over' : undefined}
+                // Dealt out one after another rather than all at once (see CARD_STAGGER_MS). The
+                // delay only applies to the eruption; the commit animations must all fire together.
+                style={ghost && !committing ? { animationDelay: `${i * CARD_STAGGER_MS}ms` } : undefined}
                 className={`group relative w-full rounded-[4.8%] transition-transform duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--pk)] ${
                   committing
                     ? (kept ? 'animate-brew-to-deck' : 'animate-brew-dismiss')
@@ -528,7 +604,7 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                     : kept ? '-translate-y-2' : ''
                 }`}
               >
-                {isFoil && (
+                {isFoil && foilFlipped && (
                   <span
                     aria-hidden="true"
                     className={`brew-bonus-burst pointer-events-none absolute left-1/2 top-[42%] ${isRainbow ? 'brew-bonus-burst--rainbow' : ''}`}
@@ -586,6 +662,40 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                   </span>
                 )}
                 <div className="relative w-full">
+                  {isFoil ? (
+                    /* The bonus card is a flip scene, mounted turned over and rotated on click — the
+                       same .brew-flip / .brew-shimmer treatment the old full-screen windfall reveal
+                       used, brought back into the fan where the windfall actually lives now. The
+                       scene stays mounted after the flip so the 720ms rotation can play; swapping it
+                       for a plain <img> on reveal would snap the card into place instead. */
+                    <div className="relative w-full" style={{ perspective: '1400px' }}>
+                      <div className={`brew-flip relative w-full aspect-[63/88] ${foilFlipped ? 'is-flipped' : ''}`}>
+                        <div
+                          className={`brew-flip-face inset-0 grid place-items-center rounded-[4.8%] brew-shimmer ${isRainbow ? 'brew-shimmer-rainbow' : ''} ${bonusRing}`}
+                          style={{
+                            // `position` is set here rather than with Tailwind's `absolute`:
+                            // .brew-shimmer declares `position: relative` to anchor its sweep, and
+                            // between two single-class rules the stylesheet order decides — relative
+                            // won, the face dropped out of the flow of inset-0 and collapsed to the
+                            // height of its icon. An inline style outranks both.
+                            position: 'absolute',
+                            background: isRainbow
+                              ? 'radial-gradient(circle at 50% 38%, #2a1350, #150a2c 70%, #0b0620)'
+                              : 'radial-gradient(circle at 50% 38%, #4a3208, #241803 70%, #140d02)',
+                          }}
+                        >
+                          {isRainbow
+                            ? <Sparkles className="w-10 h-10" style={{ color: 'hsl(280 90% 82%)', filter: 'drop-shadow(0 0 14px rgba(196,181,253,0.8))' }} />
+                            : <Crown className="w-10 h-10" style={{ color: 'hsl(45 92% 70%)', filter: 'drop-shadow(0 0 14px rgba(251,191,36,0.8))' }} />}
+                        </div>
+                        <img
+                          src={getCardImageUrl(card.scryfall, 'normal')}
+                          alt={card.name}
+                          className={`brew-flip-face brew-flip-back absolute inset-0 w-full h-full object-cover rounded-[4.8%] ${bonusRing}`}
+                        />
+                      </div>
+                    </div>
+                  ) : (
                   <img
                     src={getCardImageUrl(card.scryfall, 'normal')}
                     alt={card.name}
@@ -594,12 +704,12 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                     // selectors, so the stylesheet's order decides — opacity-90 wins and the intact
                     // card stays visible behind the sliced halves (worst on hover, which forces 100).
                     className={`block w-full h-auto rounded-[4.8%] transition-[box-shadow,opacity,transform] duration-150 ${isCut ? 'opacity-0' : ''} ${
-                      isFoil ? bonusRing
-                        : kept ? 'ring-2 ring-emerald-400/90 shadow-[0_0_20px_-4px_rgba(52,211,153,0.6),0_6px_18px_rgba(0,0,0,0.55)]'
+                      kept ? 'ring-2 ring-emerald-400/90 shadow-[0_0_20px_-4px_rgba(52,211,153,0.6),0_6px_18px_rgba(0,0,0,0.55)]'
                         : isSuggested ? 'ring-2 ring-violet-300/75 shadow-[0_0_20px_-4px_rgba(196,181,253,0.55),0_6px_18px_rgba(0,0,0,0.55)]'
                         : `ring-1 ring-black/60 shadow-[0_6px_18px_rgba(0,0,0,0.55)] ${isCut ? '' : 'opacity-90 hover:opacity-100'}`
                     } ${kept ? '' : 'hover:ring-2 hover:ring-[color:var(--pk)]'}`}
                   />
+                  )}
                   {/* The cut mark: grey, sliced in two (the Headliner's brew-cut-piece / -top / -bottom
                       effect in index.css). The halves animate apart once, then HOLD — a lingering
                       "this one's out" state over the invisible (opacity-0) base image, which keeps
@@ -617,11 +727,25 @@ export function BrewPackCrack({ onCracked, onBack }: { onCracked?: (cracked: boo
                 </div>
                 {/* Caption: type glyph + name, the price, then a wrapping row of detail chips
                     (each role named as specifically as we can — "Counterspell", not "Protection"). */}
-                <span className="mt-1.5 flex w-full items-center justify-center gap-1 text-[11px] font-semibold leading-tight text-foreground/90">
+                {/* While the bonus is face down its caption is blurred rather than blanked: a name
+                    you can almost read is an invitation, where an empty space is just a gap. Hidden
+                    from screen readers so the blur isn't merely cosmetic — the button's own label
+                    says what to do instead. */}
+                <span
+                  aria-hidden={foilHidden || undefined}
+                  className={`mt-1.5 flex w-full items-center justify-center gap-1 text-[11px] font-semibold leading-tight text-foreground/90 ${
+                    foilHidden ? 'blur-[6px] select-none' : 'transition-[filter] duration-500'
+                  }`}
+                >
                   {typeGlyph && <i aria-hidden className={`ms ${typeGlyph} shrink-0 text-[12px] leading-none text-muted-foreground`} />}
                   <span className="min-w-0 truncate">{card.name}</span>
                 </span>
-                <span className="mt-0.5 block text-[10px] font-bold tabular-nums text-muted-foreground">
+                <span
+                  aria-hidden={foilHidden || undefined}
+                  className={`mt-0.5 block text-[10px] font-bold tabular-nums text-muted-foreground ${
+                    foilHidden ? 'blur-[5px] select-none' : 'transition-[filter] duration-500'
+                  }`}
+                >
                   {Number.isFinite(priceNum) ? `${currencySymbol}${priceNum.toFixed(2)}` : '—'}
                 </span>
                 <span className="mt-1 flex min-h-[16px] flex-wrap items-center justify-center gap-1">

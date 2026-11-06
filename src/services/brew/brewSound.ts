@@ -72,6 +72,89 @@ export function playPackCrack(tearSec = 0.3): void {
   tone(ac, 220, now + dur, 0.12);
 }
 
+/** A bright noise tail — the "shimmer" over a treasure beat. */
+function shimmer(ac: AudioContext, startAt: number, dur: number, level = 0.05): void {
+  const src = ac.createBufferSource();
+  src.buffer = noiseBuffer(ac, dur, t => (1 - t) ** 2);
+  const hp = ac.createBiquadFilter();
+  hp.type = 'highpass';
+  hp.frequency.value = 4200;
+  const g = ac.createGain();
+  g.gain.value = level;
+  src.connect(hp).connect(g).connect(ac.destination);
+  src.start(startAt);
+}
+
+/** A soft low thud under the biggest beat, so "huge" is felt as well as heard. */
+function thump(ac: AudioContext, startAt: number): void {
+  const osc = ac.createOscillator();
+  const g = ac.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(90, startAt);
+  osc.frequency.exponentialRampToValueAtTime(42, startAt + 0.18);
+  g.gain.setValueAtTime(0.0001, startAt);
+  g.gain.exponentialRampToValueAtTime(0.09, startAt + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.22);
+  osc.connect(g).connect(ac.destination);
+  osc.start(startAt);
+  osc.stop(startAt + 0.24);
+}
+
+/**
+ * One card landing in the fan: a short paper tick. Three variants, because five identical ticks in
+ * a row read as a machine gun rather than a riffle — the caller passes the card's index.
+ */
+export function playCardArrive(variant = 0): void {
+  if (!enabled) return;
+  const ac = audioContext();
+  if (!ac) return;
+  const now = ac.currentTime;
+  const src = ac.createBufferSource();
+  src.buffer = noiseBuffer(ac, 0.05, t => (1 - t) ** 3);
+  const bp = ac.createBiquadFilter();
+  bp.type = 'bandpass';
+  // Each variant sits a little higher/lower, so consecutive cards sound like different pieces of card.
+  bp.frequency.value = [1500, 2100, 2700][variant % 3];
+  bp.Q.value = 0.8;
+  const g = ac.createGain();
+  g.gain.value = 0.05;
+  src.connect(bp).connect(g).connect(ac.destination);
+  src.start(now);
+}
+
+/**
+ * How good the pack turned out, as an escalating chord. The tier is the loudest thing the player
+ * hears at the reveal, so it is deliberately ALWAYS POSITIVE: the ladder runs from "opened" up to
+ * "huge" and there is no sad trombone for a plain pack. (Pack-opening sites tier this by cash value
+ * and do have a loser sting — we are not playing for money, and telling someone their cards are
+ * worthless is the one note this game should never play.)
+ */
+export type PullTier = 'open' | 'good' | 'big' | 'huge';
+
+const PULL_MOTIF: Record<PullTier, number[]> = {
+  open: [392.00, 523.25],                                             // G4 C5 — a quiet "there you go"
+  good: [523.25, 659.25, 783.99],                                     // C5 E5 G5 — something's in here
+  big:  [523.25, 659.25, 783.99, 1046.50],                            // + C6 — a real prize
+  huge: [392.00, 523.25, 659.25, 783.99, 1046.50, 1318.51],           // a full run up to E6
+};
+
+export function playPull(tier: PullTier): void {
+  if (!enabled) return;
+  try {
+    navigator.vibrate?.(tier === 'huge' ? [20, 50, 26, 50, 30] : tier === 'big' ? [16, 40, 20] : 12);
+  } catch { /* ignore */ }
+  const ac = audioContext();
+  if (!ac) return;
+  const now = ac.currentTime;
+  const step = tier === 'huge' ? 0.075 : 0.085;
+  PULL_MOTIF[tier].forEach((hz, i) => tone(ac, hz, now + i * step, tier === 'open' ? 0.14 : 0.2));
+  if (tier === 'big') shimmer(ac, now + 0.1, 0.5);
+  if (tier === 'huge') {
+    thump(ac, now);
+    shimmer(ac, now + 0.12, 0.9, 0.065);
+  }
+}
+
 /** Play the celebration cue (sound + haptic) for an earned beat. No-op when muted or unsupported. */
 export function playCelebration(kind: 'goal' | 'combo' | 'streak'): void {
   if (!enabled) return;
