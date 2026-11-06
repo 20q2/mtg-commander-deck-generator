@@ -282,20 +282,24 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
   const currentFormat = getDeckFormatConfig(customization.deckFormat);
   const landRange = currentFormat.landRange;
 
-  // Handle format change - also update land counts to format defaults
+  // Handle format change - reset land counts for the new format. EDHREC's land stats are for 99-card
+  // decks and are only applied when a commander loads, so rescale them here the same way BuilderPage
+  // does; otherwise switching format after load drops the commander's suggestion for a generic default.
   const handleFormatChange = (format: DeckFormat) => {
     const formatConfig = getDeckFormatConfig(format);
-    // Scale non-basic count proportionally to new format
-    const defaultNonBasic = Math.min(15, Math.floor(formatConfig.defaultLands * 0.4));
-    // Reset land counts to format defaults and clear userEditedLands
-    // so EDHREC can suggest format-appropriate values
+    const lands = edhrecStats?.landDistribution;
+    const scale = (format === 99 ? 99 : format - 1) / 99;
+    const suggestion = lands && lands.total > 0
+      ? { landCount: Math.round(lands.total * scale), nonBasicLandCount: Math.round(lands.nonbasic * scale) }
+      : null;
     useStore.setState(state => ({
       customization: {
         ...state.customization,
         deckFormat: format,
-        landCount: formatConfig.defaultLands,
-        nonBasicLandCount: defaultNonBasic,
+        landCount: suggestion?.landCount ?? formatConfig.defaultLands,
+        nonBasicLandCount: suggestion?.nonBasicLandCount ?? Math.min(15, Math.floor(formatConfig.defaultLands * 0.4)),
       },
+      ...(suggestion ? { edhrecLandSuggestion: suggestion } : {}),
       userEditedLands: false,
     }));
   };

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { BrowserRouter, Routes, Route, useLocation, Link, Navigate } from 'react-router-dom';
-import { Settings, Sparkles, Layers, Library, BarChart3, MessageSquare, Package, Boxes, Menu, Swords } from 'lucide-react';
+import { Settings, Layers, Library, BarChart3, MessageSquare, Package, Boxes, Menu, Swords } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import patchNotes from '@/data/patchNotes.json';
 import { HomePage } from '@/pages/HomePage';
@@ -255,16 +255,6 @@ function Layout({ children }: { children: React.ReactNode }) {
   // ring on the "More" button it points at, so the nudge's arrow has a target.
   const [pollNudgeActive, setPollNudgeActive] = useState(false);
 
-  const [eaEnabled, setEaEnabled] = useState(() => localStorage.getItem('ea-features-enabled') === 'true');
-  const toggleEaFeatures = useCallback(() => {
-    setEaEnabled(prev => {
-      const next = !prev;
-      localStorage.setItem('ea-features-enabled', String(next));
-      window.dispatchEvent(new CustomEvent('ea-features-changed', { detail: { enabled: next } }));
-      return next;
-    });
-  }, []);
-
   // Track page views
   useEffect(() => {
     trackEvent('page_viewed', {
@@ -374,7 +364,7 @@ function Layout({ children }: { children: React.ReactNode }) {
               {/* Logo and wordmark are two separate home links so the version button can
                   sit on the wordmark's baseline — a <button> can't be nested inside an <a>,
                   and hanging it off the end of the whole brand block left it stranded past
-                  the tagline. Its popover keeps EA Features + patch notes; navigation moved
+                  the tagline. Its popover shows the patch notes; navigation moved
                   to the "More" menu on the right. */}
               <div className="flex items-center gap-3">
                 <Link
@@ -407,27 +397,30 @@ function Layout({ children }: { children: React.ReactNode }) {
                       v{__APP_VERSION__}
                     </button>
                   </PopoverTrigger>
-                  <PopoverContent side="bottom" align="start" className="w-80 max-h-80 overflow-y-auto p-3 text-xs">
-                    <button
-                      onClick={toggleEaFeatures}
-                      className="w-full text-left flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent transition-colors mb-2"
-                    >
-                      <Sparkles className={`w-3.5 h-3.5 ${eaEnabled ? 'text-purple-400' : 'text-muted-foreground'}`} />
-                      <span className={`text-sm ${eaEnabled ? 'text-purple-400' : ''}`}>EA Features</span>
-                      {eaEnabled && <span className="ml-auto text-[10px] text-purple-400/70 font-medium">ON</span>}
-                    </button>
-                    <div className="border-t border-border/50 pt-3">
-                      <p className="font-semibold text-sm text-foreground mb-2">Patch Notes</p>
-                      {patchNotes.map((entry, i) => (
-                        <div key={entry.version} className={i > 0 ? 'mt-3 pt-3 border-t border-border/50' : ''}>
-                          <p className="font-medium text-foreground/80 mb-1">v{entry.version}</p>
-                          <ul className="list-disc list-inside space-y-0.5 text-muted-foreground">
-                            {entry.notes.map((note, j) => (
-                              <li key={j}>{note}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      ))}
+                  <PopoverContent
+                    side="bottom"
+                    align="start"
+                    collisionPadding={12}
+                    className="w-[24rem] max-w-[calc(100vw-1.5rem)] overflow-hidden p-0 bg-[color:color-mix(in_srgb,hsl(var(--background))_85%,black)]"
+                  >
+                    {/* The scroller is an inner element: scrolling on the rounded popover itself
+                        paints the scrollbar track square over the corners. */}
+                    <div className="max-h-[min(34rem,calc(100vh-6rem))] overflow-y-auto">
+                      <p className="sticky top-0 z-10 px-4 py-3 bg-[color:color-mix(in_srgb,hsl(var(--background))_85%,black)] border-b border-border/50 text-sm font-semibold text-foreground">
+                        Patch Notes
+                      </p>
+                      <div className="px-4 py-3">
+                        {patchNotes.map((entry, i) => (
+                          <div key={entry.version} className={i > 0 ? 'mt-4 pt-4 border-t border-border/50' : ''}>
+                            <p className="text-xs font-semibold tracking-wide text-violet-300/80 mb-1.5">v{entry.version}</p>
+                            <ul className="list-disc pl-4 space-y-1.5 text-[13px] leading-snug text-foreground/75 marker:text-muted-foreground/40">
+                              {entry.notes.map((note, j) => (
+                                <li key={j}>{note}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </PopoverContent>
                 </Popover>

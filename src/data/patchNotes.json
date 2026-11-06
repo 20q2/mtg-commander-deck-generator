@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.3.53",
+    "notes": [
+      "Deck Generation: Fixed a bug introduced last patch that saw 'High-lift' cards being prioritized in the same way as 'High Synergy' cards. They'll now only be included if they're actually a goodf fit for the deck (Thank you to everyone who gave the quick feedback on this)",
+      "Fixed a niche bug where switching between Commander and Brawl after picking a commander now keeps that commander's suggested land count, scaled to the new deck size",
+      "My patch notes are getting long, so a small style update to this very same patch notes window to help keep your eyes healthy 👀"
+    ]
+  },
+  {
     "version": "1.3.52",
     "notes": [
       "Inspector > Overview: rebuilt around a \"What are we doing today?\" dashboard. Should be simpler to pick up and will hopefully help newer users understand what can be done in the Inspector",
