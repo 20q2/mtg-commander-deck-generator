@@ -28,6 +28,7 @@ import { AuroraThemed } from '@/components/ui/AuroraThemed';
 import { BrewBackdrop } from '@/components/brew/BrewBackdrop';
 import { PollNudge } from '@/components/ui/PollNudge';
 import { SiteFooter } from '@/components/SiteFooter';
+import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 import { getAuroraColors } from '@/lib/commanderTheme';
 import type { ScryfallCard } from '@/types';
 
@@ -436,6 +437,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                   </p>
                 </div>
               </div>
+              <AnnouncementBanner placement="inline" />
               <div className="flex items-center gap-3">
                 <nav className="hidden sm:flex items-center gap-3">
                   {import.meta.env.DEV && (
@@ -577,6 +579,7 @@ function Layout({ children }: { children: React.ReactNode }) {
                 </Popover>
               </div>
             </div>
+            <AnnouncementBanner placement="below" />
           </div>
         </header>
 

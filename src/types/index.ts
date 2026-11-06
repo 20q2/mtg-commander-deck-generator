@@ -76,7 +76,7 @@ export interface ScryfallCard {
   }>;
   // Added during deck generation
   isGameChanger?: boolean;
-  isThemeSynergyCard?: boolean; // true if from EDHREC highliftcards (née highsynergycards)/topcards/gamechangers
+  isThemeSynergyCard?: boolean; // true if from EDHREC highsynergycards (legacy)/topcards/gamechangers — NOT highliftcards
   isMustInclude?: boolean;
   mustIncludeSource?: 'user' | 'deck' | 'combo'; // Where the must-include came from
   isReplacement?: boolean; // true if this card was swapped into the deck via the replace feature
@@ -152,7 +152,7 @@ export interface EDHRECCard {
   num_decks: number; // Number of decks with this card
   synergy?: number; // Synergy score (-1 to 1)
   // Track if this card came from a high-priority synergy list
-  isThemeSynergyCard?: boolean; // true if from highliftcards (née highsynergycards), topcards, gamechangers
+  isThemeSynergyCard?: boolean; // true if from highsynergycards (legacy), topcards, gamechangers — NOT highliftcards
   isNewCard?: boolean; // true if from the newcards list (gets a small relevancy boost)
   isGameChanger?: boolean; // true if from the gamechangers list specifically
   /** Injected from a color-filtered EDHREC archetype tag page (not on the commander's own pages). */

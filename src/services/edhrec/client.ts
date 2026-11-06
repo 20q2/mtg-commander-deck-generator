@@ -229,10 +229,16 @@ async function edhrecFetch<T>(endpoint: string): Promise<T> {
   return data;
 }
 
-// Tags that represent high-priority theme synergy cards. EDHREC replaced `highsynergycards` with
-// `highliftcards` on commander, theme and tag pages; both are kept so cached old-shape responses
-// still parse.
-const THEME_SYNERGY_TAGS = new Set(['highsynergycards', 'highliftcards', 'topcards', 'gamechangers']);
+// Tags that represent high-priority theme synergy cards. `highsynergycards` is gone from live pages
+// but kept so cached old-shape responses still parse.
+const THEME_SYNERGY_TAGS = new Set(['highsynergycards', 'topcards', 'gamechangers']);
+// Card lists with no implied type that still hold deck cards. `highliftcards` replaced
+// `highsynergycards` in the page layout but NOT in meaning: it's ranked by lift, which saturates for
+// any card played almost only with this commander, so it mixes real signature cards (Master of Dark
+// Rites, 61%) with 5–12% oddities (Voldaren Ambusher, Copper Tablet). It must stay in the pool —
+// sections are disjoint, so dropping it erases those cards from every inclusion map — but it gets
+// no theme-synergy flag: its cards compete on their own inclusion/synergy like everything else.
+const UNTYPED_CARD_TAGS = new Set(['newcards', 'battles', 'highliftcards', ...THEME_SYNERGY_TAGS]);
 // Card lists that hold no deck cards (tag pages list commanders); skipped without a warning.
 const COMMANDER_LIST_TAGS = new Set(['topcommanders', 'newcommanders']);
 
@@ -554,17 +560,13 @@ function parseCardlists(response: RawEDHRECResponse): EDHRECCommanderData['cardl
         place(cardlists.allNonLand, card);
       } else if (tag === 'utilitylands' || tag === 'lands') {
         place(cardlists.lands, card);
-      } else if (
-        tag === 'newcards' ||
-        tag === 'battles' ||
-        THEME_SYNERGY_TAGS.has(tag)
-      ) {
+      } else if (UNTYPED_CARD_TAGS.has(tag)) {
         // EDHREC lists each card in one section only: a card here is in no type list, so
         // dropping the section drops the card from every inclusion map.
         place(cardlists.allNonLand, card);
       }
     }
-    if (!impliedType && tag !== 'newcards' && tag !== 'battles' && !THEME_SYNERGY_TAGS.has(tag) && !COMMANDER_LIST_TAGS.has(tag)) {
+    if (!impliedType && !UNTYPED_CARD_TAGS.has(tag) && !COMMANDER_LIST_TAGS.has(tag)) {
       console.warn(`[EDHREC] Unrecognized card list "${list.tag}" dropped (${list.cardviews.length} cards)`);
     }
   }

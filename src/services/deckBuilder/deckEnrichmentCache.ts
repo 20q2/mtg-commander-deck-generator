@@ -20,8 +20,10 @@ const MAX_ENTRIES = 50;
  * 3 — inclusion/synergy maps include EDHREC's `highliftcards` list (earlier rows are missing
  *     a commander's ~10 signature cards and judge them as unplayed), and leave cards with no
  *     EDHREC data out instead of storing them as 0%.
+ * 4 — `highliftcards` no longer carry `isThemeSynergyCard` (v3 rows flag them as theme cards,
+ *     shielding 5–12% oddities from cut suggestions and inflating their relevancy).
  */
-export const ENRICHMENT_SCHEMA_VERSION = 3;
+export const ENRICHMENT_SCHEMA_VERSION = 4;
 
 export interface DeckEnrichmentCacheRow {
   listId: string;
