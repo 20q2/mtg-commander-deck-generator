@@ -2,8 +2,7 @@ import { Megaphone } from 'lucide-react';
 
 // Site-wide announcement shown in the header for every visitor. Edit the text to push a new
 // message; set it to null to take the banner down.
-const ANNOUNCEMENT: string | null =
-  "Thank you for your feedback. We've heard you loud and clear and are reviewing the latest deck generation changes - sorry for any inconveniences.";
+const ANNOUNCEMENT: string | null = null;
 
 /**
  * The header renders this twice. The gap between the brand block and the nav is only wide
