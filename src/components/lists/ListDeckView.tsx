@@ -7,7 +7,7 @@ import { SpellChromaIcon } from '@/components/spellchroma/SpellChromaIcon';
 import { InspectorIcon } from '@/components/analyze/InspectorIcon';
 import { useStore } from '@/store';
 import { getCardsByNames, getCardByName, getFrontFaceTypeLine, searchCards, getCardImageUrl, getCardPrice, getCardBackFaceUrl, isDoubleFacedCard, normalizeCardNameKey } from '@/services/scryfall/client';
-import { ManaCost } from '@/components/ui/mtg-icons';
+import { ManaCost, manaSymbolClass } from '@/components/ui/mtg-icons';
 import { fetchCommanderCombos, fetchColorIdentityCombos, formatCommanderNameForUrl } from '@/services/edhrec/client';
 import { detectCombosInDeck, recomputeComboCompleteness, mergeComboPools } from '@/services/combos/detect';
 import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
@@ -199,7 +199,11 @@ function renderSimpleMarkdown(md: string): string {
         return `<img src="${safeUrl}" alt="${safeAlt}" class="max-w-full h-auto rounded-md my-2" loading="lazy" />`;
       })
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(/\*(.+?)\*/g, '<em>$1</em>');
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      // {2}{B}{G/U/P}{T} → mana-font glyphs. The body is restricted to [0-9A-Za-z/]
+      // because it lands inside a class attribute of raw HTML.
+      .replace(/\{([0-9A-Za-z/]{1,7})\}/g, (_m, sym: string) =>
+        `<i class="ms ms-${manaSymbolClass(sym)} ms-cost" title="{${sym}}"></i>`);
 
   for (const raw of lines) {
     const line = raw.trimEnd();

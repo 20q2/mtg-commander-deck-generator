@@ -133,8 +133,10 @@ export function parseCollectionList(input: string): ParsedCollectionResult {
         cardName = line;
       }
 
-      // Detect and strip *CMDR* marker
-      const isCommander = /\*CMDR\*/i.test(cardName);
+      // Detect and strip *CMDR* marker; Archidekt marks it with a "Commander" category
+      // ("[Commander{top}]", "[Ramp,Commander]") that stripSuffixes would otherwise discard.
+      const isCommander = /\*CMDR\*/i.test(cardName)
+        || /\[(?:[^\]]*,)?\s*commander(?:\{[^}]*\})?\s*(?:,[^\]]*)?\]/i.test(cardName);
       cardName = cardName.replace(/\s*\*CMDR\*\s*/gi, '').trim();
 
       cardName = stripSuffixes(cardName);

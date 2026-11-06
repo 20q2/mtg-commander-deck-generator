@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { ScryfallCard } from '@/types';
 import {
   areValidPartners,
+  canBeCommander,
   combineColorIdentity,
   hasChosenColorIdentity,
   needsChosenColor,
@@ -42,6 +43,65 @@ const thrasios = card({
   color_identity: ['G', 'U'],
   keywords: ['Partner'],
   oracle_text: '{4}: Scry 1, then reveal the top card of your library. Partner',
+});
+
+// Real Scryfall shapes for every branch of Scryfall's `is:commander`.
+describe('canBeCommander', () => {
+  it('accepts legendary creatures', () => {
+    expect(canBeCommander(thrasios)).toBe(true);
+  });
+
+  it('accepts planeswalkers that say "can be your commander"', () => {
+    const tasha = card({
+      name: 'Tasha, the Witch Queen',
+      type_line: 'Legendary Planeswalker — Tasha',
+      oracle_text: "+1: Draw a card.\nTasha, the Witch Queen can be your commander.",
+    });
+    expect(canBeCommander(tasha)).toBe(true);
+  });
+
+  it('rejects planeswalkers without that text', () => {
+    const jace = card({
+      name: 'Jace, the Mind Sculptor',
+      type_line: 'Legendary Planeswalker — Jace',
+      oracle_text: '+2: Look at the top card of target player\'s library.',
+    });
+    expect(canBeCommander(jace)).toBe(false);
+  });
+
+  it('accepts Grist, a creature everywhere but the battlefield', () => {
+    const grist = card({
+      name: 'Grist, the Hunger Tide',
+      type_line: 'Legendary Planeswalker — Grist',
+      oracle_text: "As long as Grist isn't on the battlefield, it's a 1/1 Insect creature in addition to its other types.",
+    });
+    expect(canBeCommander(grist)).toBe(true);
+  });
+
+  it('accepts legendary Vehicles and Spacecraft with power, not ones without', () => {
+    const shorikai = card({ name: 'Shorikai, Genesis Engine', type_line: 'Legendary Artifact — Vehicle', power: '8', toughness: '8' });
+    const deepSpace9 = card({ name: 'Deep Space 9', type_line: 'Legendary Artifact — Spacecraft' });
+    expect(canBeCommander(shorikai)).toBe(true);
+    expect(canBeCommander(deepSpace9)).toBe(false);
+  });
+
+  it('judges the front face only', () => {
+    const akki = card({
+      name: 'Akki Lavarunner // Tok-Tok, Volcano Born',
+      type_line: 'Creature — Goblin Warrior // Legendary Creature — Goblin Shaman',
+      power: '1',
+      card_faces: [
+        { name: 'Akki Lavarunner', type_line: 'Creature — Goblin Warrior', power: '1' },
+        { name: 'Tok-Tok, Volcano Born', type_line: 'Legendary Creature — Goblin Shaman', power: '2' },
+      ],
+    });
+    expect(canBeCommander(akki)).toBe(false);
+  });
+
+  it('rejects Backgrounds, which only lead alongside a Choose a Background commander', () => {
+    const acolyte = card({ name: 'Acolyte of Bahamut', type_line: 'Legendary Enchantment — Background' });
+    expect(canBeCommander(acolyte)).toBe(false);
+  });
 });
 
 describe('chosen-color commanders', () => {

@@ -3,10 +3,12 @@ import { ChevronDown, ChevronLeft, ChevronRight, Crown, Image, ImageOff, Search,
 import { CommanderSpotlight, CommanderTile, SuggestionTile, type SpotlightCommander } from './CommanderTile';
 import {
   computeCommanderReadiness,
+  isCollectionCommander,
   suggestCommanders,
   type CommanderReadiness,
   type CommanderSuggestion,
 } from '@/services/collection/commanderReadiness';
+import { useTaggerReady } from '@/hooks/useTaggerReady';
 import type { CollectionCard } from '@/services/collection/db';
 import { useUserLists } from '@/hooks/useUserLists';
 import type { UserCardList } from '@/types';
@@ -35,11 +37,6 @@ function readArtMode(): boolean {
   } catch {
     return true;
   }
-}
-
-function isLegendaryCreature(card: CollectionCard): boolean {
-  const tl = (card.typeLine ?? '').split(' // ')[0].toLowerCase();
-  return tl.includes('legendary') && (tl.includes('creature') || tl.includes('spacecraft'));
 }
 
 function matchesColorFilter(
@@ -73,7 +70,9 @@ function matchesColorFilter(
 }
 
 export function CollectionCommanders({ cards }: CollectionCommandersProps) {
-  const legendaries = useMemo(() => cards.filter(isLegendaryCreature), [cards]);
+  const taggerReady = useTaggerReady();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- taggerReady: the filter reads tagger data
+  const legendaries = useMemo(() => cards.filter(isCollectionCommander), [cards, taggerReady]);
 
   // Compute readiness for each legendary, in parallel-ish batches.
   const [readinessByName, setReadinessByName] = useState<Map<string, CommanderReadiness>>(new Map());
@@ -277,9 +276,9 @@ export function CollectionCommanders({ cards }: CollectionCommandersProps) {
     return (
       <div className="text-center py-12 px-4">
         <Crown className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-        <p className="text-sm font-medium">No legendary creatures in your collection yet.</p>
+        <p className="text-sm font-medium">No commanders in your collection yet.</p>
         <p className="text-xs text-muted-foreground mt-1.5 max-w-md mx-auto">
-          Import some legendary creatures and they'll show up here, ranked by how ready they are to play.
+          Import some and they'll show up here, ranked by how ready they are to play.
         </p>
       </div>
     );

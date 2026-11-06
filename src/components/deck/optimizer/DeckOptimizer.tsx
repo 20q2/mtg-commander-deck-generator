@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
-import type { ScryfallCard } from '@/types';
+import type { ScryfallCard, IntendedBracket, GapAnalysisCard } from '@/types';
 import { fetchCommanderData, fetchPartnerCommanderData, fetchCommanderThemeData, fetchPartnerThemeData, fetchTagPageData, edhrecColorSegment } from '@/services/edhrec/client';
 import { generateStrategyLabel, buildDetectionMessage, PACING_PHRASE, type DetectedThemeResult, type Pacing, type ThemeMatchResult } from '@/services/deckBuilder/themeDetector';
 import { useThemeTaxonomy } from '@/hooks/useThemeTaxonomy';
@@ -18,7 +18,8 @@ import {
   type InspectorOverrides,
 } from '@/services/inspectorOverrides/storage';
 import { loadTaggerData } from '@/services/tagger/client';
-import { analyzeDeck, getDeckSummaryData, computeOptimizeSwaps, type DeckAnalysis, type RecommendedCard, type CurvePhase, type OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
+import { overBracketGroups } from '@/services/deckBuilder/overBracket';
+import { analyzeDeck, getDeckSummaryData, computeOptimizeSwaps, pairSwaps, type DeckAnalysis, type RecommendedCard, type CurvePhase, type OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import { recomputeRoleTargetsForPacing, getDynamicRoleTargets, STAPLE_BACKFILL_INCLUSION } from '@/services/deckBuilder/roleTargets';
 import { getCardByName, getCardsByNames, getCardPrice, WUBRG } from '@/services/scryfall/client';
 import { detectDeckThemes } from '@/services/deckBuilder/detectDeckThemes';
@@ -35,14 +36,14 @@ import { getCollectionNameSet } from '@/services/collection/db';
 import { buildThemeMembership } from '@/components/analyze/themeMembership';
 import { buildThemeFit, EMPTY_THEME_FIT, type ThemeFit } from '@/services/deckBuilder/themeFit';
 import { blendArchetypeData, buildArchetypeSourceLabel, pageConfidence } from '@/services/deckBuilder/archetypeBlend';
+import { blendBracketData, bracketPageWeight, declaredBracketDecks, indexInclusion, type BracketBlend, type BracketBasis } from '@/services/deckBuilder/bracketBlend';
+import { buildGapAnalysis } from '@/services/deckBuilder/gapAnalysisBuilder';
 
 import { type DeckOptimizerProps, type TabKey, type LandSection, TABS, TAB_SLUG_BY_KEY, PACING_LABELS, HEALTH_GRADE_STYLES, BRACKET_COLORS } from './constants';
 import { buildShareUrl, deckToSharePayload, DeckLinkError } from '@/services/share/deckLink';
 import { trackEvent } from '@/services/analytics';
 import { AdjustPopoverContent } from './OverviewTab';
-import { DashboardSummary, type ThemeCoverage } from './DashboardSummary';
-import { OverviewBento } from './dashboard/OverviewBento';
-import { buildDashboardWarnings } from '@/services/deckBuilder/dashboardWarnings';
+import { DashboardSummary } from './DashboardSummary';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { RolesTabContent } from './RolesTab';
 import { LandsTabContent } from './LandsTab';
@@ -50,6 +51,7 @@ import { CurveSummaryStrip, ManaCurveLineChart, CurveDetailPanel, type RoleGroup
 import { BracketTabContent } from './BracketTab';
 import { CostTab } from './CostTab';
 import { OptimizeTabContent } from './optimize/OptimizeTabContent';
+import { scoreAgainstSwaps } from '@/services/deckBuilder/planScore';
 import { LiftClustersTab } from './LiftClustersTab';
 import { NewCardsTab } from './NewCardsTab';
 
@@ -155,12 +157,12 @@ export function DeckOptimizer({
   // When a dashboard suggestion sends us to the optimize tab with a specific
   // card, stash it so OptimizeTabContent can pre-check the right tile.
   const [pendingOptimizeSelection, setPendingOptimizeSelection] =
-    useState<{ cardName: string; side: 'add' | 'remove'; comboId?: string } | null>(null);
+    useState<{ cardName: string; side: 'add' | 'remove'; comboId?: string; pairs?: { out: string; in: string }[] } | null>(null);
   // When the Overview's lift tile is clicked, jump the Lift Web straight to Your deck with
   // islands revealed and lands hidden, so the outliers it teased are immediately visible.
   const [liftDeckView, setLiftDeckView] = useState<{ seq: number } | null>(null);
   const navigateFromDashboard = useCallback(
-    (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove'; comboId?: string } | { liftView: 'islands' }) => {
+    (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove'; comboId?: string; pairs?: { out: string; in: string }[] } | { liftView: 'islands' }) => {
       if (tab === 'optimize' && opts && 'cardName' in opts) setPendingOptimizeSelection(opts);
       if (tab === 'lift' && opts && 'liftView' in opts) {
         setLiftDeckView(prev => ({ seq: (prev?.seq ?? 0) + 1 }));
@@ -329,6 +331,30 @@ export function DeckOptimizer({
   // Whether the user has personally set the theme pair (a cleared pair counts).
   // Gates auto-detection from overwriting a deliberate choice on re-analysis.
   const [themesTouched, setThemesTouched] = useState(boot.themesTouched ?? false);
+
+  // The bracket Card Fit judges the deck at. The player's pick wins; then the bracket an unsaved deck
+  // was generated at; then the estimate — its upper end, so "Bracket 1 or 2" is judged as 2.
+  const savedBracket = sourceList?.intendedBracket;
+  const savedBracketRef = useRef(savedBracket);
+  savedBracketRef.current = savedBracket;
+  const [userBracket, setUserBracket] = useState<IntendedBracket | null>(savedBracket ?? boot.intendedBracket ?? null);
+  const generatedAtBracket = useStore(s => s.generatedDeck?.intendedBracket);
+  const bracketEstimation = useStore(s => s.generatedDeck?.bracketEstimation);
+  const bracketBasis = useMemo<BracketBasis | null>(() => (
+    userBracket
+      ? { bracket: userBracket, source: 'set' }
+      : !sourceListId && generatedAtBracket
+        ? { bracket: generatedAtBracket, source: 'generated' }
+        : bracketEstimation
+          ? { bracket: bracketEstimation.bracketMax, source: 'estimated' }
+          : null
+  ), [userBracket, sourceListId, generatedAtBracket, bracketEstimation]);
+  const bracketBasisRef = useRef(bracketBasis);
+  bracketBasisRef.current = bracketBasis;
+  // The commander's bracket page blended into its all-brackets page, plus the gap list built from
+  // it. Null when there's no bracket to judge at or its page is too thin to be worth a request.
+  // Loaded by handleOptimize; read through fitInputs.
+  const bracketBlendRef = useRef<(BracketBlend & { gapAnalysis?: GapAnalysisCard[] }) | null>(null);
   const themeDataCacheRef = useRef<Map<string, import('@/types').EDHRECCommanderData>>(new Map());
   const themeEnhancedDataRef = useRef<import('@/types').EDHRECCommanderData | null>(null);
   // Classifier theme fit, refreshed whenever the selected themes or the deck's cards change. Held
@@ -588,6 +614,8 @@ export function DeckOptimizer({
     setUserPacing(next.pacing ?? null);
     setUserLandTarget(next.landTarget ?? null);
     setUserDeckSize(next.deckSize ?? null);
+    setUserBracket(savedBracketRef.current ?? next.intendedBracket ?? null);
+    bracketBlendRef.current = null;
   }, [commanderKey, commanderName, partnerCommanderName, overrideRef]);
 
   // Initialize sub-tab defaults once when analysis arrives
@@ -635,6 +663,21 @@ export function DeckOptimizer({
     }
     return withDfc ?? base;
   }, [cardInclusionMap, currentCards]);
+
+  /** Card Fit inputs for one analyzeDeck call. With a bracket blend loaded, the deck's own cards are
+   *  judged on the blended figures rather than the all-brackets ones. Every analyzeDeck call spreads
+   *  this in, so no surface judges the same card on different data. Reads refs only — stable. */
+  const fitInputs = useCallback((inclusionMap: Record<string, number>) => {
+    const blend = bracketBlendRef.current;
+    const stored = useStore.getState().generatedDeck;
+    return {
+      cardInclusionMap: blend ? { ...inclusionMap, ...blend.inclusionMap } : inclusionMap,
+      cardSynergyMap: blend ? { ...stored?.cardSynergyMap, ...blend.synergyMap } : stored?.cardSynergyMap,
+      gapCandidates: blend?.gapAnalysis ?? stored?.gapAnalysis,
+      bracket: bracketBasisRef.current?.bracket,
+      bracketTargets: blend ? { bracket: blend.bracket, scale: blend.roleScale } : undefined,
+    };
+  }, []);
 
   /** Merge two recommendation pools (e.g. primary + secondary theme).
    *  `primary` recs are the main source; `secondary` supplements.
@@ -726,7 +769,7 @@ export function DeckOptimizer({
   ) => {
     const secondaryResult = analyzeDeck({
       edhrecData: secondaryData, currentCards, roleCounts, roleTargets: opts.targets, deckSize,
-      cardInclusionMap: buildInclusionMap(secondaryData), colorIdentity,
+      ...fitInputs(buildInclusionMap(secondaryData)), colorIdentity,
       overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
       commanderNames: partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName],
     });
@@ -739,7 +782,7 @@ export function DeckOptimizer({
       }),
       landRecommendations: mergeRecommendations(current.landRecommendations, secondaryResult.landRecommendations, 15),
     };
-  }, [currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations, colorIdentity, commanderName, partnerCommanderName]);
+  }, [currentCards, roleCounts, deckSize, buildInclusionMap, fitInputs, mergeRecommendations, colorIdentity, commanderName, partnerCommanderName]);
 
   /** Run base + (optional) theme analysis and merge results.
    *  Returns null when no cached EDHREC data is available.
@@ -754,7 +797,7 @@ export function DeckOptimizer({
     landTarget?: number;
     baseOnly?: boolean;
   }) => {
-    const baseData = cachedEdhrecDataRef.current;
+    const baseData = bracketBlendRef.current?.data ?? cachedEdhrecDataRef.current;
     if (!baseData) return null;
 
     const commanderNamesForAnalyze = partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName];
@@ -765,21 +808,18 @@ export function DeckOptimizer({
     // collapse the Strategy tile to 0 until the user re-touched the theme.
     const primaryInfo = resolveThemeInfo(primaryThemeSlug);
     const secondaryInfo = resolveThemeInfo(secondaryThemeSlug);
-    const storedDeck = useStore.getState().generatedDeck;
     const themeContext = {
       themeMembership: (primaryInfo || secondaryInfo)
         ? membershipFor(primaryInfo, secondaryInfo)
         : undefined,
       primaryThemeData: themeEnhancedDataRef.current ?? undefined,
       planName: primaryInfo?.name ?? undefined,
-      cardSynergyMap: storedDeck?.cardSynergyMap,
-      gapCandidates: storedDeck?.gapAnalysis,
     };
 
     const baseInclusionMap = buildInclusionMap(baseData);
     const baseResult = analyzeDeck({
       edhrecData: baseData, currentCards, roleCounts, roleTargets: opts.targets, deckSize,
-      cardInclusionMap: baseInclusionMap, colorIdentity,
+      ...fitInputs(baseInclusionMap), colorIdentity,
       overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
       commanderNames: commanderNamesForAnalyze,
       ...themeContext,
@@ -791,7 +831,7 @@ export function DeckOptimizer({
     const themeInclusionMap = buildInclusionMap(themeData);
     const themeResult = analyzeDeck({
       edhrecData: themeData, currentCards, roleCounts, roleTargets: opts.targets, deckSize,
-      cardInclusionMap: themeInclusionMap, colorIdentity,
+      ...fitInputs(themeInclusionMap), colorIdentity,
       overridePacing: opts.pacing, overrideLandTarget: opts.landTarget,
       commanderNames: commanderNamesForAnalyze,
       ...themeContext,
@@ -817,7 +857,7 @@ export function DeckOptimizer({
     }
 
     return { ...baseResult, recommendations: merged.recommendations, roleBreakdowns: merged.roleBreakdowns, landRecommendations: merged.landRecommendations };
-  }, [currentCards, roleCounts, deckSize, buildInclusionMap, mergeRecommendations, colorIdentity, resolveThemeInfo, primaryThemeSlug, secondaryThemeSlug, commanderName, partnerCommanderName, mergeSecondaryTheme]);
+  }, [currentCards, roleCounts, deckSize, buildInclusionMap, fitInputs, mergeRecommendations, colorIdentity, resolveThemeInfo, primaryThemeSlug, secondaryThemeSlug, commanderName, partnerCommanderName, mergeSecondaryTheme]);
 
   // When user adjusts the intended deck size, re-run analysis. The new
   // deckSize takes effect on the next render via the `deckSize` derivation
@@ -876,6 +916,71 @@ export function DeckOptimizer({
     rebuildBannerMessage({ pacingOverride: newPacing });
   }, [analysis, rebuildBannerMessage, roleTargets, userLandTarget, runAnalysisFor, overrideRef, detectedPacing]);
 
+  // A new bracket means a different EDHREC page: fetch it, then recompute in place the way a tempo
+  // or land change does. Not handleOptimize — that blanks the whole Inspector behind its loading
+  // screen, which is no way to answer a click on the Bracket tab. Runs once the state has flushed,
+  // so the blend and fitInputs read the new basis.
+  const [bracketChangeSeq, setBracketChangeSeq] = useState(0);
+  const [bracketRefreshing, setBracketRefreshing] = useState(false);
+  const handleBracketChange = useCallback((bracket: IntendedBracket | null) => {
+    setUserBracket(bracket);
+    // Saved decks keep it on the list (never evicted); the overrides copy covers unsaved ones.
+    if (sourceListId) updateList(sourceListId, { intendedBracket: bracket ?? undefined });
+    saveInspectorOverrides(overrideRef, { intendedBracket: bracket });
+    setBracketChangeSeq(n => n + 1);
+  }, [sourceListId, updateList, overrideRef]);
+  useEffect(() => {
+    if (bracketChangeSeq === 0) return;
+    const allBrackets = cachedEdhrecDataRef.current;
+    if (!allBrackets || !analysis) {
+      handleOptimizeRef.current?.();
+      return;
+    }
+    let cancelled = false;
+    setBracketRefreshing(true);
+    loadBracketBlend(allBrackets).then(blend => {
+      if (cancelled) return;
+      bracketBlendRef.current = blend;
+      const result = runAnalysisFor({
+        targets: effectiveRoleTargets,
+        pacing: userPacing ?? undefined,
+        landTarget: userLandTarget ?? undefined,
+      });
+      if (result) setAnalysis(result);
+      setBracketRefreshing(false);
+    });
+    // A quicker second click supersedes this one.
+    return () => { cancelled = true; };
+    // Keyed on the click alone; everything else is read as of that render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bracketChangeSeq]);
+
+  /** The commander's page at the bracket the deck is judged at, blended into the all-brackets page
+   *  by sample size. That page's decks are the ones here that declared the bracket, so its size is
+   *  known before asking and a page too thin to move the numbers is never fetched. Null on failure:
+   *  the all-brackets page stays in charge. */
+  const loadBracketBlend = async (allBrackets: import('@/types').EDHRECCommanderData) => {
+    const bracket = bracketBasisRef.current?.bracket;
+    if (!bracket || bracketPageWeight(declaredBracketDecks(allBrackets, bracket)) === 0) return null;
+    try {
+      const page = partnerCommanderName
+        ? await fetchPartnerCommanderData(commanderName, partnerCommanderName, undefined, bracket, colorSeg)
+        : await fetchCommanderData(commanderName, undefined, bracket, colorSeg);
+      const blend = blendBracketData(allBrackets, page, bracket);
+      const deckNames = new Set<string>([commanderName, ...(partnerCommanderName ? [partnerCommanderName] : [])]);
+      for (const c of currentCards) {
+        deckNames.add(c.name);
+        if (c.name.includes(' // ')) deckNames.add(c.name.split(' // ')[0]);
+      }
+      const gapAnalysis = await buildGapAnalysis({ edhrecData: blend.data, deckCardNames: deckNames })
+        .catch(() => undefined);
+      return { ...blend, gapAnalysis };
+    } catch (err) {
+      console.warn(`[DeckOptimizer] Bracket ${bracket} page unavailable — judging on all brackets`, err);
+      return null;
+    }
+  };
+
   const handleOptimize = async () => {
     setLoading(true);
     setError(null);
@@ -896,12 +1001,13 @@ export function DeckOptimizer({
         ? await fetchPartnerCommanderData(commanderName, partnerCommanderName, undefined, undefined, colorSeg)
         : await fetchCommanderData(commanderName, undefined, undefined, colorSeg);
       cachedEdhrecDataRef.current = edhrecData;
+      bracketBlendRef.current = await loadBracketBlend(edhrecData);
+      const pageData = bracketBlendRef.current?.data ?? edhrecData;
 
-      const effectiveInclusionMap = buildInclusionMap(edhrecData);
+      const effectiveInclusionMap = buildInclusionMap(pageData);
 
-      const storedDeck = useStore.getState().generatedDeck;
       const analyzeBase = (targets: Record<string, number>) => analyzeDeck({
-        edhrecData,
+        edhrecData: pageData,
         currentCards,
         roleCounts,
         // The tempo override has to ride along here the same way it does in
@@ -910,12 +1016,10 @@ export function DeckOptimizer({
         // above still advertised the user's choice.
         roleTargets: targets,
         deckSize,
-        cardInclusionMap: effectiveInclusionMap,
+        ...fitInputs(effectiveInclusionMap),
         colorIdentity,
         overridePacing: userPacing ?? undefined,
         overrideLandTarget: userLandTarget ?? undefined,
-        cardSynergyMap: storedDeck?.cardSynergyMap,
-        gapCandidates: storedDeck?.gapAnalysis,
         commanderNames: partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName],
       });
 
@@ -1130,7 +1234,6 @@ export function DeckOptimizer({
           const primaryThemeInfo = resolveThemeInfo(appliedPrimary) ?? { slug: appliedPrimary, name: appliedPrimary };
           const secondaryThemeInfo = resolveThemeInfo(appliedSecondary);
           const themeMembershipForScore = membershipFor(primaryThemeInfo, secondaryThemeInfo);
-          const storedDeckForTheme = useStore.getState().generatedDeck;
 
           const themeInclusionMap = buildInclusionMap(bestThemeData);
 
@@ -1157,15 +1260,13 @@ export function DeckOptimizer({
             roleCounts,
             roleTargets: themeTargets,
             deckSize,
-            cardInclusionMap: themeInclusionMap,
+            ...fitInputs(themeInclusionMap),
             colorIdentity,
             overridePacing: userPacing ?? undefined,
             overrideLandTarget: userLandTarget ?? undefined,
             themeMembership: themeMembershipForScore,
             primaryThemeData: bestThemeData,
             planName: primaryThemeInfo.name,
-            cardSynergyMap: storedDeckForTheme?.cardSynergyMap,
-            gapCandidates: storedDeckForTheme?.gapAnalysis,
             commanderNames: partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName],
           });
 
@@ -1319,20 +1420,17 @@ export function DeckOptimizer({
 
   // Apply theme selection — uses theme data directly (base only when no themes selected)
   const applyThemeSelection = useCallback(async (primary: string | null, secondary: string | null) => {
-    const cachedBase = cachedEdhrecDataRef.current;
+    const cachedBase = bracketBlendRef.current?.data ?? cachedEdhrecDataRef.current;
     if (!cachedBase || !analysis) return;
 
     // No themes → revert to base-only analysis
     if (!primary && !secondary) {
       themeEnhancedDataRef.current = null;
       const baseInclusionMap = buildInclusionMap(cachedBase);
-      const storedDeckForBase = useStore.getState().generatedDeck;
       const baseResult = analyzeDeck({
         edhrecData: cachedBase, currentCards, roleCounts, roleTargets: effectiveRoleTargets, deckSize,
-        cardInclusionMap: baseInclusionMap, colorIdentity,
+        ...fitInputs(baseInclusionMap), colorIdentity,
         overridePacing: userPacing ?? undefined, overrideLandTarget: userLandTarget ?? undefined,
-        cardSynergyMap: storedDeckForBase?.cardSynergyMap,
-        gapCandidates: storedDeckForBase?.gapAnalysis,
         commanderNames: partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName],
       });
 
@@ -1357,7 +1455,7 @@ export function DeckOptimizer({
     const baseInclusionMap = buildInclusionMap(cachedBase);
     const baseResult = analyzeDeck({
       edhrecData: cachedBase, currentCards, roleCounts, roleTargets: effectiveRoleTargets, deckSize,
-      cardInclusionMap: baseInclusionMap, colorIdentity,
+      ...fitInputs(baseInclusionMap), colorIdentity,
       overridePacing: userPacing ?? undefined, overrideLandTarget: userLandTarget ?? undefined,
       commanderNames: partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName],
     });
@@ -1375,7 +1473,6 @@ export function DeckOptimizer({
         : null;
       themeEnhancedDataRef.current = primaryData;
       const primaryIncMap = buildInclusionMap(primaryData);
-      const storedDeckForTheme = useStore.getState().generatedDeck;
 
       // Resolve theme info (name) for plan scoring
       const primaryThemeInfo = resolveThemeInfo(primary);
@@ -1385,13 +1482,11 @@ export function DeckOptimizer({
 
       const primaryResult = analyzeDeck({
         edhrecData: primaryData, currentCards, roleCounts, roleTargets: effectiveRoleTargets, deckSize,
-        cardInclusionMap: primaryIncMap, colorIdentity,
+        ...fitInputs(primaryIncMap), colorIdentity,
         overridePacing: userPacing ?? undefined, overrideLandTarget: userLandTarget ?? undefined,
         themeMembership: themeMembershipForScore,
         primaryThemeData: primaryData,
         planName: planNameForScore,
-        cardSynergyMap: storedDeckForTheme?.cardSynergyMap,
-        gapCandidates: storedDeckForTheme?.gapAnalysis,
         commanderNames: partnerCommanderName ? [commanderName, partnerCommanderName] : [commanderName],
       });
 
@@ -1463,7 +1558,7 @@ export function DeckOptimizer({
     rebuildBannerMessage({ primarySlug: primary, secondarySlug: secondary });
 
     setThemeLoading(false);
-  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, mergeSecondaryTheme, mergeThemeWithBaseStaples, fetchThemeData, rebuildBannerMessage, userPacing, userLandTarget, colorIdentity, resolveThemeInfo]);
+  }, [analysis, currentCards, roleCounts, effectiveRoleTargets, deckSize, buildInclusionMap, fitInputs, mergeSecondaryTheme, mergeThemeWithBaseStaples, fetchThemeData, rebuildBannerMessage, userPacing, userLandTarget, colorIdentity, resolveThemeInfo]);
 
   // Sequential-pick theme selection handler
   const handleThemeSelect = useCallback(async (slug: string) => {
@@ -1527,7 +1622,6 @@ export function DeckOptimizer({
   const updateCustomization = useStore(s => s.updateCustomization);
   const storeSelectedThemes = useStore(s => s.selectedThemes);
   const usedThemes = useStore(s => s.generatedDeck?.usedThemes);
-  const bracketEstimation = useStore(s => s.generatedDeck?.bracketEstimation);
   const bracketLevel = bracketEstimation?.bracket;
   const displayThemeNames = useMemo(() => {
     // 1. If user selected themes in the optimizer, show those
@@ -1750,7 +1844,11 @@ export function DeckOptimizer({
     return computeOptimizeSwaps({
       analysis: swapAnalysis,
       currentCards,
-      cardInclusionMap,
+      // swapAnalysis changes whenever a new blend is loaded, which re-runs this memo.
+      cardInclusionMap: fitInputs(cardInclusionMap ?? {}).cardInclusionMap,
+      // Whole-page figures at the judged bracket — the scale pairSwaps checks "is this an upgrade" on.
+      commanderInclusion: bracketBlendRef.current?.inclusionMap
+        ?? (cachedEdhrecDataRef.current ? indexInclusion(cachedEdhrecDataRef.current) : undefined),
       commanderName,
       partnerCommanderName,
       mustIncludeNames: menuProps.mustIncludeNames,
@@ -1761,8 +1859,31 @@ export function DeckOptimizer({
         resolveThemeInfo(primaryThemeSlug),
         resolveThemeInfo(secondaryThemeSlug),
       ),
+      // Only a real aim cuts for power — the estimate is the deck's own reading, never a target.
+      aim: bracketBasis && bracketBasis.source !== 'estimated'
+        ? {
+            bracket: bracketBasis.bracket,
+            groups: bracketEstimation
+              ? overBracketGroups(bracketEstimation, detectedCombosForSwaps, bracketBasis.bracket)
+              : [],
+          }
+        : undefined,
     });
-  }, [swapAnalysis, currentCards, cardInclusionMap, commanderName, partnerCommanderName, menuProps.mustIncludeNames, menuProps.bannedNames, detectedCombosForSwaps, swapConnectivity, membershipFor, resolveThemeInfo, primaryThemeSlug, secondaryThemeSlug]);
+  }, [swapAnalysis, currentCards, cardInclusionMap, fitInputs, commanderName, partnerCommanderName, menuProps.mustIncludeNames, menuProps.bannedNames, detectedCombosForSwaps, swapConnectivity, membershipFor, resolveThemeInfo, primaryThemeSlug, secondaryThemeSlug, bracketBasis, bracketEstimation]);
+
+  // The plan score as Card Fit can deliver it: charged only for the cuts and staples its columns
+  // offer, so the Overview's path to 100 and the swaps it points at are the same list.
+  const scoredAnalysis = useMemo(() => analysis && scoreAgainstSwaps(analysis, baseSwaps), [analysis, baseSwaps]);
+  const scoredBlended = useMemo(() => blendedAnalysis && scoreAgainstSwaps(blendedAnalysis, baseSwaps), [blendedAnalysis, baseSwaps]);
+
+  // The Bracket tab's "swap them" button: Card Fit, pre-selected on every above-your-bracket swap.
+  const openOverBracketSwaps = useCallback(() => {
+    const over = (baseSwaps?.removals ?? []).filter(r => r.reasonCategory === 'over-bracket');
+    const pairs = pairSwaps(over, baseSwaps?.additions ?? [], over.length);
+    navigateFromDashboard('optimize', over[0]
+      ? { cardName: over[0].name, side: 'remove', pairs: pairs.map(p => ({ out: p.out.name, in: p.in.name })) }
+      : undefined);
+  }, [baseSwaps, navigateFromDashboard]);
 
   // True when the deck cards differ from what was analyzed — drives the
   // "this is stale, re-run me" gold treatment on the Re-analyze button.
@@ -1845,26 +1966,13 @@ export function DeckOptimizer({
     }
   }, [onRemoveCards, onAddCards, pushDeckHistory]);
 
-  // Theme-coverage spokes for the Strategy radar: how many of the deck's cards appear in each of the
-  // commander's top evaluated themes. Raw counts only — the radar builder computes fill relative to the
-  // strongest theme. Needs ≥3 themes to read as a shape; otherwise the Strategy tile stays text-only.
+  // Sideboard + maybeboard never come back as a cheaper stand-in on the Overview's cost job. Memoized:
+  // useCostPlan keys its fetch on this set's identity, so a fresh Set per render would refetch forever.
   // NOTE: must stay ABOVE the early returns below — a hook after a conditional return breaks hook order.
-  const dashboardThemeCoverage = useMemo<ThemeCoverage[]>(() => {
-    const evaluated = themeDetection?.evaluatedThemes ?? [];
-    if (evaluated.length < 3) return [];
-    const deckNames = new Set(currentCards.map(c => c.name.toLowerCase()));
-    return evaluated.slice(0, 8).map(et => {
-      const data = themeDataCacheRef.current.get(et.theme.slug);
-      let current = 0;
-      if (data) {
-        for (const c of data.cardlists.allNonLand ?? []) if (deckNames.has(c.name.toLowerCase())) current++;
-        for (const c of data.cardlists.lands ?? []) if (deckNames.has(c.name.toLowerCase())) current++;
-      }
-      return { slug: et.theme.slug, name: et.theme.name, score: et.score, current };
-    });
-    // themeDataCacheRef is populated before themeDetection is set, so detection is a safe trigger.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [themeDetection, currentCards]);
+  const overviewExcludeNames = useMemo(
+    () => new Set([...(sideboardNames ?? []), ...(maybeboardNames ?? [])]),
+    [sideboardNames, maybeboardNames],
+  );
 
   // --- Pre-analysis: prominent CTA ---
   if (!analysis && !loading) {
@@ -1928,9 +2036,6 @@ export function DeckOptimizer({
     resolveThemeInfo(primaryThemeSlug),
     resolveThemeInfo(secondaryThemeSlug),
   );
-  const dashboardPrimaryThemeData = primaryThemeSlug
-    ? (themeDataCacheRef.current.get(primaryThemeSlug) ?? null)
-    : null;
 
   // ═════════════════════════════════════════════════════════════════════
   // Dashboard Render
@@ -1975,6 +2080,8 @@ export function DeckOptimizer({
             detectedPacing={detectedPacing ?? undefined}
             userPacing={userPacing}
             onPacingChange={handlePacingChange}
+            bracketBasis={bracketBasis}
+            onBracketChange={handleBracketChange}
           />
         </PopoverContent>
       </Popover>
@@ -2079,28 +2186,33 @@ export function DeckOptimizer({
                 return (
                   <>
                     <Icon className="w-4 h-4 text-primary/70 shrink-0" />
-                    <span className="text-sm font-bold uppercase tracking-wider">{activeTabInfo.label}</span>
+                    <span className="truncate text-sm font-bold uppercase tracking-wider">{activeTabInfo.label}</span>
                   </>
                 );
               })()}
             </div>
             <div className="flex items-center gap-2 shrink-0">
-            {themePacingStrip}
+            {/* Narrow panels: icons only (labels from xl up), and below sm the theme strip folds into the
+                hero's Adjust plan — at full width this row ran ~400px, pushed the page sideways on
+                phones and drew over the tab title at laptop widths. */}
+            <div className="hidden sm:block">{themePacingStrip}</div>
             {onOpenInDeckView ? (
               <button
                 onClick={onOpenInDeckView}
+                aria-label="Open in deck view"
                 className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-border/50 bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
               >
                 <ExternalLink className="w-3 h-3" />
-                Deck view
+                <span className="hidden xl:inline">Deck view</span>
               </button>
             ) : onSaveAsDeck ? (
               <button
                 onClick={onSaveAsDeck}
+                aria-label="Save as deck"
                 className="flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-lg border border-border/50 bg-card/50 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
               >
                 <Bookmark className="w-3 h-3" />
-                Save as deck
+                <span className="hidden xl:inline">Save as deck</span>
               </button>
             ) : null}
             <button
@@ -2112,7 +2224,7 @@ export function DeckOptimizer({
               {shareState === 'copied'
                 ? <Check className="w-3 h-3 text-emerald-400" />
                 : <Copy className="w-3 h-3" />}
-              {shareState === 'copied' ? 'Copied' : shareState === 'error' ? 'Failed' : 'Copy link'}
+              <span className="hidden xl:inline">{shareState === 'copied' ? 'Copied' : shareState === 'error' ? 'Failed' : 'Copy link'}</span>
             </button>
             {analysis && (
               <button
@@ -2135,7 +2247,7 @@ export function DeckOptimizer({
 
         {/* Tab Content */}
         {/* Tabs that lay themselves out full-bleed opt out of the gutter entirely. */}
-        <div className={`flex-1 min-h-0 overflow-y-auto ${['optimize', 'bracket', 'cost'].includes(activeTab) ? 'p-0' : 'p-3 sm:p-4'} ${activeTab === 'roles' ? 'flex flex-col' : ''}`}>
+        <div className={`flex-1 min-h-0 overflow-y-auto ${['optimize', 'bracket', 'cost'].includes(activeTab) ? 'p-0' : 'p-3 sm:p-4'} ${activeTab === 'roles' || activeTab === 'optimize' ? 'flex flex-col' : ''}`}>
 
         {/* ── OVERVIEW TAB ── */}
         {activeTab === 'overview' && commander && (
@@ -2144,18 +2256,12 @@ export function DeckOptimizer({
             partnerCommander={partnerCommander}
             colorIdentity={commanderColorIdentity}
             sourceLabel={sourceLabel ?? ''}
-            analysis={analysis}
+            analysis={scoredAnalysis ?? analysis}
             cards={currentCards}
             themeMembership={dashboardThemeMembership}
-            primaryThemeData={dashboardPrimaryThemeData}
             planName={dashboardThemeMembership?.themes?.[0]?.name ?? null}
             sampleSize={cachedEdhrecDataRef.current?.stats?.numDecks ?? null}
             bracketEstimation={bracketEstimation}
-            warnings={buildDashboardWarnings({
-              analysis,
-              cards: currentCards,
-              deckTarget: deckSize,
-            })}
             adjustContent={
               themeDetection && cachedEdhrecDataRef.current?.themes ? (
                 <AdjustPopoverContent
@@ -2174,38 +2280,36 @@ export function DeckOptimizer({
                   detectedPacing={detectedPacing ?? analysis.detectedPacing}
                   userPacing={userPacing}
                   onPacingChange={handlePacingChange}
+                  bracketBasis={bracketBasis}
+                  onBracketChange={handleBracketChange}
                 />
               ) : undefined
             }
             onNavigate={navigateFromDashboard}
-            onSaveAsDeck={onSaveAsDeck}
             onOpenInDeckView={onOpenInDeckView}
-            cardSynergyMap={useStore.getState().generatedDeck?.cardSynergyMap}
-            detectedCombos={useStore.getState().generatedDeck?.detectedCombos ?? []}
             deckTarget={deckSize}
-            roleBreakdowns={analysis.roleBreakdowns}
-            curvePhases={analysis.curvePhases}
-            themeCoverage={dashboardThemeCoverage}
             baseSwaps={baseSwaps}
             needsTheme={!primaryThemeSlug && !secondaryThemeSlug}
             closestTheme={closestUndeclaredTheme}
             onApplyTheme={handleThemeSelect}
-            bentoSlot={
-              <OverviewBento
-                commanderName={commanderName}
-                partnerCommanderName={partnerCommanderName}
-                commander={commander}
-                partnerCommander={partnerCommander}
-                colorIdentity={colorIdentity}
-                currentCards={currentCards}
-                analysis={analysis}
-                currency={customization.currency}
-                mustIncludeNames={menuProps.mustIncludeNames}
-                sideboardNames={sideboardNames ?? []}
-                maybeboardNames={maybeboardNames ?? []}
-                onNavigate={navigateFromDashboard}
-              />
-            }
+            launchPad={{
+              commanderName,
+              partnerCommanderName,
+              colorIdentity,
+              currency: customization.currency,
+              mustIncludeNames: menuProps.mustIncludeNames,
+              excludeFromSuggestions: overviewExcludeNames,
+              newCards: {
+                intendedThemes,
+                themeRefs: liveThemeRefs,
+                listId: sourceListId,
+                lastEditedAt: sourceListUpdatedAt,
+              },
+              bracketAim: { basis: bracketBasis, refreshing: bracketRefreshing, onChange: handleBracketChange },
+              onApplySwap: handleApplyOptimize,
+              onPreviewCard: handlePreview,
+              cardMenu: { onAction: handleCardAction, menuProps },
+            }}
           />
         )}
 
@@ -2296,7 +2400,7 @@ export function DeckOptimizer({
         {/* ── OPTIMIZE TAB ── */}
         {activeTab === 'optimize' && (analysis ? (recsReady ? (
           <OptimizeTabContent
-            analysis={blendedAnalysis!}
+            analysis={scoredBlended!}
             currentCards={currentCards}
             commanderName={commanderName}
             partnerCommanderName={partnerCommanderName}
@@ -2312,12 +2416,25 @@ export function DeckOptimizer({
             onPreSelectConsumed={() => setPendingOptimizeSelection(null)}
             baseSwaps={baseSwaps ?? undefined}
             collectionNames={collectionNames}
+            aimBracket={bracketBasis && bracketBasis.source !== 'estimated' ? bracketBasis.bracket : null}
           />
         ) : <RecsLoadingState />) : null)}
 
         {/* ── BRACKET TAB ── */}
         {activeTab === 'bracket' && (
-          <BracketTabContent onPreview={handlePreview} />
+          <BracketTabContent
+            onPreview={handlePreview}
+            bracketBasis={bracketBasis}
+            // Read on render: a newly loaded blend always lands with a setAnalysis, which re-renders.
+            bracketBlend={bracketBlendRef.current}
+            commanderName={commanderName}
+            deckNames={addedCards}
+            onAimChange={handleBracketChange}
+            aimRefreshing={bracketRefreshing}
+            onOpenOverBracketSwaps={openOverBracketSwaps}
+            edhrecPage={cachedEdhrecDataRef.current}
+            deckCards={currentCards}
+          />
         )}
 
         {activeTab === 'cost' && (

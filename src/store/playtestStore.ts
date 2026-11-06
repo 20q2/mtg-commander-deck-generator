@@ -25,7 +25,7 @@ import {
 import { fisherYates, isLand as _isLand, makeInstanceId, snapArrival, findArrivalSlot } from '@/components/playtest/utils';
 import { usePlaytestSettings, CARD_SIZES } from '@/store/playtestSettingsStore';
 import { useFloatingText } from '@/store/floatingTextStore';
-import { playCue, playCounterCue } from '@/services/playtest/playtestSound';
+import { playCue, playCounterCue, playTapCue } from '@/services/playtest/playtestSound';
 import { useDamageFlash } from '@/store/damageFlashStore';
 import { describeEdit } from '@/services/playtest/powerToughness';
 import { isEmblem } from '@/services/scryfall/extras';
@@ -830,6 +830,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     const history = pushHistory(state.history, snapshotOf(state));
     const nextTurn = state.turn + 1;
     const needsUntap = state.battlefield.some(b => b.tapped || uprightRotation(b.rotation) !== (b.rotation ?? 0));
+    if (needsUntap) playCue('untap');
     return {
       history,
       turn: nextTurn,
@@ -1024,8 +1025,11 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     history: pushHistory(state.history, snapshotOf(state)),
   })),
 
+  // "Quiet" means off the undo stack and out of the log — not silent. Declaring an attacker taps it
+  // through here, and that is as much a tap under your hand as clicking the card.
   setTappedQuiet: (instanceIds, tapped) => set(state => {
     const ids = new Set(instanceIds);
+    if (state.battlefield.some(b => ids.has(b.instanceId) && b.tapped !== tapped)) playTapCue(tapped);
     return {
       battlefield: state.battlefield.map(b =>
         ids.has(b.instanceId) ? { ...b, tapped } : b,
@@ -1034,12 +1038,12 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   }),
 
   toggleTap: (instanceId) => set(state => {
-    playCue('tap');
     const history = pushHistory(state.history, snapshotOf(state));
     const battlefield = state.battlefield.map(b =>
       b.instanceId === instanceId ? { ...b, tapped: !b.tapped } : b
     );
     const target = state.battlefield.find(b => b.instanceId === instanceId);
+    if (target) playTapCue(!target.tapped);
     return {
       history,
       battlefield,
@@ -1108,7 +1112,10 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   toggleTapMany: (instanceIds) => set(state => {
     const ids = new Set(instanceIds);
     if (ids.size === 0) return {};
-    playCue('tap');
+    // Each card flips its own way, so a mixed group does both. One cue for the group, picked by
+    // whichever way most of it is turning.
+    const targets = state.battlefield.filter(b => ids.has(b.instanceId));
+    playTapCue(targets.filter(b => !b.tapped).length >= targets.length / 2);
     const history = pushHistory(state.history, snapshotOf(state));
     return {
       history,
@@ -1164,6 +1171,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   shufflePile: (zone) => set(state => {
     const history = pushHistory(state.history, snapshotOf(state));
     const next = fisherYates(state.zones[zone]);
+    // The library's riffle rides shuffleTick (useTableSounds), but that tick also flips the library
+    // pile's animation, so the other piles can't bump it. They sound the riffle directly instead.
+    if (zone !== 'library') playCue('shuffle');
     return {
       history,
       zones: { ...state.zones, [zone]: next },
@@ -1541,6 +1551,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   // ─────────────────────── untap / undo / modal ───────────────────────
 
   untapAll: () => set(state => {
+    if (state.battlefield.some(b => b.tapped)) playCue('untap');
     const history = pushHistory(state.history, snapshotOf(state));
     return {
       history,
@@ -1662,6 +1673,7 @@ export const usePlaytestStore = create<Store>((set, get) => ({
     const die = state.freeDice.find(d => d.id === id);
     if (!die) return {};
     const next = 1 + Math.floor(Math.random() * die.sides);
+    playCue('roll');
     return {
       freeDice: state.freeDice.map(d => (d.id === id ? { ...d, value: next } : d)),
       log: [...state.log, makeLogEntry(`Rolled d${die.sides} → ${next}`, 'counter')],
@@ -1746,8 +1758,9 @@ export const usePlaytestStore = create<Store>((set, get) => ({
   // marquee-selected group moving together regardless of which item the user
   // grabbed to start the drag.
   copyToClipboard: () => set(state => {
-    // Prefer the marquee selection. If nothing's selected, fall back to the
-    // hovered battlefield card (single-item copy).
+    // Prefer the marquee selection. If nothing's selected, fall back to
+    // whatever the cursor is on — a counter, then a die, then a card, the same
+    // order Delete resolves in, since counters and dice render above cards.
     const hasSelection =
       state.selectedIds.length > 0 ||
       state.selectedCounterIds.length > 0 ||
@@ -1764,6 +1777,10 @@ export const usePlaytestStore = create<Store>((set, get) => ({
       cards    = state.battlefield.filter(b  => cardSet.has(b.instanceId)).map(b => ({ ...b, counters: { ...b.counters } }));
       counters = state.freeCounters.filter(c => ctrSet.has(c.id)).map(c => ({ ...c }));
       dice     = state.freeDice.filter(d     => dieSet.has(d.id)).map(d => ({ ...d }));
+    } else if (state.hoveredCounter) {
+      counters = state.freeCounters.filter(c => c.id === state.hoveredCounter).map(c => ({ ...c }));
+    } else if (state.hoveredDie) {
+      dice = state.freeDice.filter(d => d.id === state.hoveredDie).map(d => ({ ...d }));
     } else if (state.hovered) {
       const bf = state.battlefield.find(b => b.instanceId === state.hovered);
       if (bf) cards = [{ ...bf, counters: { ...bf.counters } }];

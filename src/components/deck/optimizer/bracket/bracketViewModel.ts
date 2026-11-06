@@ -143,6 +143,11 @@ const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : ma
  * floor. It's still listed — silently dropping it made this panel disagree with
  * the combo list in Card Fit, which counts every complete combo it found.
  */
+/** A complete combo with no community bracket vote: it can't set a floor, so confidence drops. */
+export function isUnratedCombo(c: DetectedCombo): boolean {
+  return c.isComplete && isNaN(parseInt(c.bracket, 10));
+}
+
 function comboGroups(combos: DetectedCombo[] | undefined): GateCardGroup[] {
   return (combos ?? [])
     .filter(c => c.isComplete)
@@ -178,7 +183,7 @@ export function buildBracketViewModel(
       max: 40,
       plain: b.fastManaCount === 0
         ? 'No fast mana at all — nothing that jumps you ahead of the table.'
-        : `${b.fastManaCount} ${plural(b.fastManaCount, 'source')} that make more mana than they cost.`,
+        : `${b.fastManaCount} ${b.fastManaCount === 1 ? 'source that makes more mana than it costs' : 'sources that make more mana than they cost'}.`,
       rule: 'Fast mana lets a deck act a turn or two ahead of everyone else. Each source is worth 8 points, capped at 40. Decks at Bracket 3 and up usually run five or more.',
       cards: b.fastManaNames,
     },
@@ -232,9 +237,7 @@ export function buildBracketViewModel(
   /** Complete, but unusable as a floor: no community vote, or one below 3. */
   const uncountedCombos = comboEvidence.filter(g => g.muted).length;
   /** The subset with no vote at all — the reason confidence drops to medium. */
-  const unratedCombos = (combos ?? []).filter(
-    c => c.isComplete && isNaN(parseInt(c.bracket, 10)),
-  ).length;
+  const unratedCombos = (combos ?? []).filter(isUnratedCombo).length;
 
   // Said in two parts: what the floor rules made of the combos, then what they
   // had to ignore. The second half exists because the count here read lower

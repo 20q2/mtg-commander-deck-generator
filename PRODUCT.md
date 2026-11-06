@@ -89,6 +89,11 @@ Three things a neighboring product could not truthfully copy without rebuilding:
 - **Attribution is non-negotiable.** Scryfall, EDHREC, Commander Spellbook, and mana-font are credited; the product's entire positioning rests on citing its sources.
 - **MIT licensed, open source.**
 - **Voice** (derived from shipped copy, not separately confirmed): plain, specific, and explanatory. It states what it did and why — "Pull the candidate pool," "Detect combos & analyze" — with no hype, no exclamation marks, and no mascot. It never claims more certainty than the data supports.
+- **Copy talks to the player, not about the system** (confirmed by the owner, 2026-10-25). Every line answers what the player at that spot wants to know: am I fine, and what do I do next. Checks for any new or edited line:
+  1. **Lineage, not mechanics.** Say where a number comes from ("from the average Krenko deck"). Don't explain or defend how the score is weighted. If a line exists to reassure the player about the scoring, show it in the UI or cut it.
+  2. **One word, one meaning.** Words the app already owns keep that meaning everywhere: *cost* is money, *fit* is Card Fit, *power* is the bracket, *theme* is an EDHREC theme. Never borrow one as a figure of speech ("running over costs nothing").
+  3. **Agree with the neighbours.** A fact said on one surface must match how every other surface treats it. If one panel calls extra removal harmless while another suggests cutting it, one of them is wrong.
+  4. **Table test.** Would a player say this to their pod? If it only makes sense to someone who knows the code, rewrite it.
 
 ## Evidence on Hand
 

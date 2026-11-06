@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Loader2, ArrowLeft, AlertCircle } from 'lucide-react';
+import { Loader2, ArrowLeft, AlertCircle, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   CollectionImporter,
@@ -76,6 +76,7 @@ export function PasteLane({
   const [fallbackQuery, setFallbackQuery] = useState('');
   const [fallbackResults, setFallbackResults] = useState<ScryfallCard[]>([]);
   const [fallbackSearching, setFallbackSearching] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [hoverPreview, setHoverPreview] = useState<{ card: ScryfallCard; top: number; left: number; below: boolean } | null>(null);
 
   const importerRef = useRef<CollectionImporterHandle>(null);
@@ -142,20 +143,36 @@ export function PasteLane({
     });
   }, []);
 
-  const renderCommanderChip = useCallback((card: ScryfallCard, onClick: () => void) => (
-    <button
-      key={card.name}
-      // Dismiss the preview here, not just on mouse-leave: picking a commander unmounts the whole
-      // chip row, so onMouseLeave never fires and the floating image would hang around forever.
-      onClick={() => { setHoverPreview(null); onClick(); }}
-      onMouseEnter={(e) => handleChipHover(card, e)}
-      onMouseLeave={() => setHoverPreview(null)}
-      className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-border/50 hover:bg-accent hover:border-primary/50 transition-colors"
-    >
-      <CardTypeIcon type="commander" size="sm" className="text-amber-300/90 opacity-90" />
-      {card.name}
-    </button>
-  ), [handleChipHover]);
+  const renderCommanderChip = useCallback((card: ScryfallCard, onClick: () => void) => {
+    const art = card.image_uris?.art_crop ?? card.card_faces?.[0]?.image_uris?.art_crop;
+    return (
+      <button
+        key={card.name}
+        // Dismiss the preview here, not just on mouse-leave: picking a commander unmounts the whole
+        // chip row, so onMouseLeave never fires and the floating image would hang around forever.
+        onClick={() => { setHoverPreview(null); onClick(); }}
+        onMouseEnter={(e) => handleChipHover(card, e)}
+        onMouseLeave={() => setHoverPreview(null)}
+        className="group relative overflow-hidden inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-border/50 bg-card/40 hover:border-primary/50 transition-colors"
+      >
+        {art && (
+          <>
+            <img
+              src={art}
+              alt=""
+              aria-hidden
+              loading="lazy"
+              className="absolute inset-0 h-full w-full object-cover opacity-30 transition-opacity group-hover:opacity-55"
+            />
+            {/* Keeps the name readable over bright art. */}
+            <span aria-hidden className="absolute inset-0 bg-gradient-to-r from-background/85 via-background/55 to-background/30" />
+          </>
+        )}
+        <CardTypeIcon type="commander" size="sm" className="relative text-amber-300/90 opacity-90" />
+        <span className="relative">{card.name}</span>
+      </button>
+    );
+  }, [handleChipHover]);
 
   const submitRun = useCallback(async (cmdr: ScryfallCard | null, cards: string[]) => {
     setSubmitted(true);
@@ -191,6 +208,7 @@ export function PasteLane({
     setSubmitted(false);
     setFallbackQuery('');
     setFallbackResults([]);
+    setSearchOpen(false);
 
     setValidating(true);
     setStep('resolve');
@@ -229,7 +247,8 @@ export function PasteLane({
   const paused = !validating && !submitted && !!importResult;
   const verb = ctaLabel.replace(/\s*→\s*$/, '');
   const showLegendaryPicker = paused && legendaries.length > 1 && !commanderCard;
-  const showFallback = paused && importedCards.length > 0 && legendaries.length === 0 && !commanderCard;
+  // Search stays open under the picker too: the picker's guesses can miss the real commander.
+  const showFallback = paused && importedCards.length > 0 && !commanderCard;
   const commanderMissing = paused && !commanderCard;
   const canContinue = paused && importedCards.length > 0 && !!commanderCard && !loading;
 
@@ -276,6 +295,31 @@ export function PasteLane({
         </Button>
       </div>
     </div>
+  );
+
+  const fallbackSearch = (
+    <>
+      <input
+        type="text"
+        value={fallbackQuery}
+        onChange={(e) => runFallbackSearch(e.target.value)}
+        placeholder="Search for a commander…"
+        // Opened from the picker's "Not here?" — the player just asked to type.
+        autoFocus={showLegendaryPicker}
+        className="w-full bg-card/50 border border-border/50 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+      />
+      {fallbackSearching && (
+        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          Searching…
+        </p>
+      )}
+      {fallbackResults.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {fallbackResults.map(c => renderCommanderChip(c, () => pickCommander(c)))}
+        </div>
+      )}
+    </>
   );
 
   const resolvePanel = (
@@ -327,41 +371,33 @@ export function PasteLane({
       )}
 
       {showLegendaryPicker && (
-        <div className="rounded-lg border border-border/40 bg-card/30 p-3">
-          <p className="text-xs text-muted-foreground mb-2">
-            Multiple legendary creatures detected — pick the commander:
+        <div className="rounded-lg border border-border/40 bg-card/30 p-3 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Which of these is your commander?
           </p>
           <div className="flex flex-wrap gap-2">
             {legendaries.map(card => renderCommanderChip(card, () => pickCommander(card)))}
           </div>
+          {showFallback && (searchOpen ? fallbackSearch : (
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Not here?
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+          ))}
         </div>
       )}
 
-      {showFallback && (
+      {showFallback && !showLegendaryPicker && (
         <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2">
           <p className="text-xs text-amber-400/90">
             {requireCommander
               ? "We couldn't find a commander in this list — pick one to analyze."
               : "We couldn't find a commander in this list — pick one, or continue without a command zone."}
           </p>
-          <input
-            type="text"
-            value={fallbackQuery}
-            onChange={(e) => runFallbackSearch(e.target.value)}
-            placeholder="Search for a commander…"
-            className="w-full bg-card/50 border border-border/50 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-          />
-          {fallbackSearching && (
-            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-              <Loader2 className="w-3 h-3 animate-spin" />
-              Searching…
-            </p>
-          )}
-          {fallbackResults.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {fallbackResults.map(c => renderCommanderChip(c, () => pickCommander(c)))}
-            </div>
-          )}
+          {fallbackSearch}
         </div>
       )}
 

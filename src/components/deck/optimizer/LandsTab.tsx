@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { Fragment, useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Plus, Minus, Check, ChevronRight,
   Palette, FlipHorizontal2, Info,
@@ -7,8 +7,9 @@ import {
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard } from '@/types';
 import type { DeckAnalysis, RecommendedCard, AnalyzedCard, ManaBaseAnalysis, ManaSourcesAnalysis } from '@/services/deckBuilder/deckAnalyzer';
-import { isMdfcLand, isChannelLand, isAnyLand, isBasicLand, getProducedColors, WUBRG, searchMdfcLands, getChannelLandsForColors, getCardsByNames, getCardPrice } from '@/services/scryfall/client';
-import { getCardRole, getAllCardRoles, isUtilityLand } from '@/services/tagger/client';
+import { isMdfcLand, isChannelLand, isAnyLand, isBasicLand, getProducedColors, WUBRG, searchMdfcLands, searchCards, getChannelLandsForColors, getCardsByNames, getCardPrice } from '@/services/scryfall/client';
+import { getCardRole, getAllCardRoles, isUtilityLand, isTapland } from '@/services/tagger/client';
+import { fetchColorIdentityLands, colorIdentityToSlug } from '@/services/edhrec/client';
 import { useStore } from '@/store';
 import {
   scryfallImg, edhrecRankToInclusion,
@@ -291,10 +292,14 @@ export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
   );
 }
 
+const LAND_SUGGESTIONS_PER_KIND = 30;
+
 export function LandCountDetail({
-  analysis, onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, cardInclusionMap, aurora,
+  analysis, landPool = [], onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, cardInclusionMap, aurora,
 }: {
   analysis: DeckAnalysis;
+  /** Color-identity land pool that fills in behind the commander-page picks. */
+  landPool?: RecommendedCard[];
   onPreview: (name: string) => void;
   onAdd: (name: string) => void;
   addedCards: Set<string>;
@@ -308,7 +313,27 @@ export function LandCountDetail({
   aurora?: string;
 }) {
   const mb = analysis.manaBase;
-  const hasSuggestions = analysis.landRecommendations.length > 0;
+
+  // Commander-page picks first, then the color-identity pool until both the
+  // mana and utility halves have LAND_SUGGESTIONS_PER_KIND cards.
+  const landSuggestions = useMemo(() => {
+    const frontName = (name: string) => name.split(' // ')[0];
+    const seen = new Set(currentCards.map(c => frontName(c.name)));
+    const out: RecommendedCard[] = [];
+    let utility = 0;
+    let mana = 0;
+    for (const rec of [...analysis.landRecommendations, ...landPool]) {
+      const key = frontName(rec.name);
+      if (seen.has(key)) continue;
+      if ((rec.isUtilityLand ? utility : mana) >= LAND_SUGGESTIONS_PER_KIND) continue;
+      seen.add(key);
+      out.push(rec);
+      if (rec.isUtilityLand) utility++; else mana++;
+    }
+    return out;
+  }, [analysis.landRecommendations, landPool, currentCards]);
+
+  const hasSuggestions = landSuggestions.length > 0;
   const isOverTarget = mb.verdict === 'high';
   const excess = Math.max(0, mb.currentLands - mb.adjustedSuggestion);
 
@@ -364,6 +389,18 @@ export function LandCountDetail({
 
   const [showCuts, setShowCuts] = useState(isOverTarget);
   const [removedCards, setRemovedCards] = useState<Set<string>>(new Set());
+
+  // Mana / Utility filter for land suggestions. Only offered when both kinds
+  // are present; otherwise it would filter to the full list or to nothing.
+  const [landKind, setLandKind] = useState<'all' | 'mana' | 'utility'>('all');
+  const utilityRecCount = landSuggestions.filter(r => r.isUtilityLand).length;
+  const showLandKindToggle = utilityRecCount > 0 && utilityRecCount < landSuggestions.length;
+  const effectiveLandKind = showLandKindToggle ? landKind : 'all';
+  const shownLandRecs = useMemo(() => {
+    if (effectiveLandKind === 'all') return landSuggestions;
+    const wantUtility = effectiveLandKind === 'utility';
+    return landSuggestions.filter(r => !!r.isUtilityLand === wantUtility);
+  }, [landSuggestions, effectiveLandKind]);
 
   const handleRemoveLandCut = useCallback((cut: LandCut) => {
     if (cut.kind === 'basic') {
@@ -468,7 +505,7 @@ export function LandCountDetail({
               {/* Recently added from suggestions */}
               {(() => {
                 const existingNames = new Set(analysis.landCards.map(ac => ac.card.name));
-                const landRecNames = new Set(analysis.landRecommendations.map(r => r.name));
+                const landRecNames = new Set([...analysis.landRecommendations, ...landPool].map(r => r.name));
                 const recentlyAdded = [...addedCards].filter(n => !existingNames.has(n) && landRecNames.has(n));
                 if (recentlyAdded.length === 0) return null;
                 return (
@@ -605,14 +642,29 @@ export function LandCountDetail({
               </>
             ) : (
               <SuggestionCardGrid
-                title={<>Suggested Lands ({analysis.landRecommendations.length})</>}
-                cards={analysis.landRecommendations}
+                title={<>Suggested Lands ({shownLandRecs.length})</>}
+                cards={shownLandRecs}
                 onAdd={onAdd}
                 onPreview={onPreview}
                 addedCards={addedCards}
                 deficit={Math.max(0, mb.adjustedSuggestion - mb.currentLands)}
                 onCardAction={onCardAction}
                 menuProps={menuProps}
+                headerControls={showLandKindToggle ? (
+                  <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
+                    {(['all', 'mana', 'utility'] as const).map((kind, i) => (
+                      <Fragment key={kind}>
+                        {i > 0 && <div className="w-px h-3 bg-border/50" />}
+                        <button
+                          onClick={() => setLandKind(kind)}
+                          className={`text-[10px] px-2 py-0.5 transition-colors ${effectiveLandKind === kind ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/80 bg-card/40 hover:text-foreground hover:bg-accent/70'}`}
+                        >
+                          {kind === 'all' ? 'All' : kind === 'mana' ? 'Mana' : 'Utility'}
+                        </button>
+                      </Fragment>
+                    ))}
+                  </div>
+                ) : undefined}
               />
             )}
           </div>
@@ -1603,6 +1655,91 @@ export function LandsTabContent({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colorIdentity]);
 
+  // Wider land pool for the Land Count suggestions. The commander page only
+  // lists a few dozen lands; this fills behind them with what decks of this
+  // color identity play (EDHREC lands page), then Scryfall's EDHREC-rank order
+  // for anything that page lacks or when it fails to load.
+  const [landPool, setLandPool] = useState<RecommendedCard[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled([
+      fetchColorIdentityLands(colorIdentity),
+      // searchCards adds no identity filter for an empty identity — pin colorless explicitly.
+      searchCards(colorIdentity.length ? 't:land -t:basic' : 't:land -t:basic id:c', colorIdentity, { order: 'edhrec' }),
+    ]).then(async ([edhrecRes, scryfallRes]) => {
+      if (cancelled) return;
+      const colorLands = (edhrecRes.status === 'fulfilled' ? edhrecRes.value : [])
+        .filter(land => land.section !== 'basiclands' && land.section !== 'mdfcs');
+      const scryfallLands = scryfallRes.status === 'fulfilled' ? scryfallRes.value.data : [];
+      const scryfallByName = new Map<string, ScryfallCard>();
+      for (const card of scryfallLands) scryfallByName.set(card.card_faces?.[0]?.name ?? card.name, card);
+
+      // The Scryfall page only holds the top ~175 lands by global rank; less-played
+      // utility lands fall outside it and would render as card backs. Fetch the
+      // rest by name — just the head of each kind, since that's all the grid shows
+      // (twice the cap, to cover lands already in the deck or taken by commander picks).
+      const headroom = LAND_SUGGESTIONS_PER_KIND * 2;
+      let utilityHead = 0;
+      let manaHead = 0;
+      const missing: string[] = [];
+      for (const land of colorLands) {
+        const utility = isUtilityLand(land.name) || land.section === 'utilitylands';
+        if ((utility ? utilityHead++ : manaHead++) >= headroom) continue;
+        if (!scryfallByName.has(land.name)) missing.push(land.name);
+      }
+      if (missing.length > 0) {
+        try {
+          const fetched = await getCardsByNames(missing);
+          for (const [name, card] of fetched) scryfallByName.set(name, card);
+        } catch { /* tiles fall back to the cache lookup */ }
+        if (cancelled) return;
+      }
+
+      const slug = colorIdentityToSlug(colorIdentity);
+      const identityLabel = `of ${slug.charAt(0).toUpperCase()}${slug.slice(1)} decks`;
+      const toRec = (name: string, inclusion: number, score: number, utility: boolean, card?: ScryfallCard): RecommendedCard => {
+        const role = getCardRole(name);
+        return {
+          name,
+          inclusion,
+          inclusionLabel: inclusion >= 0 ? identityLabel : undefined,
+          synergy: 0,
+          fillsDeficit: false,
+          primaryType: 'Land',
+          imageUrl: card?.card_faces?.[0]?.image_uris?.normal || card?.image_uris?.normal,
+          backImageUrl: card?.card_faces?.[1]?.image_uris?.normal || undefined,
+          price: card ? getCardPrice(card) ?? undefined : undefined,
+          producedColors: card?.produced_mana?.filter(c => (WUBRG as readonly string[]).includes(c)),
+          role: role || undefined,
+          roleLabel: role ? ROLE_LABELS[role] : undefined,
+          score,
+          isUtilityLand: utility || undefined,
+          isTapland: isTapland(name) || undefined,
+        };
+      };
+
+      const pool: RecommendedCard[] = [];
+      const seen = new Set<string>();
+      for (const land of colorLands) {
+        const card = scryfallByName.get(land.name);
+        if (card && isMdfcLand(card)) continue;
+        seen.add(land.name);
+        pool.push(toRec(land.name, land.inclusion, land.inclusion / 2,
+          isUtilityLand(land.name) || land.section === 'utilitylands', card));
+      }
+      scryfallLands.forEach((card, i) => {
+        const name = card.card_faces?.[0]?.name ?? card.name;
+        if (seen.has(name) || isMdfcLand(card)) return;
+        seen.add(name);
+        // No per-identity inclusion here — rank order only, scored below the EDHREC tier.
+        pool.push(toRec(name, -1, Math.max(0, 10 - i / 20), isUtilityLand(name), card));
+      });
+      setLandPool(pool);
+    });
+    return () => { cancelled = true; };
+  }, [colorIdentity]);
+
   // Filter suggestions: exclude cards currently in deck
   const currentCardNames = useMemo(() => new Set(currentCards.map(c => c.name)), [currentCards]);
   const mdfcSuggestions = useMemo(() =>
@@ -1636,7 +1773,7 @@ export function LandsTabContent({
         channelLandCount={(analysis.channelLandsInDeck || []).length}
       />
       {activeSection === 'landCount' && (
-        <LandCountDetail aurora={aurora} analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} currentCards={currentCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} cardInclusionMap={cardInclusionMap} />
+        <LandCountDetail aurora={aurora} analysis={analysis} landPool={landPool} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} currentCards={currentCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} cardInclusionMap={cardInclusionMap} />
       )}
       {activeSection === 'manaSources' && (
         <ManaSourcesDetail aurora={aurora} analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} />

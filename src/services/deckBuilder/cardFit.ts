@@ -8,15 +8,18 @@ import type {
 } from '@/types';
 import { isLiteralThemeMember, type ThemeMembership } from '@/components/analyze/themeMembership';
 import { ROLE_LABELS } from './roleTargets';
-import { getCardRole } from '../tagger/client';
+import { getCardRole, isTutor } from '../tagger/client';
 import { isAnyLand } from '../scryfall/client';
 import { LOW_FIT_INCLUSION, LOW_FIT_SYNERGY } from './cutRanking';
+import { isFastMana } from './bracketEstimator';
 
 // Shared with the trim drawer's "low-fit" reason (see cutRanking) so the two
 // surfaces provably agree on what counts as a poor fit.
 const INCLUSION_LOW = LOW_FIT_INCLUSION;  // %
 const SYNERGY_LOW = LOW_FIT_SYNERGY;      // EDHREC synergy ≤ 0
 const MISFIT_REASON_THRESHOLD = 2; // need ≥ 2 reasons to flag as misfit
+const FAST_MANA_PROTECTED_FROM = 4; // bracket at which fast mana is never a misfit
+const TUTORS_PROTECTED_FROM = 3;    // bracket at which tutors are never a misfit
 
 // Misfit score weights
 const MISFIT_REASON_WEIGHT = 10;     // per reason flagged
@@ -26,8 +29,19 @@ const MISFIT_SYNERGY_WEIGHT = 5;     // multiplier on negative synergy
 // Card Fit sub-score penalties
 const MISFIT_PENALTY_PER = 8;        // points subtracted per misfit
 const MISFIT_PENALTY_CAP = 40;       // max penalty from misfits
-const GAP_PENALTY_PER = 1.5;         // points subtracted per gap card
-const GAP_PENALTY_CAP = 20;          // max penalty from gaps
+const GAP_PENALTY_CAP = 20;          // the penalty approaches this, never reaches it
+// Each missing staple takes this share of what's left of the cap, so every one you add moves the
+// score. A flat 1.5 per gap capped at 20 saturated at 14 gaps: a 60-card Valgavoth list sat 23
+// staples short, at 80 however many it added.
+const GAP_PENALTY_DECAY = 0.88;
+// Only a missing card this commander's decks broadly agree on counts as a gap. The gap list is the
+// top 40 most-played cards NOT in the deck, with no floor — and a commander page has hundreds of
+// cards, so without one there are always 40 more and the penalty can never be cleared: Card Fit
+// capped at 80 and the overall score near 95 however the deck was tuned.
+export const GAP_PENALTY_MIN_INCLUSION = 40; // % of decklists
+// How much more widely played a staple must be than the card it would push out to count as an
+// upgrade. Small differences are noise between two pages' samples, not a reason to swap.
+const STAPLE_UPGRADE_MARGIN = 10; // percentage points
 
 const SUPERTYPES = new Set(['Legendary', 'Basic', 'Snow', 'Tribal', 'World', 'Token', 'Ongoing']);
 
@@ -54,6 +68,8 @@ export interface MisfitInputs {
   commanderData?: EDHRECCommanderData | null;
   /** Commander name (and partner if any) — never suggest these as replacements. */
   commanderNames?: string[];
+  /** The bracket the deck is judged at: the player's intended bracket, else the estimate. */
+  bracket?: number;
 }
 
 export function computeMisfits(inputs: MisfitInputs): Misfit[] {
@@ -86,6 +102,16 @@ export function computeMisfits(inputs: MisfitInputs): Misfit[] {
     // user as much as a wrong cut.
     if (isLiteralThemeMember(themeMembership, card.name)) continue;
 
+    // Game changers, fast mana at bracket 4+ and tutors at 3+ are in the deck for power, not for the
+    // plan. The commander's page is mostly lower-bracket decks that don't run them (Chrome Mox is
+    // absent from The Mycotyrant's all-brackets page and in 44% of its cEDH decks; Razaketh is on no
+    // Mycotyrant page below cEDH), so their absence there says nothing about this deck. Whether they
+    // belong at its power level is the Bracket tab's question. The tutor line matches the swap
+    // service's, which stops counting tutors as surplus card draw from the same bracket.
+    if (card.isGameChanger) continue;
+    if ((inputs.bracket ?? 0) >= FAST_MANA_PROTECTED_FROM && isFastMana(card.name)) continue;
+    if ((inputs.bracket ?? 0) >= TUTORS_PROTECTED_FROM && isTutor(card.name)) continue;
+
     const reasons: MisfitReason[] = [];
 
     const incl = cardInclusionMap[card.name];
@@ -103,14 +129,11 @@ export function computeMisfits(inputs: MisfitInputs): Misfit[] {
       });
     }
 
+    // Missing synergy is never a reason of its own. With no inclusion either, the card is off the
+    // page — one fact, already recorded above; counting it twice made absence alone a misfit. With
+    // inclusion known, the card IS on a page and the synergy map just came from a different one.
     const syn = cardSynergyMap?.[card.name];
-    if (syn == null) {
-      reasons.push({
-        kind: 'synergy-absent',
-        label: 'No commander synergy data',
-        detail: 'Card isn\'t on this commander\'s EDHREC page',
-      });
-    } else if (syn <= SYNERGY_LOW) {
+    if (syn != null && syn <= SYNERGY_LOW) {
       reasons.push({
         kind: 'synergy-low',
         label: 'Low commander synergy',
@@ -136,7 +159,10 @@ export function computeMisfits(inputs: MisfitInputs): Misfit[] {
       });
     }
 
-    if (reasons.length >= MISFIT_REASON_THRESHOLD) {
+    // At least one reason has to come from how this commander's decks actually play the card. "No
+    // tagged role" + "off-theme" alone flag any tutor or staple, however widely it's played here.
+    const dataBacked = reasons.some(r => r.kind.startsWith('inclusion') || r.kind.startsWith('synergy'));
+    if (reasons.length >= MISFIT_REASON_THRESHOLD && dataBacked) {
       const misfitScore =
         (reasons.length * MISFIT_REASON_WEIGHT) +
         (incl != null ? Math.max(0, INCLUSION_LOW - incl) : 0) +
@@ -176,15 +202,56 @@ function pickReplacement(
   return undefined;
 }
 
-export function computeCardFitSubscore(misfits: Misfit[], gapCount: number) {
-  // Inverse: more misfits + fewer gaps filled = worse score.
+/**
+ * Card Fit charges for what it can hand back: pass the misfits it offers as cuts and the staples it
+ * offers as adds (scoreAgainstSwaps does), so every point it holds back is a swap in its columns.
+ */
+export function computeCardFitSubscore(misfits: Misfit[], gaps: GapAnalysisCard[]) {
+  // Inverse: more misfits + more high-value cards missing = worse score.
+  const gapCount = gaps.filter(g => g.inclusion >= GAP_PENALTY_MIN_INCLUSION).length;
   const misfitPenalty = Math.min(MISFIT_PENALTY_CAP, misfits.length * MISFIT_PENALTY_PER);
-  const gapPenalty = Math.min(GAP_PENALTY_CAP, gapCount * GAP_PENALTY_PER);
-  const value = Math.max(0, 100 - misfitPenalty - gapPenalty);
+  const gapPenalty = GAP_PENALTY_CAP * (1 - GAP_PENALTY_DECAY ** gapCount);
+  // Whole points like every other sub-score.
+  const value = Math.max(0, Math.round(100 - misfitPenalty - gapPenalty));
   const surface = misfits.length === 0 && gapCount === 0
     ? 'Every card pulls its weight.'
-    : `${misfits.length} misfit${misfits.length === 1 ? '' : 's'} · ${gapCount} high-value gap${gapCount === 1 ? '' : 's'}`;
+    : `${misfits.length} misfit${misfits.length === 1 ? '' : 's'} · ${gapCount} missing staple${gapCount === 1 ? '' : 's'}`;
   return { value, surface, bandLabel: bandForCardFit(value) };
+}
+
+/** A deck card a staple could replace: its play rate here, and whether it's a land. */
+export interface CuttableCard {
+  name: string;
+  inclusion: number;
+  isLand: boolean;
+}
+
+/**
+ * Missing staples that are upgrades over a card the deck actually runs. Best staple first, each
+ * against the weakest card left of the same kind (a land only replaces a land), and only while the
+ * staple is played clearly more. A 60-card deck can't hold every staple of the 100-card lists the
+ * page is built from; once its weakest card outplays the next staple, the rest aren't missing, the
+ * deck spent those slots on better cards.
+ */
+export function pairStaplesWithCuts(
+  staples: GapAnalysisCard[],
+  cuttable: CuttableCard[],
+): { add: GapAnalysisCard; cut: CuttableCard }[] {
+  const isLandGap = (g: GapAnalysisCard) => /\bland\b/i.test(g.typeLine ?? '');
+  const pool = {
+    land: cuttable.filter(c => c.isLand).sort((a, b) => a.inclusion - b.inclusion),
+    spell: cuttable.filter(c => !c.isLand).sort((a, b) => a.inclusion - b.inclusion),
+  };
+  const pairs: { add: GapAnalysisCard; cut: CuttableCard }[] = [];
+  for (const add of [...staples].sort((a, b) => b.inclusion - a.inclusion)) {
+    if (add.inclusion < GAP_PENALTY_MIN_INCLUSION) break;
+    const side = pool[isLandGap(add) ? 'land' : 'spell'];
+    const cut = side[0];
+    if (!cut || add.inclusion < cut.inclusion + STAPLE_UPGRADE_MARGIN) continue;
+    side.shift();
+    pairs.push({ add, cut });
+  }
+  return pairs;
 }
 
 function bandForCardFit(score: number): string {
@@ -209,24 +276,6 @@ export function featuredMisfits(misfits: Misfit[]): Misfit[] {
   return misfits
     .filter(m => m.reasons.length >= FEATURED_MIN_STRIKES)
     .slice(0, FEATURED_MAX);
-}
-
-/**
- * Returns the Card Fit score delta if `replacement` were swapped in for `misfit.card`.
- * If `replacement` is undefined, returns the delta from removing the card outright.
- * Positive delta = improvement.
- */
-export function simulateSwapImpact(
-  misfits: Misfit[],
-  misfit: Misfit,
-  gapCount: number,
-  replacement: { name: string } | undefined,
-): number {
-  const before = computeCardFitSubscore(misfits, gapCount).value;
-  const afterMisfits = misfits.filter(m => m.card.name !== misfit.card.name);
-  const afterGapCount = replacement ? Math.max(0, gapCount - 1) : gapCount;
-  const after = computeCardFitSubscore(afterMisfits, afterGapCount).value;
-  return Math.round(after - before);
 }
 
 export { ROLE_LABELS };

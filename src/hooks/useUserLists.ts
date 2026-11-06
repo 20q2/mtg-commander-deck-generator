@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { getCardsByNames } from '@/services/scryfall/client';
 import { useStore } from '@/store';
 import { dropHistoryFor } from '@/services/deckHistory/storage';
-import type { UserCardList, ScryfallCard, DeckUpgradeState } from '@/types';
+import type { UserCardList, ScryfallCard, DeckUpgradeState, IntendedBracket } from '@/types';
 
 const USER_LISTS_KEY = 'mtg-deck-builder-user-lists';
 const LAST_ADD_TARGET_KEY = 'mtg-deck-builder-last-add-target';
@@ -124,6 +124,7 @@ interface CreateListOptions {
   heroCardName?: string;
   builtFromCollection?: boolean;
   collectionBinderIds?: string[];
+  intendedBracket?: IntendedBracket;
 }
 
 // ─── Shared state: all useUserLists() instances stay in sync ─────────
@@ -258,6 +259,7 @@ export function useUserLists() {
       heroCardName: options?.heroCardName,
       builtFromCollection: options?.builtFromCollection,
       collectionBinderIds: options?.collectionBinderIds,
+      intendedBracket: options?.intendedBracket,
       createdAt: now,
       updatedAt: now,
     };
@@ -271,7 +273,7 @@ export function useUserLists() {
     return newList;
   }, []);
 
-  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'chosenColor' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer' | 'generationSummary' | 'heroCardName' | 'customCombos' | 'themes' | 'builtFromCollection' | 'collectionBinderIds'>>) => {
+  const updateList = useCallback((id: string, updates: Partial<Pick<UserCardList, 'name' | 'cards' | 'description' | 'type' | 'commanderName' | 'partnerCommanderName' | 'chosenColor' | 'deckSize' | 'sideboard' | 'maybeboard' | 'primer' | 'generationSummary' | 'heroCardName' | 'customCombos' | 'themes' | 'builtFromCollection' | 'collectionBinderIds' | 'intendedBracket'>>) => {
     updateShared(prev => prev.map(l =>
       l.id === id ? { ...l, ...updates, updatedAt: Date.now() } : l
     ));

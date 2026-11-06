@@ -2,6 +2,7 @@ import { useState, useRef, forwardRef, useImperativeHandle } from 'react';
 import { parseCollectionList } from '@/services/collection/parseCollectionList';
 import { getCardsByNames, getCardImageUrl } from '@/services/scryfall/client';
 import { bulkImport, DEFAULT_BINDER_ID, type BulkImportCard } from '@/services/collection/db';
+import { canBeCommander } from '@/lib/partnerUtils';
 import { Upload, FileUp, Loader2, Check, AlertCircle } from 'lucide-react';
 import { trackEvent } from '@/services/analytics';
 
@@ -48,7 +49,7 @@ interface CollectionImporterProps {
   onResultChange?: (result: ImportResult | null) => void;
   /** Called when progress text changes */
   onProgressChange?: (progress: string) => void;
-  /** Called with all legendary creatures found during import, for commander selection */
+  /** Called with every card found during import that could be the commander, for commander selection */
   onLegendariesDetected?: (legendaries: import('@/types').ScryfallCard[]) => void;
   /**
    * Mention drag-and-drop from EDHREC/Scryfall/Moxfield in the placeholder.
@@ -225,18 +226,15 @@ export const CollectionImporter = forwardRef<CollectionImporterHandle, Collectio
         }
       }
 
-      // Collect all legendary creatures (and spacecraft) for commander dropdown
+      // Collect every card that could lead the deck for the commander dropdown
       const allLegendaries = validatedParsed
-        .filter(({ card }) => {
-          const tl = (card.type_line ?? '').toLowerCase();
-          return tl.includes('legendary') && (tl.includes('creature') || tl.includes('spacecraft'));
-        })
+        .filter(({ card }) => canBeCommander(card))
         .map(({ card }) => card);
       if (allLegendaries.length > 0) {
         onLegendariesDetected?.(allLegendaries);
       }
 
-      // Auto-detect commander: first legendary creature in the list
+      // Auto-detect commander: first possible commander in the list
       if (!commanderDetected && onCommanderDetected && allLegendaries.length > 0) {
         onCommanderDetected(allLegendaries[0]);
       }

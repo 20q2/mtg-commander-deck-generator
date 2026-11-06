@@ -17,6 +17,7 @@ function triStateFor(names: string[], uncheckedNames: Set<string>): TriState {
 }
 
 const REMOVAL_CATEGORY_LABELS: Record<string, string> = {
+  'over-bracket': 'Above Your Bracket',
   'misfit': "Doesn't Fit Plan",
   'low-synergy': 'Low Synergy',
   'curve-fix': 'Curve Fix',
@@ -24,6 +25,8 @@ const REMOVAL_CATEGORY_LABELS: Record<string, string> = {
   'tapland': 'Taplands',
   'excess-land': 'Excess Lands',
   'balance': 'Balance to Deck Size',
+  'outplayed': 'Outplayed by Staples',
+  'off-plan': 'Off Plan',
 };
 
 const ADDITION_CATEGORY_LABELS: Record<string, string> = {
@@ -33,6 +36,8 @@ const ADDITION_CATEGORY_LABELS: Record<string, string> = {
   'mana-fix': 'Land Recommendations',
   'color-fix': 'Color Fixing',
   'from-combos': 'From Combos',
+  'staple': 'Missing Staples',
+  'theme-staple': 'Builds Your Plan',
 };
 
 function getRemovalCategoryLabel(cat: string): string {
@@ -109,21 +114,21 @@ const SIDE_HEADER: Record<TileSide, {
   Icon: typeof TrendingDown;
   tintText: string;
   cardBg: string;
-  stickyBg: string;
+  labelBg: string;
 }> = {
   remove: {
-    label: 'REMOVE',
+    label: 'Recommended remove',
     Icon: TrendingDown,
     tintText: 'text-red-400/90',
     cardBg: 'bg-red-500/[0.08]',
-    stickyBg: 'bg-red-950/55',
+    labelBg: 'bg-red-950/55',
   },
   add: {
-    label: 'ADD',
+    label: 'Recommended add',
     Icon: TrendingUp,
     tintText: 'text-emerald-400/90',
     cardBg: 'bg-emerald-500/[0.08]',
-    stickyBg: 'bg-emerald-950/55',
+    labelBg: 'bg-emerald-950/55',
   },
 };
 
@@ -143,9 +148,10 @@ export function OptimizeColumn({
   return (
     // No outer column backdrop or border — each section card stands on its own.
     <div className="space-y-3">
-      {/* Column header — non-sticky; only group labels stick as the user scrolls. */}
+      {/* Column header — fixed height so
+          the REMOVE and ADD headers line up even when only one carries the h-6 collection toggle. */}
       <div
-        className={`px-3 py-2 rounded-xl ${headerMeta.stickyBg} flex items-center gap-2 shadow-md shadow-black/30`}
+        className={`h-10 px-3 rounded-xl ${headerMeta.labelBg} flex items-center gap-2 shadow-md shadow-black/30`}
       >
         <headerMeta.Icon className={`w-3.5 h-3.5 ${headerMeta.tintText}`} />
         <span className={`text-xs font-semibold uppercase tracking-wider ${headerMeta.tintText}`}>
@@ -174,8 +180,8 @@ export function OptimizeColumn({
           key={group.category}
           className={`${headerMeta.cardBg} rounded-xl px-3 pt-0 pb-3`}
         >
-          {/* Group label — sticky just below the plan header so the most recent menu title is always visible. */}
-          <div className={`sticky top-[6.5rem] z-[5] -mx-3 px-3 py-1.5 mb-2 rounded-t-md ${headerMeta.stickyBg} backdrop-blur-md flex items-center gap-2`}>
+          {/* Group label — scrolls with its group. */}
+          <div className={`-mx-3 px-3 py-1.5 mb-2 rounded-t-md ${headerMeta.labelBg} flex items-center gap-2`}>
             <span className={`text-[11px] font-semibold uppercase tracking-wider ${headerMeta.tintText}`}>
               {group.label}
             </span>

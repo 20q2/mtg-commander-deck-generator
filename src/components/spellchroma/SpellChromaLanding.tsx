@@ -236,7 +236,7 @@ export function SpellChromaLanding({ onLoad, onExplore, onStarterTag }: SpellChr
 // Card-name autocomplete that appends the picked card to the paste textarea, so
 // you can build a list by searching instead of (or alongside) pasting.
 function AddCardSearch({ onAdd }: { onAdd: (name: string) => void }) {
-  const { query, setQuery, suggestions, clear } = useCardNameSearch();
+  const { query, setQuery, suggestions, clear, activeIndex, setActiveIndex, activeSuggestion, navKeyDown, listRef } = useCardNameSearch();
 
   const add = (name: string) => {
     onAdd(name);
@@ -250,20 +250,23 @@ function AddCardSearch({ onAdd }: { onAdd: (name: string) => void }) {
         value={query}
         onChange={e => setQuery(e.target.value)}
         onKeyDown={e => {
+          if (navKeyDown(e)) return;
           if (e.key === 'Escape') clear();
-          if (e.key === 'Enter' && suggestions.length > 0) { e.preventDefault(); add(suggestions[0]); }
+          if (e.key === 'Enter' && activeSuggestion) { e.preventDefault(); add(activeSuggestion); }
         }}
         placeholder="Search a card to add to the list…"
         className="w-full text-sm rounded-md bg-background border border-border/60 pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-primary/50 placeholder:text-muted-foreground/50"
       />
       {suggestions.length > 0 && (
-        <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-popover shadow-lg max-h-60 overflow-y-auto">
-          {suggestions.map(name => (
+        <div ref={listRef} className="absolute z-20 mt-1 w-full rounded-md border border-border bg-popover shadow-lg max-h-60 overflow-y-auto">
+          {suggestions.map((name, i) => (
             <button
               key={name}
               type="button"
+              data-suggestion-index={i}
+              onMouseMove={() => setActiveIndex(i)}
               onClick={() => add(name)}
-              className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm hover:bg-accent/50 transition-colors truncate"
+              className={`w-full flex items-center gap-2 text-left px-3 py-1.5 text-sm transition-colors truncate ${i === activeIndex ? 'bg-accent/50' : ''}`}
             >
               <Plus className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
               {name}

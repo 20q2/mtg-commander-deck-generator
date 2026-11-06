@@ -76,7 +76,7 @@ export interface ScryfallCard {
   }>;
   // Added during deck generation
   isGameChanger?: boolean;
-  isThemeSynergyCard?: boolean; // true if from EDHREC highsynergycards/topcards/gamechangers
+  isThemeSynergyCard?: boolean; // true if from EDHREC highliftcards (née highsynergycards)/topcards/gamechangers
   isMustInclude?: boolean;
   mustIncludeSource?: 'user' | 'deck' | 'combo'; // Where the must-include came from
   isReplacement?: boolean; // true if this card was swapped into the deck via the replace feature
@@ -152,7 +152,7 @@ export interface EDHRECCard {
   num_decks: number; // Number of decks with this card
   synergy?: number; // Synergy score (-1 to 1)
   // Track if this card came from a high-priority synergy list
-  isThemeSynergyCard?: boolean; // true if from highsynergycards, topcards, gamechangers
+  isThemeSynergyCard?: boolean; // true if from highliftcards (née highsynergycards), topcards, gamechangers
   isNewCard?: boolean; // true if from the newcards list (gets a small relevancy boost)
   isGameChanger?: boolean; // true if from the gamechangers list specifically
   /** Injected from a color-filtered EDHREC archetype tag page (not on the commander's own pages). */
@@ -407,6 +407,8 @@ export interface PlanScore {
   byline: string;
   /** Per-area sub-scores. */
   subscores: Record<SubScoreKey, SubScore>;
+  /** The plan the headline names, kept so a recompose can rebuild it. */
+  planName?: string | null;
   /** True only when a sub-score was dropped for lack of DATA. A missing theme is not a data
    *  problem and does not set this — it has its own, louder prompt on the dashboard. */
   limitedData: boolean;
@@ -427,7 +429,6 @@ export type MisfitReasonKind =
   | 'inclusion-low'      // present in EDHREC data but below floor
   | 'inclusion-absent'   // not in EDHREC data at all (treat as 0%)
   | 'synergy-low'        // synergy value <= 0
-  | 'synergy-absent'     // synergy not available (card not on commander's page)
   | 'role-missing'       // no tagger role
   | 'theme-off';         // not in any active theme bucket
 
@@ -510,6 +511,8 @@ export interface GeneratedDeck {
   bracketEstimation?: import('@/services/deckBuilder/bracketEstimator').BracketEstimation;
   gameChangerNames?: string[]; // Cached for bracket re-estimation on swap (avoids async)
   deckGrade?: { letter: string; headline: string }; // Overall grade computed at end of generation
+  /** The bracket this deck was generated at (customization.bracketLevel), when one was chosen. */
+  intendedBracket?: IntendedBracket;
 }
 
 export interface DeckStats {
@@ -552,6 +555,8 @@ export type GameChangerLimit = 'none' | 'unlimited' | number;
 
 // EDHREC bracket level (power level tiers)
 export type BracketLevel = 'all' | 1 | 2 | 3 | 4 | 5;
+/** The power level a player is aiming a deck at — a bracket, never 'all'. */
+export type IntendedBracket = Exclude<BracketLevel, 'all'>;
 
 // Card rarity allow-list. null = "All" (no restriction).
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'mythic';
@@ -631,6 +636,9 @@ export interface UserCardList {
   cachedListArtUrl?: string;
   /** Upgrade-trigger snapshot (commander decks only). Written by useDeckUpgrades. */
   upgradeState?: DeckUpgradeState;
+  /** The bracket the player is aiming this deck at. Seeded from the generation bracket on save,
+   *  set from the Inspector's Adjust plan. Unset = the Inspector judges the deck at its estimate. */
+  intendedBracket?: IntendedBracket;
 }
 
 // Reference to a user list applied as exclude or include

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import {
   BookOpen, Crown, Gavel, Gem, GripHorizontal, Heart, Mountain, Skull, Sparkles, Swords, Trash2, X, type LucideIcon,
@@ -18,6 +18,9 @@ import { OpponentZoneMenu, type OpponentZoneMenuTarget, type OpponentMenuZone } 
 import { OpponentChoiceMenu, type OpponentChoiceMenuTarget } from '@/components/playtest/opponents/OpponentChoiceMenu';
 import { backgroundUrlForIdentity } from '@/services/spellchroma/colorBackground';
 import { CombatStrip } from '@/components/playtest/opponents/CombatStrip';
+import { SeatDust, captureDust, type DustPiece } from '@/components/playtest/opponents/SeatDust';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { playCue } from '@/services/playtest/playtestSound';
 import { BOT_COMBOS } from '@/services/playtest/opponents/botCombos';
 import type { CastZone, Opponent, OpponentPermanent } from '@/components/playtest/opponentTypes';
 import type { ResizeAxis, SeatSize } from '@/components/playtest/opponents/OpponentSeats';
@@ -87,7 +90,43 @@ export function OpponentSeat({
     setZoneMenu({ opponentId: opponent.id, zone, x: e.clientX, y: e.clientY });
   };
   const animations = usePlaytestSettings(s => s.animations);
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const acting = useOpponentStore(s => s.actingId === opponent.id);
+
+  /**
+   * Out of the game. The seat empties and goes grey: a player who has lost
+   * takes everything they own with them, and a full board left standing read
+   * as a bot still in it. Only the drawing empties — the state is untouched,
+   * so setting their life back above zero puts the board back as it was.
+   */
+  const dead = opponent.life <= 0;
+  const seatRef = useRef<HTMLDivElement | null>(null);
+  const [dust, setDust] = useState<DustPiece[] | null>(null);
+  const wasDead = useRef(dead);
+  // Layout effect, so the cards are measured and the dust is up in the same
+  // frame the real images are hidden — no blink of an empty seat between.
+  // Keyed on the crossing, so a seat that mounts already dead (a reload, a
+  // seat dragged back in) is simply empty rather than dusted again.
+  useLayoutEffect(() => {
+    if (dead && !wasDead.current && animations && !reduceMotion && seatRef.current) {
+      setDust(captureDust(seatRef.current, '[data-dust] img'));
+      playCue('dust');
+    }
+    if (!dead) setDust(null);
+    wasDead.current = dead;
+  }, [dead, animations, reduceMotion]);
+  const clearDust = useCallback(() => setDust(null), []);
+  /**
+   * The seat's contents once it is out — faded, and no longer something to
+   * click or drop on. The images go at once rather than with the fade, because
+   * the dust is already standing in their places. Every section carrying this
+   * is also marked `data-dust`, which is what captureDust reads.
+   *
+   * Not the combat strip. On the usual way a bot dies — your lethal attack —
+   * that strip is showing YOUR attackers, and it clears itself the moment the
+   * fight settles anyway.
+   */
+  const gone = `transition-opacity duration-500 ${dead ? 'opacity-0 pointer-events-none [&_img]:invisible' : ''}`;
   // The beat just played, for the card-out-of-hand flight. Only this seat's.
   const beat = useOpponentStore(s => (s.lastBeat?.opponentId === opponent.id ? s.lastBeat : null));
   const playedIds = beat?.played ?? [];
@@ -173,6 +212,7 @@ export function OpponentSeat({
 
   return (
     <div
+      ref={seatRef}
       data-seat
       data-float-id={`opp-lane-${opponent.id}`}
       /* A hover preview is roughly a third of the table, and the moment it is
@@ -198,12 +238,19 @@ export function OpponentSeat({
         : acting ? 'border-white/70'
         : 'border-border/50'
       } ${
-        // Out of the game, but still on the table: dimmed rather than removed,
-        // so you can see the board that beat them and still take their stuff.
-        opponent.life <= 0 ? 'opacity-50 saturate-50' : ''
+        // Out of the game: grey, and empty (see `gone`).
+        dead ? 'grayscale opacity-60' : ''
       }`}
-      style={{ width, height }}
+      style={{
+        width,
+        height,
+        // The grey settles in over the time the dust takes to blow off, not in
+        // the 150ms the border colours change in.
+        transitionProperty: 'color, background-color, border-color, filter, opacity',
+        transitionDuration: '150ms, 150ms, 150ms, 1200ms, 1200ms',
+      }}
     >
+      {dust && <SeatDust pieces={dust} onDone={clearDust} />}
       {/* Their colours, as SpellChroma's art for that identity, sunk almost
           all the way out. Enough to tell three seats apart at a glance and to
           give each one a mood, not enough to compete with the cards on it.
@@ -262,7 +309,7 @@ export function OpponentSeat({
         placed={placed}
       />
 
-      <ArmedComboBanner ids={opponent.armedCombos ?? []} />
+      {!dead && <ArmedComboBanner ids={opponent.armedCombos ?? []} />}
 
       {/* Creatures and other permanents. Both always shown — a bot casting a
           Signet is a bot doing something, and hiding it made their turns read
@@ -303,9 +350,10 @@ export function OpponentSeat({
           have to start on the same left edge. */}
       <div
         ref={setNodeRef}
+        data-dust
         className={`relative z-10 -mt-0.5 -mx-1.5 -mb-1.5 p-1.5 space-y-1 overflow-y-auto overflow-x-hidden ${
           height ? 'flex-1 min-h-0' : 'max-h-[70vh]'
-        }`}
+        } ${gone}`}
       >
         {opponent.battlefield.length === 0 ? (
           // A drop target you can see, rather than a sentence explaining one.
@@ -357,7 +405,8 @@ export function OpponentSeat({
           which of these lands can still pay for something. */}
       {landPiles.length > 0 && landsCollapsed && (
         <div
-          className="relative z-10 mt-1 shrink-0 flex items-center gap-1 px-0.5 text-[10px] leading-4 text-muted-foreground"
+          data-dust
+          className={`relative z-10 mt-1 shrink-0 flex items-center gap-1 px-0.5 text-[10px] leading-4 text-muted-foreground ${gone}`}
           aria-label="Lands"
           title={landPiles.map(p => (p.count > 1 ? `${p.count}× ` : '') + p.top.card.name + (p.top.tapped ? ' (tapped)' : '')).join(', ')}
         >
@@ -373,7 +422,8 @@ export function OpponentSeat({
           // No overflow rule on purpose: an `overflow-x` scroller would clip
           // the y axis too, and the ×N pile badge and the destroy button both
           // hang a few pixels off the top of their card.
-          className="relative z-10 mt-1 flex items-end gap-1 shrink-0"
+          data-dust
+          className={`relative z-10 mt-1 flex items-end gap-1 shrink-0 ${gone}`}
           aria-label="Lands"
         >
           {landPiles.map(pile => (
@@ -401,7 +451,7 @@ export function OpponentSeat({
           that does not change. Sitting apart it reads as a name plate rather
           than as a fourth pile to count, and the row's empty left end was doing
           nothing else. */}
-      <div className="relative z-10 mt-1 flex items-end gap-1 shrink-0">
+      <div data-dust className={`relative z-10 mt-1 flex items-end gap-1 shrink-0 ${gone}`}>
         {/* Their commander, face up. Who you are playing against is the single
             most useful fact about a seat, and it was the one zone the seat
             never showed. Face up because it is public information. */}

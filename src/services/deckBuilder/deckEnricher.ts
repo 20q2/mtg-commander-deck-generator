@@ -242,14 +242,18 @@ export async function buildEdhrecMaps(
         if (incl === undefined && card.name.includes(' // ')) {
           incl = inclusionIndex.get(card.name.split(' // ')[0]);
         }
-        const val = incl ?? 0;
-        inclMap[card.name] = val;
-        score += val;
+        // Only store cards that actually have a commander-inclusion % (as deckGenerator does). A
+        // stored 0 reads as "played in 0% of decklists", so Card Fit flagged cards it had no data
+        // on as unplayed, and showed +0 synergy for them.
+        if (incl !== undefined) {
+          inclMap[card.name] = incl;
+          score += incl;
+        }
         let syn = synergyIndex.get(card.name);
         if (syn === undefined && card.name.includes(' // ')) {
           syn = synergyIndex.get(card.name.split(' // ')[0]);
         }
-        synMap[card.name] = syn ?? 0;
+        if (syn !== undefined) synMap[card.name] = syn;
       }
     }
     for (const c of edhrecData.cardlists.allNonLand) {

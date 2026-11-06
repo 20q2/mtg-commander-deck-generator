@@ -20,6 +20,9 @@ interface Props {
    *  z-210. Lower it (e.g. below a popover's z-50) when the preview should sit
    *  under another overlay. */
   z?: number;
+  /** Image to show instead of the card's own. For callers holding only a card's name, whose card
+   *  object is a stub with no image of its own. */
+  src?: string;
 }
 
 const DEFAULT_WIDTH = 340;
@@ -156,7 +159,7 @@ function readAvoidRegions(): AvoidRegion[] {
     .filter(a => a.rect.right > a.rect.left && a.rect.bottom > a.rect.top);
 }
 
-export function MagnifiedPreview({ card, anchorRef, faceDown, side = 'top', width = DEFAULT_WIDTH, z = 200 }: Props) {
+export function MagnifiedPreview({ card, anchorRef, faceDown, side = 'top', width = DEFAULT_WIDTH, z = 200, src: srcOverride }: Props) {
   const PREVIEW_WIDTH = width;
   const PREVIEW_HEIGHT = Math.round(width * CARD_ASPECT);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
@@ -216,7 +219,7 @@ export function MagnifiedPreview({ card, anchorRef, faceDown, side = 'top', widt
   // this preview is anchored to. Everything else shows the card back.
   const src = faceDown
     ? (getCardBackFaceUrl(card, 'large') ?? `${import.meta.env.BASE_URL}card-back.png`)
-    : getCardImageUrl(card, 'large');
+    : srcOverride ?? getCardImageUrl(card, 'large');
 
   return createPortal(
     <div

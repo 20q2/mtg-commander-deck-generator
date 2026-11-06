@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ScryfallCard } from '@/types';
 import type { DeckAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import {
-  buildCostPlan, parsePrice,
+  buildCostPlan, parsePrice, sharesRole,
   type CandidateCard, type CostPlan,
 } from '@/services/deckBuilder/costAnalyzer';
 import {
@@ -10,6 +10,7 @@ import {
 } from '@/services/scryfall/client';
 import { fetchSimilarCards } from '@/services/edhrec/client';
 import { scoreSimilarity } from '@/services/deckBuilder/cardSimilarity';
+import { getAllCardRoles, hasTaggerData } from '@/services/tagger/client';
 import { useStore } from '@/store';
 
 export interface UseCostPlanOptions {
@@ -149,10 +150,14 @@ export function useCostPlan(opts: UseCostPlanOptions): { plan: CostPlan | null; 
       const similarCandidates = new Map<string, CandidateCard[]>();
       for (const { name, similar } of similarNames) {
         const currentCard = cardByName.get(name);
+        // Only stand-ins that do the same job (see sharesRole). Without tagger data there's nothing
+        // to judge by, so similarity alone decides.
+        const currentRoles = hasTaggerData() ? getAllCardRoles(name) : null;
         const cands: CandidateCard[] = [];
         for (let i = 0; i < similar.length; i++) {
           const card = priced.get(similar[i]);
           if (!card) continue;
+          if (currentRoles && !sharesRole(currentRoles, getAllCardRoles(similar[i]))) continue;
           const price = parsePrice(getCardPrice(card, currency));
           if (price == null) continue;
           cands.push({

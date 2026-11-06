@@ -12,6 +12,8 @@ import { bracketLabelFor, type BracketEstimation } from '@/services/deckBuilder/
 import { headlineFor, bylineFor } from '@/services/deckBuilder/planScore';
 import type { PlanScore, ScryfallCard } from '@/types';
 import type { ReactNode } from 'react';
+import { ScoreRing, type RingWiring } from './launchpad/ScoreRing';
+import { useOpenCardMenu } from './launchpad/cardMenu';
 
 export interface HeroScoreProps {
   planScore: PlanScore;
@@ -34,6 +36,10 @@ export interface HeroScoreProps {
   /** Adjust popover content. */
   adjustContent?: ReactNode;
   onOpenInDeckView?: () => void;
+  /** The path to 100, drawn round the ring. Without it the ring is a plain score arc. */
+  ring?: RingWiring;
+  /** The path to 100 in words and chips — the ring's legend, under the byline. */
+  path?: ReactNode;
 }
 
 export function HeroScore({
@@ -49,8 +55,17 @@ export function HeroScore({
   onNavigateToBracket,
   adjustContent,
   onOpenInDeckView,
+  ring,
+  path,
 }: HeroScoreProps) {
   const [hover, setHover] = useState<{ card: ScryfallCard; rect: DOMRect } | null>(null);
+  const openMenu = useOpenCardMenu();
+  const menuFor = (card: ScryfallCard) => (e: React.MouseEvent) => {
+    if (!openMenu) return;
+    e.preventDefault();
+    setHover(null);
+    openMenu(card.name, card, e.clientX, e.clientY);
+  };
   const target = Math.max(0, Math.min(100, planScore.overall));
   const [displayed, setDisplayed] = useState(0);
 
@@ -68,7 +83,7 @@ export function HeroScore({
   // Skullbriar, the Walking Grave deck".
   const commanderLabel = [commander, partnerCommander]
     .filter((c): c is ScryfallCard => !!c)
-    .map(c => c.name.split(',')[0].trim())
+    .map(c => c.name.split(',')[0].trim().replace(/^the\s+/i, ''))
     .join(' + ');
   const byline = bylineFor(sampleSize, commanderLabel);
 
@@ -110,10 +125,6 @@ export function HeroScore({
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [target]);
-
-  const ringStyle = {
-    background: `conic-gradient(hsl(var(--primary)) 0% ${displayed}%, rgba(255,255,255,0.14) ${displayed}% 100%)`,
-  };
 
   // Resolve art_crop URL: try primary commander first, then partner
   const artUrl =
@@ -159,6 +170,7 @@ export function HeroScore({
               <img
                 src={commander.image_uris?.small ?? commander.card_faces?.[0]?.image_uris?.small ?? ''}
                 alt={commander.name}
+                onContextMenu={menuFor(commander)}
                 onMouseEnter={(e) => setHover({ card: commander, rect: e.currentTarget.getBoundingClientRect() })}
                 onMouseLeave={() => setHover(null)}
                 className="w-12 h-[4.2rem] rounded-md border border-border/50 object-cover shadow-md cursor-pointer transition-transform hover:scale-105"
@@ -168,6 +180,7 @@ export function HeroScore({
               <img
                 src={partnerCommander.image_uris?.small ?? partnerCommander.card_faces?.[0]?.image_uris?.small ?? ''}
                 alt={partnerCommander.name}
+                onContextMenu={menuFor(partnerCommander)}
                 onMouseEnter={(e) => setHover({ card: partnerCommander, rect: e.currentTarget.getBoundingClientRect() })}
                 onMouseLeave={() => setHover(null)}
                 className="w-12 h-[4.2rem] rounded-md border border-border/50 object-cover shadow-md -ml-3 cursor-pointer transition-transform hover:scale-105"
@@ -215,7 +228,7 @@ export function HeroScore({
                 <>
                   <span>·</span>
                   <span className="inline-flex items-center gap-1 flex-wrap">
-                    Detected plan:
+                    <span className="hidden sm:inline">Detected plan:</span>
                     <span className="px-1.5 py-0.5 rounded-full bg-violet-500/15 text-violet-300 font-semibold text-[10px]">
                       {planName}
                     </span>
@@ -235,14 +248,15 @@ export function HeroScore({
             )}
           </div>
 
-          {/* Action buttons — desktop only (top-right of header row) */}
-          <div className="hidden sm:flex items-center gap-2 shrink-0 self-start">
+          {/* Action buttons (top-right of header row). Icon-only on phones: the old full-width row
+              under the header cost the launch pad's jobs their place on the first screen. */}
+          <div className="flex items-center gap-2 shrink-0 self-start">
             {adjustContent && (
               <Popover>
                 <PopoverTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-1.5">
+                  <Button variant="outline" size="sm" className="gap-1.5 px-2.5 sm:px-3" aria-label="Adjust plan">
                     <Pencil className="w-3.5 h-3.5" />
-                    <span>Adjust plan</span>
+                    <span className="hidden sm:inline">Adjust plan</span>
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent side="bottom" align="end" className="w-80 p-0">
@@ -253,37 +267,14 @@ export function HeroScore({
           </div>
         </div>
 
-        {/* MOBILE-ONLY ACTION ROW: full-width row beneath art + info */}
-        {adjustContent && (
-          <div className="flex sm:hidden items-center gap-2">
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5 flex-1">
-                  <Pencil className="w-3.5 h-3.5" />
-                  <span>Adjust plan</span>
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent side="bottom" align="start" className="w-80 p-0">
-                {adjustContent}
-              </PopoverContent>
-            </Popover>
-          </div>
-        )}
-
         {/* BOTTOM ROW: score ring + headline + byline */}
         <div className="flex flex-row items-center gap-4 sm:gap-6">
-          <div
-            className="w-24 h-24 sm:w-40 sm:h-40 rounded-full flex items-center justify-center shrink-0"
-            style={ringStyle}
-            aria-label={`Plan score ${target} out of 100`}
-          >
-            <div className="w-[78%] h-[78%] rounded-full bg-card flex flex-col items-center justify-center">
-              <div className="text-3xl sm:text-5xl font-black tabular-nums leading-none">{displayed}</div>
-              <div className="mt-1 sm:mt-1.5 text-[9px] sm:text-[10px] uppercase tracking-wider font-semibold text-violet-300/80">
-                {planScore.bandLabel}
-              </div>
+          <ScoreRing score={target} displayed={displayed} ring={ring}>
+            <div className="text-3xl sm:text-5xl font-black tabular-nums leading-none">{displayed}</div>
+            <div className="mt-1 sm:mt-1.5 text-[9px] sm:text-[10px] uppercase tracking-wider font-semibold text-violet-300/80">
+              {planScore.bandLabel}
             </div>
-          </div>
+          </ScoreRing>
           <div className="flex-1 min-w-0 text-left">
             <h2 className="text-base sm:text-xl font-semibold leading-snug text-foreground">
               {headlineContent}
@@ -294,14 +285,18 @@ export function HeroScore({
                 Limited data — some sub-scores excluded.
               </p>
             )}
-            <p className="mt-2 inline-flex items-start gap-1.5 text-[11px] text-violet-300/70">
-              <FlaskConical className="w-3 h-3 shrink-0 mt-0.5" aria-hidden="true" />
-              <span>
-                Inspector is still in early development — bugs may exist, and suggestions may be off if your deck does something unique.
-              </span>
-            </p>
+            {path && <div className="mt-3">{path}</div>}
           </div>
         </div>
+
+        {/* The beta note, tucked into the corner: it still matters, but it isn't the headline. Phones
+            show it at the foot of the launch pad instead, so the jobs reach the first screen. */}
+        <p className="hidden sm:flex self-end items-start gap-1.5 text-right lg:whitespace-nowrap text-[11px] text-violet-300/70 -mt-2 -mb-4 -mr-2">
+          <FlaskConical className="w-3 h-3 shrink-0 mt-0.5" aria-hidden="true" />
+          <span>
+            Inspector is still in early development, so bugs may exist and suggestions may be off if your deck does something unique.
+          </span>
+        </p>
 
       </div>
 

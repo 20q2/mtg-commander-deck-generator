@@ -201,8 +201,11 @@ export function buildLiftScanInputs(opts: {
   ])];
   let identity = colorIdentity && colorIdentity.length ? colorIdentity : null;
   if (!identity) {
+    // The commander defines the identity. Unioning the whole list let one off-colour card in a pasted
+    // deck (Mad Auntie in mono-red Krenko) open the scan to black and suggest Frogtosser Banneret.
     const set = new Set<string>();
-    for (const c of [commander, partnerCommander, ...currentCards]) {
+    const source = commander ? [commander, partnerCommander] : currentCards;
+    for (const c of source) {
       for (const col of c?.color_identity ?? []) set.add(col);
     }
     identity = [...set];

@@ -6,6 +6,7 @@ import { fetchComboDetails, type ComboDetails } from '@/services/edhrec/client';
 import { comboFitsBracket } from '@/services/deckBuilder/bracketEstimator';
 import { templateLabel, slotSearchQuery, slotSearchUrl } from '@/services/combos/templateFit';
 import { SlotSearchPanel } from '@/components/deck/SlotSearchPanel';
+import { ComboCardSearch } from '@/components/deck/ComboCardSearch';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
 import { CardContextMenu, type CardAction } from '@/components/deck/DeckDisplay';
 import { ManaText } from '@/components/ui/mtg-icons';
@@ -203,6 +204,11 @@ function extractMeaningfulPrereqs(prereqs: string[], cardNames: string[]): strin
   return out;
 }
 
+/** Thin rule between header control groups. Hidden on phones, where the row wraps. */
+function HeaderDivider() {
+  return <span aria-hidden className="hidden sm:block h-4 w-px bg-border/70 shrink-0" />;
+}
+
 export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDeck, onRemoveFromDeck, onMoveToSideboard, onMoveToMaybeboard, forceExpanded, deckBracket, phasesDone, customCombos, deckCardNames, onAddCombo, onEditCombo, onDeleteCombo, seedCard, onSeedConsumed }: ComboDisplayProps) {
   const combosReady = !phasesDone || phasesDone.has('combos');
   const commander = useStore(s => s.commander);
@@ -397,6 +403,19 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
     () => filteredVisible.filter(c => hasExcludedCard(c) && withinBracket(c)),
     [filteredVisible, hasExcludedCard, withinBracket],
   );
+
+  // The header search's autocomplete pool: every card in a combo the panel
+  // would show with no card filter applied, so any suggestion has results.
+  const searchCardCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const combo of notHidden) {
+      if (!(combo.isComplete && !hasExcludedCard(combo)) && !withinBracket(combo)) continue;
+      for (const n of new Set(combo.cards.map(n => (n.includes(' // ') ? n.split(' // ')[0] : n)))) {
+        counts.set(n, (counts.get(n) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [notHidden, hasExcludedCard, withinBracket]);
 
   // Near-miss pagination. The page index is clamped rather than reset when the
   // list shrinks; explicit filter/sort changes jump back to page one.
@@ -1337,7 +1356,13 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
       >
         <Sparkles className="w-4 h-4 text-primary shrink-0" />
         <h3 className="text-sm font-semibold truncate">Combos in Your Deck</h3>
-        <span className="text-xs text-muted-foreground ml-auto shrink-0 whitespace-nowrap">
+        {expanded && (
+          <span className="ml-auto">
+            <ComboCardSearch cardCounts={searchCardCounts} value={cardFilter} onChange={setCardFilter} />
+          </span>
+        )}
+        {expanded && <HeaderDivider />}
+        <span className={`text-xs text-muted-foreground shrink-0 whitespace-nowrap ${expanded ? '' : 'ml-auto'}`}>
           {completeCombos.length} complete{nearMisses.length > 0 ? ` · ${nearMisses.length} near-miss` : ''}{customCount > 0 ? ` · ${customCount} custom` : ''}{excludedCombos.length > 0 ? ` · ${excludedCombos.length} excluded` : ''}{overBracketHiddenCount > 0 ? ` · ${overBracketHiddenCount} over-bracket hidden` : ''}{hiddenByCardCount > 0 ? ` · ${hiddenByCardCount} muted` : ''}
         </span>
         {onAddCombo && (
@@ -1355,16 +1380,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             <span>Add</span>
           </button>
         )}
-        {expanded && cardFilter && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setCardFilter(null); }}
-            className="flex items-center gap-1 px-2 py-1 text-[10px] rounded-md bg-violet-500/20 text-violet-200 hover:bg-violet-500/30 transition-colors shrink-0"
-            title="Clear card filter"
-          >
-            <span className="truncate max-w-[140px]">Filter: {cardFilter}</span>
-            <X className="w-3 h-3 shrink-0" />
-          </button>
-        )}
+        {expanded && <HeaderDivider />}
         {expanded && hiddenComboCards.length > 0 && (
           <button
             onClick={(e) => { e.stopPropagation(); setShowHiddenCards(v => !v); }}
@@ -1407,6 +1423,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             <span>Details: {showPrereqs ? 'On' : 'Off'}</span>
           </button>
         )}
+        {expanded && <HeaderDivider />}
         {expanded && (
           <span className="flex items-center rounded-md border border-border overflow-hidden shrink-0" onClick={(e) => e.stopPropagation()}>
             {(['relevance', 'popularity'] as const).map((mode) => (
@@ -1420,6 +1437,7 @@ export function ComboDisplay({ combos, hideMustInclude, onRegenerate, onAddToDec
             ))}
           </span>
         )}
+        {expanded && deckBracket != null && <HeaderDivider />}
         {expanded && deckBracket != null && (
           <span
             className="flex items-center gap-1 shrink-0"

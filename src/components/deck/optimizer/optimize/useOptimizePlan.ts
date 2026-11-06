@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ScryfallCard, DetectedCombo } from '@/types';
 import {
   computeOptimizeSwaps,
+  pairSwaps,
   type DeckAnalysis,
   type OptimizeCard,
   type OptimizeSwaps,
@@ -44,7 +45,6 @@ export interface OptimizePlanTotals {
   addCount: number;
   totalChanges: number;
   priceDelta: number | null; // null when no price data is available for any selected card
-  scoreDelta: number;        // sum of inclusion(adds) − sum of inclusion(cuts)
   projectedSize: number;
   targetSize: number;
   overBy: number;
@@ -138,14 +138,11 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
       const p = resolvePrice(c);
       if (p) { addedPrice += parseFloat(p); hasAnyPrice = true; }
     }
-    const removedScore = checkedRemovals.reduce((s, c) => s + (c.inclusion ?? 0), 0);
-    const addedScore = checkedAdditions.reduce((s, c) => s + (c.inclusion ?? 0), 0);
     return {
       removeCount: checkedRemovals.length,
       addCount: checkedAdditions.length,
       totalChanges: checkedRemovals.length + checkedAdditions.length,
       priceDelta: hasAnyPrice ? addedPrice - removedPrice : null,
-      scoreDelta: Math.round(addedScore - removedScore),
       projectedSize,
       targetSize,
       overBy: Math.max(0, projectedSize - targetSize),
@@ -209,6 +206,29 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
       return next;
     });
   }, []);
+
+  // The recommended plan: every cut paired with an add that's an upgrade for it (the same pairing the
+  // Overview offers), plus whatever unpaired cuts or adds bring the deck to its target size.
+  const recommended = useMemo(() => {
+    const pairs = pairSwaps(removals, additions, Infinity);
+    const cuts = new Set(pairs.map(p => p.out.name));
+    const adds = new Set(pairs.map(p => p.in.name));
+    const offBy = currentCards.length - analysis.manaBase.deckSize;
+    for (const c of offBy > 0 ? removals : offBy < 0 ? additions : []) {
+      const side = offBy > 0 ? cuts : adds;
+      if (side.size >= pairs.length + Math.abs(offBy)) break;
+      side.add(c.name);
+    }
+    return { cuts, adds };
+  }, [removals, additions, currentCards.length, analysis.manaBase.deckSize]);
+  const recommendedCount = recommended.cuts.size + recommended.adds.size;
+  const sameSet = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every(n => b.has(n));
+  const isRecommendedSelected = recommendedCount > 0
+    && sameSet(recommended.cuts, checkedRemovalNames) && sameSet(recommended.adds, checkedAdditionNames);
+  const selectRecommended = useCallback(() => {
+    setCheckedRemovalNames(new Set(recommended.cuts));
+    setCheckedAdditionNames(new Set(recommended.adds));
+  }, [recommended]);
 
   // Reset = clear all selections (return to the default "nothing selected" state).
   const resetSelections = useCallback(() => {
@@ -284,6 +304,9 @@ export function useOptimizePlan(opts: UseOptimizePlanOptions) {
     selectAdditionGroup,
     deselectAdditionGroup,
     resetSelections,
+    recommendedCount,
+    isRecommendedSelected,
+    selectRecommended,
     addExtraCandidate,
     apply,
   };

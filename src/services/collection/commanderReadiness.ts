@@ -1,6 +1,20 @@
 import { fetchCommanderData, fetchCommandersWithinColors } from '@/services/edhrec/client';
 import type { CollectionCard } from '@/services/collection/db';
 import type { EDHRECTopCommander } from '@/types';
+import { isListedCommander } from '@/services/tagger/client';
+
+/**
+ * Whether a collection card can be a commander. The collection stores only the type line, which
+ * can't see Tasha, Grist or Shorikai — the weekly tagger list (Scryfall's `is:commander`) can. The
+ * type-line check stays alongside it for legends printed since the last weekly sync, and for
+ * when tagger data isn't loaded.
+ */
+export function isCollectionCommander(card: Pick<CollectionCard, 'name' | 'typeLine'>): boolean {
+  if (isListedCommander(card.name)) return true;
+  // Front face only — DFC back faces (Battles, flip cards) don't lead a deck.
+  const front = (card.typeLine ?? '').split(' // ')[0].toLowerCase();
+  return front.includes('legendary') && (front.includes('creature') || front.includes('spacecraft'));
+}
 
 export interface CommanderReadiness {
   commanderName: string;

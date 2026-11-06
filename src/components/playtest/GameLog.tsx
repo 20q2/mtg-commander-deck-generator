@@ -240,6 +240,21 @@ function LogLine({ text, category, undone, cardIndex }: {
   undone?: boolean;
   cardIndex: CardIndex;
 }) {
+  // A new turn is a section break, not one more line: a rule with the turn
+  // named in its middle, so scrolling back you can see where each turn starts.
+  if (category === 'turn') {
+    return (
+      <div
+        className={`flex items-center gap-2 pt-2.5 pb-1 first:pt-0 ${undone ? 'opacity-40 line-through' : ''}`}
+        role="separator"
+        aria-label={text}
+      >
+        <span className="h-px flex-1 bg-purple-400/30" aria-hidden />
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-purple-300/90">{text}</span>
+        <span className="h-px flex-1 bg-purple-400/30" aria-hidden />
+      </div>
+    );
+  }
   const cat = LOG_CATEGORIES.find(c => c.key === category);
   return (
     <div className={`flex gap-1.5 ${undone ? 'text-muted-foreground/40 line-through' : 'text-muted-foreground/90'}`}>

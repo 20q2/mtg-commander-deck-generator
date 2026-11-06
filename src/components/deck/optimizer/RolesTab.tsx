@@ -6,6 +6,7 @@ import { getRoleVerdict } from '@/services/deckBuilder/deckAnalyzer';
 import { roleBarColor, ROLE_META, VERDICT_STYLES, ROLE_KNOWN_SUBTYPES, type CollapsibleGroup } from './constants';
 import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid } from './OverviewTab';
+import { useSubtypeFacets, SubtypeFacetChips } from './subtypeFacets';
 
 // ─── Roles Tab: Summary Strip ────────────────────────────────────────
 
@@ -166,6 +167,8 @@ export function RoleDetailPanel({
   menuProps?: CardRowMenuProps;
 }) {
   const hasSuggestions = rb.suggestedReplacements.length > 0;
+  const facetRoles = useMemo(() => [rb.role], [rb.role]);
+  const facets = useSubtypeFacets(rb.suggestedReplacements, facetRoles);
 
   // Soft aurora tint by role — green/red/orange/blue
   const auroraByRole: Record<string, string> = {
@@ -202,8 +205,9 @@ export function RoleDetailPanel({
         {hasSuggestions && (
           <div className="flex-1 min-w-0">
             <SuggestionCardGrid
-              title={<>Suggested {rb.label} ({rb.suggestedReplacements.length})</>}
-              cards={rb.suggestedReplacements}
+              title={<>Suggested {rb.label} ({facets.filtered.length})</>}
+              cards={facets.filtered}
+              headerControls={<SubtypeFacetChips options={facets.options} active={facets.active} onChange={facets.setActive} />}
               onAdd={onAdd}
               onPreview={onPreview}
               addedCards={addedCards}

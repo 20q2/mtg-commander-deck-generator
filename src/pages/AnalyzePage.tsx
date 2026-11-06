@@ -27,6 +27,7 @@ import { applyCommanderTheme, resetTheme } from '@/lib/commanderTheme';
 import { getMaxCopies } from '@/lib/utils';
 import { trackEvent } from '@/services/analytics';
 import { edhrecColorSegment } from '@/services/edhrec/client';
+import { inspectorOverrideRef, loadInspectorOverrides } from '@/services/inspectorOverrides/storage';
 import type { UserCardList, GeneratedDeck, ScryfallCard } from '@/types';
 import type { CardAction } from '@/components/deck/DeckDisplay';
 import type { ThemeMembership } from '@/components/analyze/themeMembership';
@@ -759,11 +760,15 @@ export function AnalyzePage() {
       for (const cards of Object.values(generatedDeck.categories)) {
         for (const c of cards) cardNames.push(c.name);
       }
+      // The bracket the Inspector was judging this unsaved deck at, if the player picked one, else
+      // the one it was generated at. Lives on the list from here on.
+      const unsavedRef = inspectorOverrideRef(undefined, generatedDeck.commander?.name ?? '', generatedDeck.partnerCommander?.name);
       const newList = createList(name, cardNames, '', {
         type: 'deck',
         commanderName: generatedDeck.commander?.name,
         partnerCommanderName: generatedDeck.partnerCommander?.name,
         deckSize: cardNames.length,
+        intendedBracket: loadInspectorOverrides(unsavedRef).intendedBracket ?? generatedDeck.intendedBracket,
       });
       setSource({ kind: 'list', listId: newList.id, listName: name });
       trackEvent('analyze_deck_saved', { listName: name, cardCount: cardNames.length, source: source.kind });

@@ -83,7 +83,7 @@ export const AddCardsPanel = forwardRef<CollectionImporterHandle, AddCardsPanelP
     [existingNames]
   );
 
-  const { query, setQuery, suggestions, loading, clear } = useCardNameSearch({ exclude });
+  const { query, setQuery, suggestions, loading, clear, activeIndex, setActiveIndex, activeSuggestion, navKeyDown, listRef } = useCardNameSearch({ exclude });
 
   // Suggestions are canonical Scryfall names already, so they can go straight
   // down the same path as a validated paste.
@@ -142,7 +142,8 @@ export const AddCardsPanel = forwardRef<CollectionImporterHandle, AddCardsPanelP
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); if (suggestions[0]) void add(suggestions[0]); }
+              if (navKeyDown(e)) return;
+              if (e.key === 'Enter') { e.preventDefault(); if (activeSuggestion) void add(activeSuggestion); }
             }}
             placeholder="Add a card by name…"
             className="h-9 pl-8 pr-8 text-sm"
@@ -195,13 +196,15 @@ export const AddCardsPanel = forwardRef<CollectionImporterHandle, AddCardsPanelP
         </div>
 
         {suggestions.length > 0 && (
-          <div className="max-h-[220px] overflow-y-auto flex flex-col">
-            {suggestions.map((name) => (
+          <div ref={listRef} className="max-h-[220px] overflow-y-auto flex flex-col">
+            {suggestions.map((name, i) => (
               <button
                 key={name}
                 type="button"
+                data-suggestion-index={i}
+                onMouseMove={() => setActiveIndex(i)}
                 onClick={() => void add(name)}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-md text-left hover:bg-accent/50 transition-colors"
+                className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-left transition-colors ${i === activeIndex ? 'bg-accent/50' : ''}`}
               >
                 {swapping
                   ? <Repeat className="w-3.5 h-3.5 text-violet-300/70 shrink-0" />

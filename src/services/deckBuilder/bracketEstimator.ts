@@ -42,6 +42,40 @@ export interface BracketBreakdown {
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
+/** Soft-score weights: points per card and the most each kind can add. `free` is interaction every
+ *  deck runs before it starts to count. Shared with `cardsToNextBracket` so the two can't drift. */
+export const SOFT = {
+  fastMana: { per: 8, cap: 40 },
+  tutors: { per: 5, cap: 25 },
+  interaction: { per: 2, cap: 15, free: 8 },
+} as const;
+
+export type PowerLever = 'fastMana' | 'tutors' | 'interaction';
+
+/**
+ * How many more cards of each kind would, on their own, lift the soft score past `pointsShort`.
+ * A kind already at its cap, or without the room to close the gap alone, is left out. Ordered by
+ * fewest cards first.
+ */
+export function cardsToNextBracket(breakdown: BracketBreakdown, pointsShort: number): { lever: PowerLever; cards: number }[] {
+  if (pointsShort <= 0) return [];
+  const room: Record<PowerLever, number> = {
+    fastMana: SOFT.fastMana.cap - Math.min(SOFT.fastMana.cap, breakdown.fastManaCount * SOFT.fastMana.per),
+    tutors: SOFT.tutors.cap - Math.min(SOFT.tutors.cap, breakdown.tutorCount * SOFT.tutors.per),
+    interaction: SOFT.interaction.cap
+      - Math.min(SOFT.interaction.cap, Math.max(0, breakdown.interactionCount - SOFT.interaction.free) * SOFT.interaction.per),
+  };
+  // Interaction under the free allowance has to climb past it before a card counts.
+  const interactionLead = Math.max(0, SOFT.interaction.free - breakdown.interactionCount);
+  return (Object.keys(room) as PowerLever[])
+    .filter(k => room[k] >= pointsShort)
+    .map(k => ({
+      lever: k,
+      cards: Math.ceil(pointsShort / SOFT[k].per) + (k === 'interaction' ? interactionLead : 0),
+    }))
+    .sort((a, b) => a.cards - b.cards);
+}
+
 const BRACKET_LABELS: Record<number, string> = {
   1: 'Exhibition',
   2: 'Core',
@@ -82,6 +116,10 @@ const FAST_MANA = new Set([
   'Ancient Tomb',
   'Jeweled Lotus',
 ]);
+
+export function isFastMana(name: string): boolean {
+  return FAST_MANA.has(name);
+}
 
 /**
  * How many extra-turn cards stop reading as "low quantities" and start reading
@@ -228,10 +266,10 @@ export function estimateBracket(
   // the same number the UI shows. Rounding only on the way out let a raw 65.6
   // display as "66 / 100" beside copy promising a bump at 66, and not bump.
   const softScore = Math.round(Math.min(100,
-    Math.min(40, fastMana.length * 8) +
-    Math.min(25, tutors.length * 5) +
+    Math.min(SOFT.fastMana.cap, fastMana.length * SOFT.fastMana.per) +
+    Math.min(SOFT.tutors.cap, tutors.length * SOFT.tutors.per) +
     Math.min(20, Math.max(0, (3.5 - averageCmc) * 15)) +
-    Math.min(15, Math.max(0, (interactionCount - 8) * 2))
+    Math.min(SOFT.interaction.cap, Math.max(0, (interactionCount - SOFT.interaction.free) * SOFT.interaction.per))
   ));
 
   // ── 6. Final bracket ──

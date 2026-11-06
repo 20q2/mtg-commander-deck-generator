@@ -5262,6 +5262,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     detectedPacing,
     bracketEstimation,
     gameChangerNames: [...gameChangerNames],
+    intendedBracket: customization.bracketLevel !== 'all' ? customization.bracketLevel : undefined,
     deckGrade: (() => {
       if (!edhrecData || !roleTargets) return undefined;
       try {

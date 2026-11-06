@@ -1,6 +1,6 @@
 import type { ScryfallCard } from '@/types';
 import type { Combatant } from '@/services/playtest/combat';
-import { costOf, lookupEffect, type BotEffectSpec, type TargetRestriction } from '@/services/playtest/opponents/effects';
+import { costOf, lookupEffect, type BotEffectSpec, type GrantedToken, type TargetRestriction } from '@/services/playtest/opponents/effects';
 
 /** One of the player's battlefield cards, flattened to what a bot cares about. */
 export interface PlayerCardRead {
@@ -85,10 +85,10 @@ export interface AppliedEffect {
    * Beast, Terastodon's Elephants. The drawback half of those cards, and the
    * half that decides whether they are worth casting: a 3/3 handed back for
    * a basic land is a bad trade, and a bot that skipped it was playing a
-   * better card than the one it holds. A name rather than a card: the token
-   * is looked up in the caster's own pool at the moment it lands.
+   * better card than the one it holds. A description rather than a card: the
+   * token is looked up in the caster's own pool at the moment it lands.
    */
-  grants?: string;
+  grants?: GrantedToken;
   /** Life the VICTIM gains — Swords to Plowshares. */
   victimGain?: number;
   /**
@@ -126,7 +126,7 @@ export function describeEffect(effect: AppliedEffect, target: string): string {
     // your Sol Ring is a trade, not a loss.
     const n = effect.destroy.length;
     const back = effect.grants
-      ? ` · you get ${tokenPhrase(n, effect.grants)}`
+      ? ` · you get ${tokenPhrase(n, effect.grants.name)}`
       : effect.victimGain
         ? ` · you gain ${effect.victimGain} life`
         : '';

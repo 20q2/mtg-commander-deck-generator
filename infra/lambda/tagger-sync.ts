@@ -39,6 +39,11 @@ const TAGS: Record<string, string> = {
   // Bracket estimation tags
   'mass-land-denial': 'otag:mass-land-denial',
   'extra-turn': 'otag:extra-turn',
+  // Commander eligibility — not an otag, but Scryfall's own rules ruling: planeswalkers that
+  // "can be your commander", legendary Vehicles, Grist. The collection only stores type lines,
+  // so this is the only way it can tell. Backgrounds only lead beside a "Choose a Background"
+  // commander, so they stay off the list.
+  commander: 'is:commander -is:funny -t:background',
 };
 
 interface ScryfallListResponse {

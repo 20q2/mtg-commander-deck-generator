@@ -153,6 +153,25 @@ export function areValidPartners(card1: ScryfallCard, card2: ScryfallCard): bool
 }
 
 /**
+ * Local mirror of Scryfall's `is:commander` (minus Backgrounds, which only lead beside a
+ * "Choose a Background" commander). The card object carries no such flag, so this is the
+ * rule, judged on the front face: a legendary creature; a legendary Vehicle or Spacecraft
+ * with printed power; any card printed "can be your commander" (Tasha, Teferi); or a card
+ * that is a creature off the battlefield (Grist, the Hunger Tide).
+ */
+export function canBeCommander(card: ScryfallCard): boolean {
+  const frontType = (card.card_faces?.[0]?.type_line ?? card.type_line ?? '').split(' // ')[0].toLowerCase();
+  const frontPower = card.card_faces?.[0]?.power ?? card.power;
+  if (frontType.includes('legendary')) {
+    if (frontType.includes('creature')) return true;
+    if ((frontType.includes('vehicle') || frontType.includes('spacecraft')) && frontPower != null) return true;
+  }
+  const oracleText = getOracleText(card);
+  return /can be your commander/i.test(oracleText)
+    || /isn't on the battlefield, it's an? [^.]*\bcreature\b/i.test(oracleText);
+}
+
+/**
  * True for the colorless legends whose color identity is picked before the game rather
  * than printed: Clara Oswald ("Impossible Girl"), The Prismatic Piper and Faceless One.
  * Scryfall reports `color_identity: []` for all three, so a pair like

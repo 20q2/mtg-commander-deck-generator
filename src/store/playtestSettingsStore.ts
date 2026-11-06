@@ -88,8 +88,9 @@ interface Settings {
   cardPreviewExplicit: boolean;
   animations: boolean;
   /**
-   * Quiet synthesized table sounds — shuffle, draw, counter click, card landing, tap — plus the
-   * chime that fires when the bots finish their turns and control comes back to you.
+   * Quiet synthesized table sounds — shuffle, draw, counter bump, card landing, tap/untap swoosh,
+   * die rattle — plus the chime that fires when the bots finish their turns and control comes back
+   * to you.
    */
   sounds: boolean;
   dotGrid: boolean;

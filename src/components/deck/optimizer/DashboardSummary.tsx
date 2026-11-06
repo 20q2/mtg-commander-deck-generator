@@ -1,109 +1,16 @@
 // src/components/deck/optimizer/DashboardSummary.tsx
-import { useMemo, useState } from 'react';
 import { HeroScore } from './dashboard/HeroScore';
-import { SubScoreTile } from './dashboard/SubScoreTile';
-import { SynergyWebTile } from './dashboard/SynergyWebTile';
-import { StrategyDrillIn } from './dashboard/StrategyDrillIn';
-import { NextBestMove } from './dashboard/NextBestMove';
 import { ThemePrompt } from './dashboard/ThemePrompt';
-import { useDeckConnectivity } from '@/hooks/useDeckConnectivity';
-import { buildMiniSynergyGraph } from '@/components/charts/MiniSynergyWeb';
-import type {
-  ScryfallCard, EDHRECCommanderData, DashboardWarning, SubScoreKey, DetectedCombo,
-} from '@/types';
-import type { DeckAnalysis, RoleBreakdown, CurvePhaseAnalysis, OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
+import { LaunchPad } from './dashboard/launchpad/LaunchPad';
+import type { LaunchPadWiring } from './dashboard/launchpad/types';
+import type { RingWiring } from './dashboard/launchpad/ScoreRing';
+import type { ScryfallCard } from '@/types';
+import type { DeckAnalysis, OptimizeSwaps } from '@/services/deckBuilder/deckAnalyzer';
 import type { BracketEstimation } from '@/services/deckBuilder/bracketEstimator';
 import type { ThemeMembership } from '@/components/analyze/themeMembership';
 import type { ThemeMatchResult } from '@/services/deckBuilder/themeDetector';
 import type { TabKey } from './constants';
 import type { ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
-import { Target, Shield, BarChart3 } from 'lucide-react';
-import { isAnyLand } from '@/services/scryfall/client';
-import { Radar, type RadarDatum } from '@/components/charts/Radar';
-import { MiniCurve } from '@/components/charts/MiniCurve';
-import { ROLE_AXES } from '@/components/brew/brewVisuals';
-
-/** One Strategy-radar spoke: a theme, its 0-100 match score (the detector's
- *  composite — what drives the radar shape), and how many deck cards belong to it. */
-export interface ThemeCoverage { slug: string; name: string; score: number; current: number; }
-
-// Role → hue + glyph, reused from the brew radar so a role's spoke colour matches
-// its badge everywhere (ramp green, removal red, wipes ember, draw azure).
-const ROLE_AXIS_META = Object.fromEntries(ROLE_AXES.map(a => [a.key, { hue: a.hue, Icon: a.Icon }]));
-
-// Roles scaled against each role's OWN target: a role that exactly meets target sits on the
-// dashed reference ring (2/3 radius), over-built roles spike past it, deficits dip inside.
-// This shows the deck's lean without letting naturally-small roles (e.g. board wipes, target
-// ~3) collapse to the center the way "relative to the biggest role" did.
-const ROLE_TARGET_RADIUS = 2 / 3; // where "target met" sits, leaving headroom to spike past it
-function roleRadarData(rbs: RoleBreakdown[]): RadarDatum[] {
-  return rbs.map(rb => {
-    const meta = ROLE_AXIS_META[rb.role];
-    const Icon = meta?.Icon;
-    const ratio = rb.target > 0 ? rb.current / rb.target : (rb.current > 0 ? 1.5 : 0);
-    return {
-      key: rb.role, label: rb.label, current: rb.current, target: rb.target,
-      fill: Math.max(0, Math.min(1, ratio * ROLE_TARGET_RADIUS)),
-      ref: ROLE_TARGET_RADIUS,
-      hue: meta?.hue ?? '262 84% 72%',
-      glyph: Icon ? <Icon className="w-[13px] h-[13px]" strokeWidth={2} /> : null,
-    };
-  });
-}
-
-// Strategy spokes: theme names live in the hover `tip` (no visible label — 8 theme
-// names would crowd the small chart). Fill is the detector's 0-100 match score on an
-// absolute scale, so the deck's real themes spike and weak/off themes stay short —
-// raw card-overlap was flat because theme lists overlap heavily (every spoke maxed).
-//
-// Match scores cluster tightly, so a linear score→radius map reads as a near-regular blob and the
-// real spike barely shows. A power curve exaggerates the spread: anchored at the ends (0→0, 100→1)
-// while a gentle linear gap widens into a clear spike.
-const STRATEGY_CONTRAST = 1.7;
-const contrastFill = (share: number) => Math.pow(Math.max(0, Math.min(1, share / 100)), STRATEGY_CONTRAST);
-
-/**
- * Radius is the score RELATIVE to this deck's strongest theme, not an absolute 0-100 position.
- *
- * The absolute map was calibrated against one score distribution ("most themes land 60-70, the
- * dominant one ~90") and cannot survive the detector being tuned. Overlap used to saturate near 100
- * for every theme, and gating it on synergy — so a page's generic staples stop counting as evidence
- * — correctly pulled every composite down. Radius goes as score^1.7, so that amplified: a 30% score
- * drop becomes a ~44% radius drop, and the whole shape collapsed toward the centre on a deck whose
- * detection was actually correct. Hand-brewed decks start lower again, since they overlap their
- * commander's pages far less than an EDHREC-generated one.
- *
- * Relative scaling is also the better answer to the question this chart asks. It exists to show
- * which way the deck LEANS; absolute strength is already stated twice in the same tile, by the
- * headline score and the "N of M non-land cards reinforce X" line. `current`/`target` stay absolute
- * so hover still reports the true match score.
- */
-function themeRadarData(coverage: ThemeCoverage[]): RadarDatum[] {
-  const top = Math.max(...coverage.map(c => c.score), 1);
-  return coverage.map(c => ({
-    key: c.slug,
-    // Short label under each spoke; full name + score on hover.
-    label: c.name.length > 11 ? `${c.name.slice(0, 10)}…` : c.name,
-    current: Math.round(c.score), target: 100,
-    fill: contrastFill((c.score / top) * 100),
-    hue: '262 84% 72%',
-    glyph: null,
-    tip: `${c.name} — ${Math.round(c.score)}/100 match · ${c.current} card${c.current === 1 ? '' : 's'}`,
-  }));
-}
-
-// Collapse CMC 7+ into a single bar so the tile curve stays glanceable.
-function bucketCurve(breakdowns: { cmc: number; current: number; target: number }[]) {
-  const out: { cmc: number; current: number; target: number }[] = [];
-  const plus = { cmc: 7, current: 0, target: 0 };
-  for (const b of breakdowns) {
-    if (b.cmc >= 7) { plus.current += b.current; plus.target += b.target; }
-    else out.push({ cmc: b.cmc, current: b.current, target: b.target });
-  }
-  if (plus.current > 0 || plus.target > 0) out.push(plus);
-  return out;
-}
 
 export interface DashboardSummaryProps {
   commander: ScryfallCard;
@@ -113,61 +20,38 @@ export interface DashboardSummaryProps {
   analysis: DeckAnalysis;
   cards: ScryfallCard[];
   themeMembership: ThemeMembership | null;
-  primaryThemeData?: EDHRECCommanderData | null;
   planName?: string | null;
   sampleSize?: number | null;
-  /** Bracket estimate from the store — drives the headline and the low-bracket tip. */
+  /** Bracket estimate from the store — drives the headline and the power-level job. */
   bracketEstimation?: BracketEstimation;
-  warnings: DashboardWarning[];
   adjustContent?: ReactNode;
-  onNavigate: (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove' } | { liftView: 'islands' }) => void;
-  onSaveAsDeck?: () => void;
+  onNavigate: (tab: TabKey, opts?: { cardName: string; side: 'add' | 'remove'; pairs?: { out: string; in: string }[] }) => void;
   onOpenInDeckView?: () => void;
-  // Panel props
-  cardSynergyMap?: Record<string, number>;
-  detectedCombos?: DetectedCombo[];
   deckTarget?: number;
-  roleBreakdowns?: RoleBreakdown[];
-  curvePhases?: CurvePhaseAnalysis[];
-  themeCoverage?: ThemeCoverage[];
-  /** Shared swap list (also drives the optimize tab — same source as NextBestMove). */
+  /** Card Fit's cut and add columns — the launch pad pairs swaps from exactly these. */
   baseSwaps?: OptimizeSwaps | null;
-  /** Cost + Lift bento shown in the next-steps slot when no real next steps remain. */
-  bentoSlot?: ReactNode;
   /** True when the deck has no theme declared — surfaces the theme prompt above everything else. */
   needsTheme?: boolean;
   /** Best candidate the detector found while falling short of declaring it. */
   closestTheme?: ThemeMatchResult | null;
   /** Apply one theme as the primary, from the prompt's one-click path. */
   onApplyTheme?: (slug: string) => void;
+  /** What the launch pad needs from DeckOptimizer beyond the above. */
+  launchPad: LaunchPadWiring;
 }
 
-// The Card Fit subscore still computes and feeds the overall score, but its dashboard slot is now
-// the Synergy Web tile (rendered separately) — so it's omitted from the scored-tile map here.
-type ScoredKey = Exclude<SubScoreKey, 'cardFit'>;
-const SUBSCORE_META: Record<ScoredKey, {
-  label: string;
-  navigateTo: TabKey | null; // null = inline expand (Strategy)
-  Icon: LucideIcon;
-}> = {
-  strategy: { label: 'Strategy', navigateTo: null, Icon: Target },
-  roles: { label: 'Roles', navigateTo: 'roles', Icon: Shield },
-  tempo: { label: 'Tempo', navigateTo: 'curve', Icon: BarChart3 },
-};
-
+/**
+ * The Inspector's Overview: the score ring, then one question — what are we doing today? — whose
+ * answers open the right tool. The tabs hold the depth; this page is the launch pad.
+ */
 export function DashboardSummary(props: DashboardSummaryProps) {
   const {
     commander, partnerCommander, colorIdentity, sourceLabel,
-    analysis, cards, themeMembership, primaryThemeData, planName,
+    analysis, cards, themeMembership, planName,
     sampleSize, bracketEstimation, adjustContent, onNavigate,
-    onOpenInDeckView,
-    cardSynergyMap,
-    detectedCombos, deckTarget,
-    roleBreakdowns, curvePhases, themeCoverage,
-    baseSwaps, bentoSlot,
-    needsTheme, closestTheme, onApplyTheme,
+    onOpenInDeckView, deckTarget, baseSwaps,
+    needsTheme, closestTheme, onApplyTheme, launchPad,
   } = props;
-  const [strategyOpen, setStrategyOpen] = useState(false);
 
   if (!analysis.planScore) {
     return (
@@ -175,97 +59,14 @@ export function DashboardSummary(props: DashboardSummaryProps) {
     );
   }
   const planScore = analysis.planScore;
-  const misfits = analysis.misfits ?? [];
-  const gapAnalysis = analysis.gapAnalysis ?? [];
-
-  // ── Hint computations ────────────────────────────────────────────────
-  const nonLandCards = cards.filter(c => !isAnyLand(c));
-
-  // Strategy hint: top theme card by synergy
-  const themeKey = (c: ScryfallCard) => c.name.toLowerCase();
-  const inTheme = themeMembership
-    ? nonLandCards.filter(c => themeMembership.byCard.has(themeKey(c)))
-    : [];
-  const topSynergy = inTheme
-    .map(c => ({ name: c.name, syn: cardSynergyMap?.[c.name] ?? 0 }))
-    .filter(x => x.syn > 0)
-    .sort((a, b) => b.syn - a.syn)[0];
-  const strategyHint = topSynergy ? `Top theme play: ${topSynergy.name}` : undefined;
-
-  // Roles hint: weakest role by current/target ratio
-  const weakestRoleEntry = (roleBreakdowns ?? []).reduce<{ rb: RoleBreakdown; r: number } | null>(
-    (worst, rb) => {
-      const r = rb.current / Math.max(1, rb.target);
-      return !worst || r < worst.r ? { rb, r } : worst;
-    },
-    null
-  );
-  const rolesHint =
-    weakestRoleEntry && weakestRoleEntry.r < 1
-      ? `Weakest: ${weakestRoleEntry.rb.label} (${weakestRoleEntry.rb.current}/${weakestRoleEntry.rb.target})`
-      : undefined;
-
-  // Tempo hint: lightest curve phase by current/target ratio
-  const weakestPhaseEntry = (curvePhases ?? []).reduce<{ p: CurvePhaseAnalysis; r: number } | null>(
-    (worst, p) => {
-      const r = p.current / Math.max(1, p.target);
-      return !worst || r < worst.r ? { p, r } : worst;
-    },
-    null
-  );
-  const tempoHint =
-    weakestPhaseEntry && weakestPhaseEntry.r < 1
-      ? `Lightest: ${weakestPhaseEntry.p.phase} game (${weakestPhaseEntry.p.current} vs ${weakestPhaseEntry.p.target})`
-      : undefined;
-
-  const hints: Record<ScoredKey, string | undefined> = {
-    strategy: strategyHint,
-    roles: rolesHint,
-    tempo: tempoHint,
-  };
-
-  // ── Tile visuals ──────────────────────────────────────────────────────
-  const roleVisual = (roleBreakdowns && roleBreakdowns.length >= 3)
-    ? <Radar data={roleRadarData(roleBreakdowns)} accent="262 84% 72%" glow={false} gradientId="ovwRole" scale={0.8} />
-    : undefined;
-  const themeVisual = (themeCoverage && themeCoverage.length >= 3)
-    ? <Radar data={themeRadarData(themeCoverage.slice(0, 6))} accent="262 84% 72%" glow={false} gradientId="ovwTheme" scale={0.8} />
-    : undefined;
-  const curveData = analysis.curveBreakdowns ? bucketCurve(analysis.curveBreakdowns) : [];
-  const tempoVisual = curveData.length > 0
-    ? <MiniCurve curve={curveData} barHeight={64} variant="line" />
-    : undefined;
-  const visuals: Record<ScoredKey, React.ReactNode> = {
-    strategy: themeVisual,
-    roles: roleVisual,
-    tempo: tempoVisual,
-  };
-
-  // ── Synergy Web tile (4th slot) ───────────────────────────────────────
-  const { deckLinks, loading: synergyLoading } = useDeckConnectivity({
-    enabled: true,
-    commanderName: commander.name,
-    partnerCommanderName: partnerCommander?.name,
-    cards,
-  });
-  const commanderNames = useMemo(
-    () => new Set([commander.name, partnerCommander?.name].filter(Boolean) as string[]),
-    [commander, partnerCommander],
-  );
-  const synergyGraph = useMemo(
-    () => (deckLinks ? buildMiniSynergyGraph(cards, deckLinks, commanderNames) : null),
-    [cards, deckLinks, commanderNames],
-  );
-
   const deckExcess = deckTarget != null ? cards.length - deckTarget : 0;
 
-  const showThemePrompt = !!needsTheme && !!onApplyTheme;
-  /** Only a prompt with a one-click fix earns the next-steps slot; a bare nag does not. */
-  const themePromptReplacesSteps = showThemePrompt && !!closestTheme;
-
-  return (
-    <div className="flex flex-col gap-5 sm:gap-4 h-full">
+  // The hero renders inside the launch pad: its ring draws the path to 100, which follows the open job.
+  const header = (ring: RingWiring, path: ReactNode) => (
+    <>
       <HeroScore
+        ring={ring}
+        path={path}
         planScore={planScore}
         commander={commander}
         partnerCommander={partnerCommander}
@@ -279,73 +80,40 @@ export function DashboardSummary(props: DashboardSummaryProps) {
         adjustContent={adjustContent}
         onOpenInDeckView={onOpenInDeckView}
       />
-      {/* With a candidate to offer, this TAKES the next-steps slot rather than stacking above it.
-          Two call-to-action bands read as noise, and those next steps are measured against role
-          targets a theme would change — advice about to be recalculated. They return, corrected,
-          one click later. With no candidate there is no one-click fix, so the real advice stays and
-          the prompt sits above it. */}
-      {showThemePrompt && (
-        <ThemePrompt
-          closest={closestTheme}
-          onApply={onApplyTheme!}
-          adjustContent={adjustContent}
-        />
+      {/* A deck with no declared theme can't score Strategy at all; the one-click fix comes first. */}
+      {needsTheme && onApplyTheme && (
+        <ThemePrompt closest={closestTheme} onApply={onApplyTheme} adjustContent={adjustContent} />
       )}
-      {!themePromptReplacesSteps && <NextBestMove
+    </>
+  );
+
+  return (
+    // No h-full: in a fixed-height column the hero (overflow-hidden) would shrink to fit and clip its ring.
+    <div className="flex flex-col gap-5 sm:gap-4">
+      <LaunchPad
+        {...launchPad}
+        renderHeader={header}
         planScore={planScore}
-        misfits={misfits}
-        gapAnalysis={gapAnalysis}
-        roleBreakdowns={roleBreakdowns}
-        curvePhases={curvePhases}
-        detectedCombos={detectedCombos}
-        deckExcess={deckExcess}
+        analysis={analysis}
+        cards={cards}
         commander={commander}
-        onNavigate={onNavigate}
-        manaVerdict={analysis.manaBase?.verdict}
-        currentLands={analysis.manaBase?.currentLands}
-        suggestedLands={analysis.manaBase?.adjustedSuggestion}
-        limitedData={planScore.limitedData}
+        partnerCommander={partnerCommander}
+        colorIdentity={launchPad.colorIdentity ?? colorIdentity}
         baseSwaps={baseSwaps ?? null}
-        fallback={bentoSlot}
+        deckExcess={deckExcess}
+        deckTarget={deckTarget}
         bracketEstimation={bracketEstimation}
-        planName={planName}
-      />}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 items-stretch">
-        {(Object.keys(SUBSCORE_META) as ScoredKey[]).map((key, i) => {
-          const meta = SUBSCORE_META[key];
-          return (
-            <div key={key} className="cascade-in flex" style={{ '--cascade-i': i } as React.CSSProperties}>
-              <SubScoreTile
-                label={meta.label}
-                subscore={planScore.subscores[key]}
-                Icon={meta.Icon}
-                hint={hints[key]}
-                visual={visuals[key]}
-                onClick={() => {
-                  if (meta.navigateTo) onNavigate(meta.navigateTo);
-                  else setStrategyOpen(v => !v);
-                }}
-              />
-            </div>
-          );
-        })}
-        <div className="cascade-in flex" style={{ '--cascade-i': 3 } as React.CSSProperties}>
-          <SynergyWebTile
-            graph={synergyGraph}
-            loading={synergyLoading}
-            onClick={() => onNavigate('lift', { liftView: 'islands' })}
-          />
-        </div>
-      </div>
-      {strategyOpen && (
-        <StrategyDrillIn
-          cards={cards}
-          themeMembership={themeMembership}
-          primaryThemeData={primaryThemeData}
-          planName={planName}
-          sampleSize={sampleSize}
-        />
-      )}
+        sampleSize={sampleSize}
+        reasonCtx={{
+          // "The Mycotyrant" would read "most The Mycotyrant decks"; the article goes.
+          commanderShort: commander.name.split(',')[0].trim().replace(/^the\s+/i, ''),
+          roleBreakdowns: analysis.roleBreakdowns,
+          curvePhases: analysis.curvePhases,
+          targetsBracket: analysis.targetsBracket,
+          judgedBracket: analysis.bracket,
+        }}
+        onNavigate={onNavigate}
+      />
     </div>
   );
 }

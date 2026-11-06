@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
 import { autocompleteCardName } from '@/services/scryfall/client';
 
 export interface CardNameSearchOptions {
@@ -18,6 +18,25 @@ export interface CardNameSearch {
   suggestions: string[];
   loading: boolean;
   clear: () => void;
+  /**
+   * The suggestion Enter should act on. Starts on the top row and is moved by
+   * ↑/↓ via {@link CardNameSearch.navKeyDown}, or by the pointer through
+   * `setActiveIndex` so hover and keyboard never show two highlights.
+   */
+  activeIndex: number;
+  setActiveIndex: (i: number) => void;
+  /** `suggestions[activeIndex]`, or undefined when there are none. */
+  activeSuggestion: string | undefined;
+  /**
+   * Call first in the input's onKeyDown. Handles ↑/↓ (wrapping) and returns
+   * true when it consumed the key, so the caller can return early.
+   */
+  navKeyDown: (e: KeyboardEvent) => boolean;
+  /**
+   * Attach to the element wrapping the suggestion rows; each row needs
+   * `data-suggestion-index={i}`. Keeps the highlighted row scrolled into view.
+   */
+  listRef: RefObject<HTMLDivElement>;
 }
 
 /**
@@ -35,6 +54,8 @@ export function useCardNameSearch(options: CardNameSearchOptions = {}): CardName
   const [query, setQuery] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Held in a ref so changing the exclude set (e.g. after adding a card) doesn't
   // re-fire the debounced request; it's applied when results come back.
@@ -52,6 +73,7 @@ export function useCardNameSearch(options: CardNameSearchOptions = {}): CardName
         const exclude = excludeRef.current;
         const kept = exclude ? names.filter(n => !exclude.has(n.toLowerCase())) : names;
         setSuggestions(kept.slice(0, limit));
+        setActiveIndex(0);
       } catch {
         setSuggestions([]);
       } finally {
@@ -66,7 +88,26 @@ export function useCardNameSearch(options: CardNameSearchOptions = {}): CardName
     setQuery('');
     setSuggestions([]);
     setLoading(false);
+    setActiveIndex(0);
   };
 
-  return { query, setQuery, suggestions, loading, clear };
+  useEffect(() => {
+    listRef.current
+      ?.querySelector(`[data-suggestion-index="${activeIndex}"]`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex]);
+
+  const navKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return false;
+    if (suggestions.length === 0) return false;
+    e.preventDefault();
+    const n = suggestions.length;
+    setActiveIndex(i => (e.key === 'ArrowDown' ? i + 1 : i - 1 + n) % n);
+    return true;
+  };
+
+  return {
+    query, setQuery, suggestions, loading, clear,
+    activeIndex, setActiveIndex, activeSuggestion: suggestions[activeIndex], navKeyDown, listRef,
+  };
 }

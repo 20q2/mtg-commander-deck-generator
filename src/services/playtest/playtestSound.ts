@@ -1,7 +1,8 @@
 /**
- * The playtest table's sound layer: five very quiet synthesized cues — a shuffle riffle, a card
- * draw, a counter click, a card landing, a tap tick — so the board feels physical without anything
- * chattering at you, plus one deliberately audible chime when the bots hand the turn back to you.
+ * The playtest table's sound layer: quiet synthesized cues — a shuffle riffle, a card draw, a
+ * counter bump, a card landing, a tap and untap swoosh, a die rattle — so the board feels physical
+ * without anything chattering at you, plus one deliberately audible chime when the bots hand the
+ * turn back to you.
  *
  * Synthesized rather than sampled, like the brew's chimes: no asset files, nothing added to the
  * bundle, nothing to fetch. Everything is wrapped in try/catch and built lazily off the shared
@@ -16,7 +17,8 @@ import { audioContext, noiseBuffer } from '@/services/audio/context';
 import { usePlaytestSettings } from '@/store/playtestSettingsStore';
 
 export type PlaytestCue =
-  | 'shuffle' | 'draw' | 'counterUp' | 'counterDown' | 'land' | 'tap' | 'hit' | 'yourTurn';
+  | 'shuffle' | 'draw' | 'counterUp' | 'counterDown' | 'land' | 'tap' | 'untap' | 'roll' | 'hit'
+  | 'dust' | 'yourTurn';
 
 /** Bot seats play the same cues at half gain — present, but clearly not your own hands. */
 export const BOT_GAIN = 0.5;
@@ -50,9 +52,11 @@ function burst(
     /** Sweep the filter to this frequency across the burst (the riffle's downward hiss). */
     freqTo?: number;
     envelope?: (t: number) => number;
+    /** Seconds from now to start — lets one cue schedule several bursts (the die's rattle). */
+    delay?: number;
   },
 ): void {
-  const now = ac.currentTime;
+  const now = ac.currentTime + (opts.delay ?? 0);
   const src = ac.createBufferSource();
   src.buffer = noiseBuffer(ac, opts.dur, opts.envelope ?? (t => 1 - t));
   const filter = ac.createBiquadFilter();
@@ -67,9 +71,9 @@ function burst(
   src.stop(now + opts.dur + 0.02);
 }
 
-/** A short pitched body — only the card-landing thud needs one. */
-function thud(ac: AudioContext, freq: number, dur: number, gain: number): void {
-  const now = ac.currentTime;
+/** A short pitched body under a cue: the card-landing thud, the bump at the end of a swoosh. */
+function thud(ac: AudioContext, freq: number, dur: number, gain: number, delay = 0): void {
+  const now = ac.currentTime + delay;
   const osc = ac.createOscillator();
   osc.type = 'sine';
   osc.frequency.setValueAtTime(freq, now);
@@ -126,14 +130,18 @@ const CUES: Record<PlaytestCue, (ac: AudioContext, gain: number) => void> = {
     envelope: t => Math.sin(Math.PI * t),
   }),
 
-  // Counters: a hard resonant tick. Up and down differ only in pitch, which is enough to hear the
-  // direction without looking — the same information the floating +1/−1 text carries visually.
-  counterUp: (ac, gain) => burst(ac, {
-    dur: 0.012, gain: 0.05 * gain, type: 'bandpass', freq: 1700, q: 9,
-  }),
-  counterDown: (ac, gain) => burst(ac, {
-    dur: 0.012, gain: 0.05 * gain, type: 'bandpass', freq: 1050, q: 9,
-  }),
+  // Counters: a small rounded bump with a resonant tick on its front edge. The tick alone was
+  // twelve milliseconds and sat below hearing; the bump gives it a body. Up and down differ only in
+  // pitch, which is enough to hear the direction without looking — the same information the
+  // floating +1/−1 text carries visually.
+  counterUp: (ac, gain) => {
+    thud(ac, 620, 0.05, 0.04 * gain);
+    burst(ac, { dur: 0.012, gain: 0.04 * gain, type: 'bandpass', freq: 1700, q: 9 });
+  },
+  counterDown: (ac, gain) => {
+    thud(ac, 400, 0.05, 0.04 * gain);
+    burst(ac, { dur: 0.012, gain: 0.04 * gain, type: 'bandpass', freq: 1050, q: 9 });
+  },
 
   // A card meeting the table: a low bend plus a soft dull "pff" of air and cardstock.
   land: (ac, gain) => {
@@ -141,11 +149,40 @@ const CUES: Record<PlaytestCue, (ac: AudioContext, gain: number) => void> = {
     burst(ac, { dur: 0.06, gain: 0.022 * gain, type: 'lowpass', freq: 700, q: 0.7 });
   },
 
-  // Turning a card sideways: woodier and softer than a counter click, so a tapped-out board and a
-  // counter flurry never sound alike.
-  tap: (ac, gain) => burst(ac, {
-    dur: 0.022, gain: 0.03 * gain, type: 'bandpass', freq: 560, q: 3.5,
-  }),
+  // Turning a card sideways: a short swoosh of cardstock through air that comes to rest on a soft
+  // bump. Tap sweeps up and untap sweeps down, so you can hear which way the card turned. Both are
+  // airy where a counter is pitched, so a tapped-out board and a counter flurry never sound alike.
+  tap: (ac, gain) => {
+    burst(ac, {
+      dur: 0.11, gain: 0.05 * gain, type: 'bandpass', freq: 700, freqTo: 2400, q: 1.4,
+      envelope: t => Math.sin(Math.PI * Math.min(1, t * 1.15)) ** 2,
+    });
+    thud(ac, 170, 0.05, 0.035 * gain, 0.09);
+  },
+  untap: (ac, gain) => {
+    burst(ac, {
+      dur: 0.1, gain: 0.045 * gain, type: 'bandpass', freq: 2200, freqTo: 650, q: 1.4,
+      envelope: t => Math.sin(Math.PI * Math.min(1, t * 1.15)) ** 2,
+    });
+    thud(ac, 150, 0.045, 0.03 * gain, 0.08);
+  },
+
+  // A die tumbling: a handful of hard, bright clicks at uneven gaps that close up and fade, then
+  // one duller knock as it settles. Paced to the 450ms wiggle the die plays on screen, and pitched
+  // at random on each roll so two rolls never sound like a sample being replayed.
+  roll: (ac, gain) => {
+    const hits = [0, 0.065, 0.14, 0.2, 0.25, 0.29];
+    hits.forEach((at, i) => burst(ac, {
+      delay: at,
+      dur: 0.014,
+      gain: 0.05 * gain * (1 - i * 0.12),
+      type: 'bandpass',
+      freq: 2000 + Math.random() * 1600,
+      q: 6,
+    }));
+    thud(ac, 260, 0.06, 0.04 * gain, 0.36);
+    burst(ac, { delay: 0.36, dur: 0.02, gain: 0.035 * gain, type: 'bandpass', freq: 1300, q: 4 });
+  },
 
   // A creature connecting, once per strike as combat paces itself out. Lower and shorter than
   // `land` — a hit is a body, not cardstock — with the noise layer clipped tight so a five-creature
@@ -156,6 +193,15 @@ const CUES: Record<PlaytestCue, (ac: AudioContext, gain: number) => void> = {
     thud(ac, 110, 0.055, 0.055 * gain);
     burst(ac, { dur: 0.035, gain: 0.03 * gain, type: 'bandpass', freq: 1900, freqTo: 600, q: 1.1 });
   },
+
+  // A bot defeated and its board blowing away: a long, soft exhale of grit that swells and thins
+  // out as it falls in pitch, timed to the wave crossing the seat. Long for a table cue, but it
+  // happens once or twice a game and is the board leaving, so it can afford to be felt.
+  dust: (ac, gain) => burst(ac, {
+    dur: 1.6, gain: 0.04 * gain, type: 'bandpass', freq: 3200, freqTo: 500, q: 0.7,
+    envelope: t => Math.sin(Math.PI * Math.min(1, t * 1.05)) ** 1.5
+      * (0.75 + 0.25 * Math.abs(Math.sin(t * Math.PI * 2 * 9))),
+  }),
 
   // Control coming back to you after the table has played. The only cue here with a pitch you are
   // meant to notice: it fires once per turn cycle, and its whole job is to reach you when you have
@@ -181,6 +227,11 @@ export function playCue(cue: PlaytestCue, gain = 1): void {
   } catch {
     /* sound is decoration — never let it break the table */
   }
+}
+
+/** A tap cue picked by direction: `true` is turning sideways, `false` is standing back up. */
+export function playTapCue(tapped: boolean, gain = 1): void {
+  playCue(tapped ? 'tap' : 'untap', gain);
 }
 
 /** A counter cue picked by direction. */

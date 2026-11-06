@@ -16,15 +16,10 @@ import { Popover, PopoverContent, PopoverTrigger, PopoverClose } from '@/compone
 import { useStore } from '@/store';
 import { useCollection } from '@/hooks/useCollection';
 import type { ScryfallCard } from '@/types';
-import type { CollectionCard } from '@/services/collection/db';
+import { isCollectionCommander } from '@/services/collection/commanderReadiness';
+import { useTaggerReady } from '@/hooks/useTaggerReady';
 import { Search, Loader2, Shuffle, ChevronDown, Check } from 'lucide-react';
 import { trackEvent, fetchMetrics } from '@/services/analytics';
-
-function isLegendaryCreature(card: CollectionCard): boolean {
-  // Use only the front face type line to avoid matching DFC back faces (e.g. Battles)
-  const tl = (card.typeLine?.split(' // ')[0] ?? '').toLowerCase();
-  return tl.includes('legendary') && (tl.includes('creature') || tl.includes('spacecraft'));
-}
 
 /** Map a sorted color key (e.g. "UBR") to its MTG name */
 const COLOR_COMBO_NAMES: Record<string, string> = {
@@ -93,10 +88,13 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
   const arenaOnly = useStore((state) => state.customization.arenaOnly);
   const updateCustomization = useStore((state) => state.updateCustomization);
   const { cards: collectionCards, count: collectionCount } = useCollection();
-  // All legendary creatures in the collection
+  // Every possible commander in the collection. The tagger list is what finds Tasha and Shorikai;
+  // only fetch it for players who have a collection to look through.
+  const taggerReady = useTaggerReady(collectionCount > 0);
   const collectionLegends = useMemo(
-    () => collectionCards.filter(isLegendaryCreature),
-    [collectionCards]
+    () => collectionCards.filter(isCollectionCommander),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- taggerReady: the filter reads tagger data
+    [collectionCards, taggerReady]
   );
 
   // Random suggestions from owned legends (stable until ownedOnly toggles)
@@ -480,7 +478,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
             collectionLegends.length > 0 ? (
               <>
                 <p className="text-muted-foreground mb-4">
-                  Your legendary creatures:
+                  Commanders you own:
                 </p>
                 <div className="flex flex-wrap justify-center gap-2">
                   {ownedSuggestions.map((legend) => (
@@ -499,7 +497,7 @@ export function CommanderSearch({ onSelectCommander, destination = 'build' }: Co
               </>
             ) : (
               <p className="text-muted-foreground text-sm">
-                No legendary creatures found in your collection.
+                No commanders in your collection yet.
               </p>
             )
           ) : (

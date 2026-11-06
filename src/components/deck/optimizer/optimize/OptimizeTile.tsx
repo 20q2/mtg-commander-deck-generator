@@ -63,7 +63,7 @@ export const OptimizeTile = forwardRef<HTMLDivElement, OptimizeTileProps>(functi
         }
       }}
       className="group/tile relative block w-full text-left rounded-lg overflow-visible cursor-pointer"
-      title={card.name}
+      aria-label={card.name}
     >
       <div
         className={`relative rounded-lg overflow-hidden border transition-all duration-300 ease-out ${

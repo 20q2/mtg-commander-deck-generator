@@ -99,6 +99,44 @@ export function usePlaytestHotkeys() {
       // Esc backs out of a half-typed number instead of drawing it.
       if (e.key === 'Escape' && digitBuf) { clearDigits(); return; }
 
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        s.undo();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+        // Text highlighted on the page (a line of the game log) is a text copy —
+        // leave it to the browser rather than swallowing it for the table.
+        if (window.getSelection()?.toString()) return;
+        e.preventDefault();
+        s.copyToClipboard();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        // If the cursor is over the battlefield, paste centred on the cursor.
+        // Otherwise fall back to the cascading offset behaviour.
+        const cursor = cursorRef.current;
+        let target: { x: number; y: number } | undefined;
+        if (cursor) {
+          const bf = document.querySelector('[data-battlefield]') as HTMLElement | null;
+          if (bf) {
+            const r = bf.getBoundingClientRect();
+            const lx = cursor.x - r.left;
+            const ly = cursor.y - r.top;
+            if (lx >= 0 && ly >= 0 && lx <= r.width && ly <= r.height) {
+              target = { x: lx, y: ly };
+            }
+          }
+        }
+        s.pasteClipboard(target);
+        return;
+      }
+      // Everything below is a bare-key hotkey. With a modifier held the key is
+      // the browser's (Ctrl+S, Ctrl+D, Ctrl+R…) — it must not also shuffle the
+      // library or draw a card underneath.
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
       const k = e.key.toLowerCase();
       if (k === 'd') { e.preventDefault(); s.draw(1); return; }
       if (k === 'u') { e.preventDefault(); s.untapAll(); return; }
@@ -183,7 +221,7 @@ export function usePlaytestHotkeys() {
       // still turn into a 20, then pull that many cards off the top into your
       // hand. Over the battlefield, 1 pulls the card under the cursor (or the
       // whole marquee selection) back to hand — drawing a card you already own.
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[0-9]$/.test(e.key)) {
+      if (/^[0-9]$/.test(e.key)) {
         if (s.hoveredPile) {
           e.preventDefault();
           pushDigit(s.hoveredPile, e.key);
@@ -205,36 +243,6 @@ export function usePlaytestHotkeys() {
           s.setHovered(null);
           s.clearSelection();
         }
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-        e.preventDefault();
-        s.undo();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
-        e.preventDefault();
-        s.copyToClipboard();
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
-        e.preventDefault();
-        // If the cursor is over the battlefield, paste centred on the cursor.
-        // Otherwise fall back to the cascading offset behaviour.
-        const cursor = cursorRef.current;
-        let target: { x: number; y: number } | undefined;
-        if (cursor) {
-          const bf = document.querySelector('[data-battlefield]') as HTMLElement | null;
-          if (bf) {
-            const r = bf.getBoundingClientRect();
-            const lx = cursor.x - r.left;
-            const ly = cursor.y - r.top;
-            if (lx >= 0 && ly >= 0 && lx <= r.width && ly <= r.height) {
-              target = { x: lx, y: ly };
-            }
-          }
-        }
-        s.pasteClipboard(target);
         return;
       }
     };

@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { searchCards, searchCommanders, searchValidPartners, getCardImageUrl, getCardsByNames } from '@/services/scryfall/client';
 import { CollectionImporter, ImportResultDisplay, type ImportResult, type CollectionImporterHandle } from '@/components/collection/CollectionImporter';
 import { CommanderIcon, CardTypeIcon } from '@/components/ui/mtg-icons';
-import { getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
+import { canBeCommander, getPartnerType, getPartnerTypeLabel } from '@/lib/partnerUtils';
 import type { ScryfallCard, UserCardList } from '@/types';
 import { Search, Loader2, X, Plus, ArrowLeft, Trash2, Bold, Italic, Heading2, List, ListOrdered, Minus, Image as ImageIcon, LayoutGrid, Grid3x3, AlignLeft, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -178,7 +178,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
   }, []);
 
   // Fetch card data (type + image URL) for cards not yet in the map.
-  // Also surface any legendary creatures we encounter so the commander
+  // Also surface any possible commanders we encounter so the commander
   // dropdown populates for existing decks (CollectionImporter only fires
   // legendary detection on fresh paste; cards loaded from storage need this).
   const fetchMissingCardData = useCallback(async (currentCards: string[]) => {
@@ -194,8 +194,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
             type: classifyCardType(card.type_line ?? ''),
             imageUrl: getCardImageUrl(card, 'small'),
           });
-          const tl = (card.type_line ?? '').toLowerCase();
-          if (tl.includes('legendary') && tl.includes('creature')) {
+          if (canBeCommander(card)) {
             newLegendaries.push(card);
           }
         } else {
@@ -617,7 +616,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
             </label>
 
             {/* Commander selection — confirmed display when set, otherwise
-                search input. If imported cards include legendary creatures,
+                search input. If imported cards include possible commanders,
                 a dropdown button appears next to the input for quick pick. */}
             {commanderName ? (
               <div className="flex items-center gap-2 px-3 py-2 bg-background rounded-lg border border-border/30">
@@ -653,7 +652,7 @@ export function ListCreateEditForm({ existingList, mode: modeProp, onSave, onCan
                     <PopoverTrigger asChild>
                       <button
                         type="button"
-                        title={`Pick from ${importedLegendaries.length} imported legendary creature${importedLegendaries.length === 1 ? '' : 's'}`}
+                        title={`Pick from ${importedLegendaries.length} possible commander${importedLegendaries.length === 1 ? '' : 's'} in your list`}
                         className="h-9 px-2.5 inline-flex items-center gap-1 rounded-lg border border-border bg-background hover:bg-accent text-muted-foreground hover:text-foreground transition-colors text-xs"
                       >
                         <span className="font-semibold">{importedLegendaries.length}</span>

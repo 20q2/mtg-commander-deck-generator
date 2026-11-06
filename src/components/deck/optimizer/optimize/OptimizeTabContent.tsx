@@ -5,10 +5,12 @@ import type { DeckAnalysis, OptimizeSwaps } from '@/services/deckBuilder/deckAna
 import { getSwapCandidatesForCard } from '@/services/deckBuilder/cardSwap';
 import { useStore } from '@/store';
 import { ComboDisplay } from '@/components/deck/ComboDisplay';
-import { OptimizePlanHeader, type OptimizeView } from './OptimizePlanHeader';
+import { OptimizePlanDock, OptimizePlanHeader, type OptimizeView } from './OptimizePlanHeader';
 import { OptimizeColumn } from './OptimizeColumn';
 import { OptimizeDrilldown } from './OptimizeDrilldown';
 import { useOptimizePlan } from './useOptimizePlan';
+import { SwapImpactRow } from './SwapImpactRow';
+import { computeSwapImpact } from '@/services/deckBuilder/swapImpact';
 
 // Module-level constant so optional-prop fallbacks don't allocate fresh arrays
 // each render (which would invalidate downstream useMemo deps).
@@ -38,16 +40,21 @@ export interface OptimizeTabContentProps {
    * scrolls to the matching combo — used by the "complete this combo"
    * suggestion so users land on the combo breakdown, not the swap columns.
    */
-  preSelect?: { cardName: string; side: 'add' | 'remove'; comboId?: string } | null;
+  /** `pairs` ticks both sides of each Overview swap, so the tab opens on the trade the player was
+   *  looking at instead of a lone cut (98/99 cards). */
+  preSelect?: { cardName: string; side: 'add' | 'remove'; comboId?: string; pairs?: { out: string; in: string }[] } | null;
   onPreSelectConsumed?: () => void;
   /** Shared swap list lifted to DeckOptimizer so dashboard + optimize tab stay in sync. */
   baseSwaps?: OptimizeSwaps;
   /** Owned-card names — powers the "In collection" toggle on the ADD column. */
   collectionNames?: Set<string>;
+  /** The bracket the player is aiming at, when they have one — the impact row marks hitting it. */
+  aimBracket?: number | null;
 }
 
 // Persist the "limit adds to my collection" preference across sessions.
 const COLLECTION_ONLY_KEY = 'mtg-optimize-adds-collection-only';
+const IMPACT_HIDDEN_KEY = 'mtg-optimize-impact-hidden';
 
 export function OptimizeTabContent({
   analysis, currentCards, commanderName, partnerCommanderName,
@@ -56,7 +63,7 @@ export function OptimizeTabContent({
   onFocusedMisfitChange,
   onAddCards, onRemoveCards,
   preSelect, onPreSelectConsumed,
-  baseSwaps, collectionNames,
+  baseSwaps, collectionNames, aimBracket,
 }: OptimizeTabContentProps) {
   // Subscribe to store directly so we get a stable reference for the combos
   // array (Zustand returns the same slice instance until it actually changes).
@@ -80,6 +87,18 @@ export function OptimizeTabContent({
     });
   }, []);
 
+  // The impact strip can be folded away; remembered per browser.
+  const [impactHidden, setImpactHidden] = useState(() => {
+    try { return localStorage.getItem(IMPACT_HIDDEN_KEY) === 'true'; } catch { return false; }
+  });
+  const toggleImpact = useCallback(() => {
+    setImpactHidden(prev => {
+      const next = !prev;
+      try { localStorage.setItem(IMPACT_HIDDEN_KEY, String(next)); } catch { /* private mode */ }
+      return next;
+    });
+  }, []);
+
   const plan = useOptimizePlan({
     analysis, currentCards, cardInclusionMap,
     commanderName, partnerCommanderName,
@@ -92,6 +111,17 @@ export function OptimizeTabContent({
   });
   const highlightTimerRef = useRef<number | null>(null);
   const footerRef = useRef<HTMLDivElement | null>(null);
+  // The dock's size note opens the column that settles it: scroll there, then flash its edge.
+  const cutsRef = useRef<HTMLDivElement | null>(null);
+  const addsRef = useRef<HTMLDivElement | null>(null);
+  const [flashSide, setFlashSide] = useState<'remove' | 'add' | null>(null);
+  const showSide = useCallback((side: 'remove' | 'add') => {
+    (side === 'remove' ? cutsRef : addsRef).current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setFlashSide(side);
+    window.setTimeout(() => setFlashSide(s => (s === side ? null : s)), 1200);
+  }, []);
+  const flash = (side: 'remove' | 'add') =>
+    `rounded-xl transition-shadow duration-500 ${flashSide === side ? (side === 'remove' ? 'ring-2 ring-red-400/60' : 'ring-2 ring-emerald-400/60') : 'ring-0'}`;
 
   // Explicit set, not a toggle — the column's tile click and Radix's popover
   // trigger both report the intended state for the same click, so toggling here
@@ -152,28 +182,59 @@ export function OptimizeTabContent({
       if (preSelect.side === 'add') plan.selectAdditionGroup([preSelect.cardName]);
       else plan.selectRemovalGroup([preSelect.cardName]);
     }
+    if (preSelect.pairs?.length) {
+      const cuts = new Set(plan.removals.map(c => c.name));
+      const adds = new Set(plan.additions.map(c => c.name));
+      plan.selectRemovalGroup(preSelect.pairs.map(p => p.out).filter(n => cuts.has(n)));
+      plan.selectAdditionGroup(preSelect.pairs.map(p => p.in).filter(n => adds.has(n)));
+    }
     if (preSelect.comboId) {
       flashCombo(preSelect.comboId);
     }
     onPreSelectConsumed?.();
   }, [preSelect, onPreSelectConsumed, plan.additions, plan.removals, plan.selectAdditionGroup, plan.selectRemovalGroup, flashCombo]);
 
+  // What the checked swaps do — recomputed on every toggle; empty selection, no row.
+  const impact = useMemo(() => {
+    if (plan.checkedRemovals.length === 0 && plan.checkedAdditions.length === 0) return null;
+    return computeSwapImpact({
+      cuts: plan.checkedRemovals,
+      adds: plan.checkedAdditions,
+      currentCards,
+      commander: deck?.commander,
+      partnerCommander: deck?.partnerCommander,
+      analysis,
+      combos: detectedCombos,
+      gameChangerNames: deck?.gameChangerNames,
+      roleCounts: deck?.roleCounts,
+      priceDelta: plan.totals.priceDelta,
+    });
+  }, [plan.checkedRemovals, plan.checkedAdditions, plan.totals.priceDelta, currentCards, deck, analysis, detectedCombos]);
+
   return (
-    <div className="space-y-3 sm:space-y-4 px-3 sm:px-4 pb-3 sm:pb-4 pt-0">
+    // Two flush bands: the plan header, then the columns. Only the columns scroll; the min-height
+    // keeps them usable on a short screen, where the tab itself scrolls instead.
+    <div className="flex flex-1 min-h-0 flex-col">
       <OptimizePlanHeader
-        totals={plan.totals}
-        applying={plan.applying}
         hasSwaps={hasSwaps}
-        hasSelections={hasSelections}
-        onApply={plan.apply}
-        onReset={plan.resetSelections}
+        totalChanges={plan.totals.totalChanges}
         view={view}
         onViewChange={setView}
         comboCount={detectedCombos.length}
+        hasSelections={hasSelections}
+        // Always mounted: with nothing checked (or folded away) the strip animates shut rather than vanishing.
+        impactRow={<SwapImpactRow impact={impactHidden ? null : impact} aim={aimBracket} />}
+        impactHidden={impactHidden}
+        onToggleImpact={toggleImpact}
       />
+
+      {(view === 'combos' || hasSwaps) && (
+      // The .glass fill and blur, without its border: the band runs flush to the panel's edges.
+      <div className="min-h-[16rem] flex-1 overflow-y-auto bg-card/80 backdrop-blur-md p-3 sm:p-4">
 
       {hasSwaps && view === 'swaps' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+          <div ref={cutsRef} className={flash('remove')}>
           <OptimizeColumn
             side="remove"
             cards={plan.removals}
@@ -199,7 +260,9 @@ export function OptimizeTabContent({
               />
             )}
           />
+          </div>
 
+          <div ref={addsRef} className={flash('add')}>
           <OptimizeColumn
             side="add"
             cards={plan.additions}
@@ -241,6 +304,7 @@ export function OptimizeTabContent({
               />
             )}
           />
+          </div>
         </div>
       )}
 
@@ -253,6 +317,23 @@ export function OptimizeTabContent({
             forceExpanded
           />
         </div>
+      )}
+      </div>
+      )}
+
+      {hasSwaps && view === 'swaps' && (
+        <OptimizePlanDock
+          totals={plan.totals}
+          applying={plan.applying}
+          hasSelections={hasSelections}
+          onApply={plan.apply}
+          onReset={plan.resetSelections}
+          recommendedCount={plan.recommendedCount}
+          isRecommendedSelected={plan.isRecommendedSelected}
+          onSelectRecommended={plan.selectRecommended}
+          scoreGain={impact?.score ? impact.score.to - impact.score.from : null}
+          onShowSide={showSide}
+        />
       )}
     </div>
   );

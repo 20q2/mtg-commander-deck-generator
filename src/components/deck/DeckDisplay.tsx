@@ -5787,6 +5787,7 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
             generationSummary: summaryParts.length > 0 ? summaryParts.join(' · ') : undefined,
             usedThemes: generatedDeck?.usedThemes?.length ? generatedDeck.usedThemes : undefined,
             themes: themes.length > 0 ? themes : undefined,
+            intendedBracket: generatedDeck?.intendedBracket,
           });
           trackEvent('list_created', { listName: name, cardCount: cards.length });
           setSavedListId(newList.id);

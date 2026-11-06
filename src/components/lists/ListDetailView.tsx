@@ -6,6 +6,8 @@ import { getCardsByNames, getCardImageUrl, getCardByName, searchCards } from '@/
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { ManaCost, CardTypeIcon, CommanderIcon } from '@/components/ui/mtg-icons';
 import { CardPreviewModal } from '@/components/ui/CardPreviewModal';
+import { isCollectionCommander } from '@/services/collection/commanderReadiness';
+import { useTaggerReady } from '@/hooks/useTaggerReady';
 import {
   ArrowLeft, Search, X, Grid3X3, List, Copy, CopyPlus, Pencil, Trash2,
   ChevronDown, ChevronLeft, ChevronRight, Loader2, LayoutGrid, Plus, MoreHorizontal,
@@ -210,6 +212,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
   const [selectedType, setSelectedType] = useState('');
   const [selectedRarity, setSelectedRarity] = useState('');
   const [commandersOnly, setCommandersOnly] = useState(false);
+  const taggerReady = useTaggerReady(commandersOnly);
   const [deckFilter, setDeckFilter] = useState<DeckFilterMode>('all');
 
   // Whether a given card is in the active deck (only meaningful when
@@ -300,10 +303,7 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
     }
 
     if (commandersOnly) {
-      result = result.filter(c => {
-        const t = (c.typeLine?.split(' // ')[0] ?? '').toLowerCase();
-        return t.includes('legendary') && t.includes('creature');
-      });
+      result = result.filter(isCollectionCommander);
     }
 
     if (deckCardNames && deckFilter !== 'all') {
@@ -311,7 +311,8 @@ export function ListDetailView({ list, onBack, onEdit, onDuplicate, onExport, on
     }
 
     return sortCards(result, sortKey, sortDir);
-  }, [enrichedCards, searchQuery, selectedColors, colorFilterMode, selectedType, selectedRarity, commandersOnly, deckCardNames, deckFilter, isInDeck, sortKey, sortDir]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- taggerReady: the commander filter reads tagger data
+  }, [enrichedCards, searchQuery, selectedColors, colorFilterMode, selectedType, selectedRarity, commandersOnly, deckCardNames, deckFilter, isInDeck, sortKey, sortDir, taggerReady]);
 
   // Pagination
   const itemsPerPage = viewMode === 'grid' ? ITEMS_PER_PAGE_GRID : ITEMS_PER_PAGE_LIST;

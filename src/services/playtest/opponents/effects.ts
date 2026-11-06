@@ -68,9 +68,11 @@ export type BotEffectSpec =
    * not save it. `eachType` is Casualties of War — one artifact, one creature,
    * one enchantment, one land and one planeswalker, each its own target.
    *
-   * `grants` names the token the VICTIM creates for each permanent removed:
+   * `grants` is the token the VICTIM creates for each permanent removed:
    * Beast Within's Beast, Terastodon's Elephants. The drawback is the card, and
-   * skipping it turned a Beast Within into a one-mana Vindicate.
+   * skipping it turned a Beast Within into a one-mana Vindicate. It carries the
+   * size for the same reason TokenSpec does: by name alone, a caster whose pool
+   * also held Rampaging Baloths' 4/4 handed you that instead of the 3/3.
    */
   | {
       kind: 'destroyPermanent';
@@ -78,7 +80,7 @@ export type BotEffectSpec =
       count?: number;
       exile?: boolean;
       eachType?: boolean;
-      grants?: string;
+      grants?: GrantedToken;
     }
   /**
    * Destroy creatures. `maxToughness` models a -X/-X sweeper like Languish,
@@ -185,7 +187,7 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   'Swords to Plowshares':  { spec: { kind: 'exileCreature', victimGainsPower: true } },
   'Path to Exile':         { spec: { kind: 'exileCreature' } },
   // "Its controller creates a 3/3 green Beast creature token." You get the Beast.
-  'Beast Within':          { spec: { kind: 'destroyPermanent', grants: 'Beast' } },
+  'Beast Within':          { spec: { kind: 'destroyPermanent', grants: { name: 'Beast', power: '3', toughness: '3' } } },
   "Assassin's Trophy":     { spec: { kind: 'destroyPermanent' } },
   'Putrefy':               { spec: { kind: 'destroyCreature' } },
   // Really shuffles it into the library and may flip a permanent back out.
@@ -225,7 +227,7 @@ export const BOT_EFFECTS: Record<string, BotEffectEntry> = {
   // "Up to three target noncreature permanents", and you get a 3/3 Elephant for
   // each. Lands are only ever a last resort — see `resolveEffect` — because a
   // player does not hand out three Elephants for three basics.
-  'Terastodon':            { spec: { kind: 'destroyPermanent', count: 3, restrict: { noncreature: true }, grants: 'Elephant' }, etb: true },
+  'Terastodon':            { spec: { kind: 'destroyPermanent', count: 3, restrict: { noncreature: true }, grants: { name: 'Elephant', power: '3', toughness: '3' } }, etb: true },
   // "Destroy all artifacts and enchantments" — everyone's, the bot's Sol Ring
   // included. The +1/+1 counters it grows are not modelled.
   'Bane of Progress':      { spec: { kind: 'artifactSweep', enchantments: true, symmetric: true }, etb: true },
@@ -368,6 +370,9 @@ export interface TokenSpec {
   toughness?: string;
   keyword?: string;
 }
+
+/** A token handed to the victim of a removal spell — see `destroyPermanent`'s `grants`. */
+export type GrantedToken = Pick<TokenSpec, 'name' | 'power' | 'toughness'>;
 
 export type BotSelfSpec =
   /** Put token creatures onto the bot's battlefield. */

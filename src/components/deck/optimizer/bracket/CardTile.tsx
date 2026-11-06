@@ -1,5 +1,13 @@
 import { useState } from 'react';
 import { scryfallImg } from '../constants';
+import { useCommanderArt } from '@/hooks/useCommanderArt';
+
+/** The card's art crop, not a crop of the framed card. Blank until it resolves. */
+function Art({ name }: { name: string }) {
+  const art = useCommanderArt(name);
+  if (!art) return null;
+  return <img src={art} alt="" className="w-full h-full object-cover" loading="lazy" />;
+}
 
 // ─── Hover preview ───────────────────────────────────────────────────
 // Local copy of the app's established floating-preview pattern (see
@@ -59,12 +67,7 @@ export function CardTile({ name, onPreview }: { name: string; onPreview: (name: 
         title={name}
       >
         <div className="h-[76px] rounded-md border border-border/40 bg-accent/20 overflow-hidden group-hover:border-primary/50 transition-colors">
-          <img
-            src={scryfallImg(name, 'normal')}
-            alt=""
-            className="w-full h-full object-cover object-[center_18%]"
-            loading="lazy"
-          />
+          <Art name={name} />
         </div>
         <p className="text-[11px] leading-snug text-foreground/75 group-hover:text-primary transition-colors mt-1.5 line-clamp-2">
           {name}
@@ -86,13 +89,8 @@ export function CardPill({ name, onPreview }: { name: string; onPreview: (name: 
         className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-md bg-card border border-border/40 hover:border-primary/50 transition-colors group"
         title={name}
       >
-        <span className="w-4 h-[22px] rounded-sm bg-accent/20 overflow-hidden shrink-0">
-          <img
-            src={scryfallImg(name)}
-            alt=""
-            className="w-full h-full object-cover object-[center_18%]"
-            loading="lazy"
-          />
+        <span className="w-7 h-5 rounded-sm bg-accent/20 overflow-hidden shrink-0">
+          <Art name={name} />
         </span>
         <span className="text-[11.5px] text-foreground/75 group-hover:text-primary transition-colors">
           {name}

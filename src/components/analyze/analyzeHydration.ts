@@ -142,10 +142,16 @@ export async function hydrateDeckForAnalysis(input: HydrateDeckInput): Promise<H
 
   const stats = computeStatsFromCards(deckCards);
 
-  // Compute color identity from the full card set so we can fetch off-commander
-  // (color-identity) combos in parallel with the commander combos.
+  // The deck's color identity — also used to fetch off-commander combos in parallel with the
+  // commander's. The commander defines it whenever we know who that is: unioning every card in the
+  // list instead let one stray off-color entry make the whole Inspector treat a mono-red Krenko list
+  // as black-red — a black pip, "1/2 colors covered", and Card Fit suggesting Takenuma, which the
+  // deck can't legally run. The full-list union is only the fallback for a list with no commander.
+  const identitySource = commanderCard
+    ? [commanderCard, ...(partnerCard ? [partnerCard] : [])]
+    : cards;
   const allColors = new Set<string>();
-  for (const card of cards) {
+  for (const card of identitySource) {
     for (const c of card.color_identity || []) allColors.add(c.toUpperCase());
   }
   const colorIdentity = ['W', 'U', 'B', 'R', 'G'].filter(c => allColors.has(c));

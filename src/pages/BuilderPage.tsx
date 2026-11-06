@@ -249,6 +249,7 @@ export function BuilderPage() {
       themes: savedThemes.length > 0 ? savedThemes : undefined,
       builtFromCollection: generatedDeck.builtFromCollection,
       collectionBinderIds: generatedDeck.collectionBinderIds,
+      intendedBracket: generatedDeck.intendedBracket,
     });
     trackEvent('list_created', { listName: deckName, cardCount: allCards.length });
     // Skip the "saved!" toast — take the user straight to their new deck's page.

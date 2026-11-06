@@ -26,20 +26,24 @@ export async function handler(event: {
     const method = event.requestContext.http.method;
     const action = event.queryStringParameters?.action;
 
-    // Poll dispatch — must come before analytics fall-through.
-    if (action === 'poll-list' && method === 'GET') return handleList(event.headers);
-    if (action === 'poll-submit' && method === 'POST') return handleSubmit(event.body, event.headers);
-    if (action === 'poll-vote' && method === 'POST') return handleVote(event.body, event.headers);
-    if (action === 'poll-devnote' && method === 'POST') return handleDevNote(event.body, event.headers);
-    if (action === 'poll-ship' && method === 'POST') return handleShip(event.body, event.headers);
-    if (action === 'poll-delete' && method === 'POST') return handleDelete(event.body, event.headers);
-    if (action === 'poll-comments' && method === 'GET') return handleComments(event.queryStringParameters, event.headers);
-    if (action === 'poll-comment' && method === 'POST') return handleComment(event.body, event.headers);
-    if (action === 'poll-comment-delete' && method === 'POST') return handleCommentDelete(event.body, event.headers);
+    // Poll dispatch — must come before analytics fall-through. Every handler is awaited so a
+    // rejection lands in the catch below as a JSON 500; a bare `return promise` escapes the try,
+    // fails the invocation, and the Function URL answers 502 Bad Gateway.
+    if (action === 'poll-list' && method === 'GET') return await handleList(event.headers);
+    if (action === 'poll-submit' && method === 'POST') return await handleSubmit(event.body, event.headers);
+    if (action === 'poll-vote' && method === 'POST') return await handleVote(event.body, event.headers);
+    if (action === 'poll-devnote' && method === 'POST') return await handleDevNote(event.body, event.headers);
+    if (action === 'poll-ship' && method === 'POST') return await handleShip(event.body, event.headers);
+    if (action === 'poll-delete' && method === 'POST') return await handleDelete(event.body, event.headers);
+    if (action === 'poll-comments' && method === 'GET') return await handleComments(event.queryStringParameters, event.headers);
+    if (action === 'poll-comment' && method === 'POST') return await handleComment(event.body, event.headers);
+    if (action === 'poll-comment-delete' && method === 'POST') return await handleCommentDelete(event.body, event.headers);
 
     if (method === 'POST') {
-      // No action → legacy analytics ingest.
-      return handlePost(event.body);
+      // Analytics ingest never carries an action. A POST with one we don't know is a client
+      // newer than this Lambda — reject it rather than ingesting its body as events.
+      if (action) return { statusCode: 400, body: JSON.stringify({ error: 'unknown_action', action }) };
+      return await handlePost(event.body);
     }
     if (method === 'GET') {
       const secret = process.env.METRICS_SECRET;
@@ -49,7 +53,7 @@ export async function handler(event: {
           return { statusCode: 401, body: JSON.stringify({ error: 'Unauthorized' }) };
         }
       }
-      return handleGet(event.queryStringParameters || {});
+      return await handleGet(event.queryStringParameters || {});
     }
 
     return { statusCode: 405, body: JSON.stringify({ error: 'Method not allowed' }) };
@@ -66,7 +70,12 @@ async function handlePost(body?: string) {
   }
 
   const parsed = JSON.parse(body);
-  const events: AnalyticsEvent[] = Array.isArray(parsed.events) ? parsed.events : [parsed];
+  const raw: AnalyticsEvent[] = Array.isArray(parsed.events) ? parsed.events : [parsed];
+  // Both feed the key; marshall throws on undefined.
+  const events = raw.filter(e => typeof e?.event === 'string' && typeof e?.timestamp === 'string');
+  if (events.length === 0) {
+    return { statusCode: 400, body: JSON.stringify({ error: 'No valid events' }) };
+  }
 
   const items = events.map((e) => ({
     PutRequest: {

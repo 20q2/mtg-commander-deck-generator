@@ -6,6 +6,7 @@ import { getCardImageUrl, isDoubleFacedCard, getCardBackFaceUrl, getCardPrice, g
 import { fetchComboDetails, fetchSimilarCards, type ComboDetails } from '@/services/edhrec/client';
 import { tagsForOracleId, loadTagIndex, isTagIndexLoaded, groupTagSlugs } from '@/services/spellchroma/tagIndex';
 import type { ScryfallCard, DetectedCombo, LoadPhase } from '@/types';
+import { canBeCommander } from '@/lib/partnerUtils';
 import { useStore } from '@/store';
 import { trackEvent } from '@/services/analytics';
 import { CardTypeIcon, ManaText } from '@/components/ui/mtg-icons';
@@ -900,7 +901,7 @@ export function CardPreviewModal({ card, onClose, onBuildDeck, isOwned, combos, 
             </p>
           )}
           <div className="flex items-center justify-center gap-3 mt-3 flex-wrap">
-            {onBuildDeck && displayCard.type_line && (() => { const front = displayCard.type_line!.split(' // ')[0]; return /legendary/i.test(front) && /creature/i.test(front); })() && (
+            {onBuildDeck && canBeCommander(displayCard) && (
               <button
                 onClick={() => { onBuildDeck(displayCard.name); onClose(); }}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary hover:bg-primary/80 text-primary-foreground text-xs font-medium transition-colors"

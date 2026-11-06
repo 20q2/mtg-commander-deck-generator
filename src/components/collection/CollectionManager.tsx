@@ -15,6 +15,7 @@ import {
 import type { CollectionCard } from '@/services/collection/db';
 import type { ScryfallCard } from '@/types';
 import { loadTaggerData, cardMatchesRole, type RoleKey } from '@/services/tagger/client';
+import { isCollectionCommander } from '@/services/collection/commanderReadiness';
 
 // --- Constants ---
 
@@ -223,10 +224,7 @@ export function CollectionManager({
 
     // Commanders only
     if (commandersOnly) {
-      result = result.filter(c => {
-        const t = (c.typeLine?.split(' // ')[0] ?? '').toLowerCase();
-        return t.includes('legendary') && t.includes('creature');
-      });
+      result = result.filter(isCollectionCommander);
     }
 
     // Multicolor only (2+ colors in identity)
@@ -240,7 +238,7 @@ export function CollectionManager({
     }
 
     return sortCards(result, sortKey, sortDir);
-  }, [cards, searchQuery, selectedColors, colorFilterMode, selectedTypes, selectedRarities, commandersOnly, multicolorOnly, selectedRoles, sortKey, sortDir]);
+  }, [cards, searchQuery, selectedColors, colorFilterMode, selectedTypes, selectedRarities, commandersOnly, multicolorOnly, selectedRoles, sortKey, sortDir, taggerReady]);
 
   // Pagination
   const itemsPerPage = viewMode === 'grid' ? ITEMS_PER_PAGE_GRID : ITEMS_PER_PAGE_LIST;

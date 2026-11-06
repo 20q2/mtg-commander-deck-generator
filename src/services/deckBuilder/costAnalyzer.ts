@@ -1,11 +1,13 @@
 import type { ScryfallCard } from '@/types';
 import type { RecommendedCard, DeckAnalysis } from './deckAnalyzer';
 import { isAnyLand, BASIC_LAND_NAMES, getCardPrice } from '@/services/scryfall/client';
+import { LOW_FIT_INCLUSION } from './cutRanking';
 
 export type Confidence = 'drop-in' | 'sidegrade' | 'budget';
 
 /** Where a swap suggestion came from. 'similar' = EDHREC functional similarity
- *  (trustworthy). 'role' = cheapest card sharing the same deck role (looser). */
+ *  (the closer channel, though not always a stand-in — see classifySimilar). 'role' = cheapest
+ *  card sharing the same deck role (looser). */
 export type SwapSource = 'similar' | 'role';
 
 export interface SwapSuggestion {
@@ -126,16 +128,30 @@ export function classifyConfidence(
 }
 
 /**
- * EDHREC-similar swaps are functionally similar by construction, so we don't
- * gate them on inclusion % (which is usually unknown for arbitrary similar
- * cards). Closeness in mana cost is the only confidence signal: same-ish CMC
- * reads as a drop-in, otherwise a sidegrade. Never a budget pick.
+ * Grade an EDHREC-similar swap. "Similar" is EDHREC's word, not a guarantee: Wheel of Misfortune is
+ * listed as similar to Wheel of Fortune and plays nothing like it. A drop-in needs both a close mana
+ * value and evidence this commander's decks actually play the card. `inclusion` is 0 when the card
+ * isn't on the commander's page at all, which Card Fit already counts against a card, so that never
+ * qualifies. Never a budget pick: those come from the looser role channel.
  */
 export function classifySimilar(currentCmc: number | undefined, suggestion: SwapSuggestion): Confidence {
   const cmcDelta = currentCmc != null && suggestion.cmc != null
     ? Math.abs(currentCmc - suggestion.cmc)
     : Infinity;
-  return cmcDelta <= DROP_IN_CMC_BAND ? 'drop-in' : 'sidegrade';
+  const played = suggestion.inclusion >= LOW_FIT_INCLUSION;
+  return cmcDelta <= DROP_IN_CMC_BAND && played ? 'drop-in' : 'sidegrade';
+}
+
+/**
+ * Whether a stand-in does the same job. EDHREC's "similar" leans on set and mechanic as much as
+ * function: Deadly Rollick sits beside Deflecting Swat because both are free with your commander
+ * out, but one is removal and the other protection, so trading one for the other isn't a saving.
+ * With roles on either side they must share one; two cards with no role between them fall back to
+ * the similarity score.
+ */
+export function sharesRole(current: readonly string[], candidate: readonly string[]): boolean {
+  if (current.length === 0 && candidate.length === 0) return true;
+  return current.some(r => candidate.includes(r));
 }
 
 /** All role-pool cards cheaper than the current card, cheapest first (the looser channel). */
@@ -157,7 +173,7 @@ export function collectRoleSuggestions(
 /**
  * All EDHREC-similar cards cheaper than the current card, within the deck's
  * color identity and not excluded — cheapest first. These are functionally
- * similar swaps (the trustworthy channel).
+ * similar swaps (the closer of the two channels).
  */
 export function collectSimilarSuggestions(
   candidates: CandidateCard[],
@@ -309,7 +325,7 @@ export function buildCostPlan(
     ]);
     const isLand = isAnyLand(card);
 
-    // Spells try the trustworthy EDHREC-similar channel first; lands and any
+    // Spells try the closer EDHREC-similar channel first; lands and any
     // spell with no similar match fall back to the looser role pool.
     let alternatives: SwapSuggestion[] = [];
     if (!isLand) {

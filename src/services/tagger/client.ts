@@ -64,6 +64,12 @@ export function hasTaggerData(): boolean {
   return tagSets !== null;
 }
 
+/** Check if Scryfall says a card can be a commander (`is:commander`, Backgrounds excluded). False
+ *  when tagger data isn't loaded or predates the commander list — pair it with a type-line check. */
+export function isListedCommander(cardName: string): boolean {
+  return tagSets?.['commander']?.has(cardName) ?? false;
+}
+
 /** Check if a land has meaningful non-mana abilities (Scryfall otag:utility-land). */
 export function isUtilityLand(cardName: string): boolean {
   return tagSets?.['utility-land']?.has(cardName) ?? false;

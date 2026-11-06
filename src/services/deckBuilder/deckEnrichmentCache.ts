@@ -17,8 +17,11 @@ const MAX_ENTRIES = 50;
  * needing the user to clear site data.
  *
  * 2 — combos carry `templates`/`templateFits` (unnamed slots) and `href`.
+ * 3 — inclusion/synergy maps include EDHREC's `highliftcards` list (earlier rows are missing
+ *     a commander's ~10 signature cards and judge them as unplayed), and leave cards with no
+ *     EDHREC data out instead of storing them as 0%.
  */
-export const ENRICHMENT_SCHEMA_VERSION = 2;
+export const ENRICHMENT_SCHEMA_VERSION = 3;
 
 export interface DeckEnrichmentCacheRow {
   listId: string;

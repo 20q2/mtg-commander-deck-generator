@@ -142,8 +142,8 @@ export function PlaytestSettingsModal({ open, onClose }: Props) {
               <div>
                 <div className="font-medium text-foreground/90">Table sounds</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  Quiet cues as you play &mdash; a shuffle riffle, a card off the top, a click on a
-                  counter, a card landing. Bot seats play the same cues, softer, and a chime tells you
+                  Quiet cues as you play &mdash; a shuffle riffle, a card off the top, a swoosh as you
+                  tap and untap, a bump on a counter, a rattling die, a card landing. Bot seats play the same cues, softer, and a chime tells you
                   when they hand the turn back.
                 </div>
               </div>

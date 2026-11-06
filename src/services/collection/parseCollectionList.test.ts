@@ -31,6 +31,19 @@ describe('parseCollectionList — Archidekt category annotations', () => {
   it('leaves plain names untouched', () => {
     expect(names('Korvold, Fae-Cursed King')).toEqual(['Korvold, Fae-Cursed King']);
   });
+
+  it('marks the card in the Commander category as the commander', () => {
+    const { cards } = parseCollectionList([
+      '1x Tasha, the Witch Queen (clb) 290 [Commander{top}]',
+      '1x Sol Ring (cmm) 368 [Ramp]',
+      '1x Kenrith, the Returned King (eld) 303 [Commander Damage,Creature]',
+    ].join('\n'));
+    expect(cards).toEqual([
+      { name: 'Tasha, the Witch Queen', quantity: 1, isCommander: true },
+      { name: 'Sol Ring', quantity: 1 },
+      { name: 'Kenrith, the Returned King', quantity: 1 },
+    ]);
+  });
 });
 
 describe('parseCollectionList — #hashtag tags', () => {

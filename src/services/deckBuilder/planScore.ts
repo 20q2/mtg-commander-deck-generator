@@ -5,10 +5,13 @@ import type {
   SubScore,
   PlanScore,
   SubScoreKey,
+  Misfit,
+  GapAnalysisCard,
 } from '@/types';
 import type { ThemeMembership } from '@/components/analyze/themeMembership';
-import type { RoleBreakdown, CurvePhaseAnalysis } from './deckAnalyzer';
+import type { RoleBreakdown, CurvePhaseAnalysis, DeckAnalysis, OptimizeSwaps } from './deckAnalyzer';
 import { isAnyLand } from '../scryfall/client';
+import { computeCardFitSubscore } from './cardFit';
 
 const STRATEGY_DENSITY_TARGET = 0.30; // 30% of non-land cards reinforcing the plan = full marks
 const STRATEGY_COVERAGE_TARGET_TOP_N = 60; // overlap-with-top-60 of theme bucket = full marks
@@ -26,7 +29,33 @@ export interface StrategyInputs {
   planName?: string | null;
 }
 
-export function computeStrategySubscore(inputs: StrategyInputs): SubScore {
+/**
+ * What Strategy was scored on. Kept so the score can be re-read against the swaps on offer
+ * (scoreAgainstSwaps) and projected per swap (projectSwaps).
+ */
+export interface StrategyBasis {
+  /** Non-land cards in a selected theme, out of `nonLand`. */
+  inTheme: number;
+  nonLand: number;
+  /** In-theme cards for full density marks. */
+  densityTarget: number;
+  /** Of the theme page's top cards, how many the deck runs. */
+  hits: number;
+  /** Hits for full coverage marks; null when there's no theme page to cover. */
+  hitTarget: number | null;
+  /** The theme page's top non-land cards (lower-cased), the ones a hit counts against. */
+  topNames: string[];
+}
+
+/** Strategy's value from its basis: 60% density, 40% coverage, or density alone without a theme page. */
+export function strategyValue(b: StrategyBasis): number {
+  const densityScore = b.densityTarget > 0 ? Math.min(1, b.inTheme / b.densityTarget) : 1;
+  if (b.hitTarget == null) return Math.round(densityScore * 100);
+  const coverageScore = b.hitTarget > 0 ? Math.min(1, b.hits / b.hitTarget) : 1;
+  return Math.round((densityScore * 0.6 + coverageScore * 0.4) * 100);
+}
+
+export function computeStrategySubscore(inputs: StrategyInputs): SubScore & { basis?: StrategyBasis } {
   const { cards, themeMembership, primaryThemeData, planName } = inputs;
 
   if (!themeMembership || themeMembership.themes.length === 0) {
@@ -54,27 +83,34 @@ export function computeStrategySubscore(inputs: StrategyInputs): SubScore {
 
   // 2. Theme coverage: of the top-N EDHREC theme cards, how many do we run?
   let coverageScore = 0.5; // neutral when we have no theme data
+  let hits = 0;
+  let hitTarget: number | null = null;
+  let topNames: string[] = [];
   if (primaryThemeData?.cardlists.allNonLand?.length) {
     const topN = primaryThemeData.cardlists.allNonLand.slice(0, STRATEGY_COVERAGE_TARGET_TOP_N);
+    topNames = topN.map(tc => tc.name.toLowerCase());
     const deckNames = new Set(nonLand.map(c => c.name.toLowerCase()));
-    let hits = 0;
     for (const tc of topN) {
       if (deckNames.has(tc.name.toLowerCase())) hits++;
     }
-    const denom = Math.max(STRATEGY_COVERAGE_MIN_DENOMINATOR, topN.length * STRATEGY_COVERAGE_FULL_MARKS_HIT_RATE);
-    coverageScore = Math.min(1, hits / denom);
+    hitTarget = Math.max(STRATEGY_COVERAGE_MIN_DENOMINATOR, topN.length * STRATEGY_COVERAGE_FULL_MARKS_HIT_RATE);
+    coverageScore = Math.min(1, hits / hitTarget);
   }
 
   // Composite: 60% density (deck-side commitment), 40% coverage (community alignment).
   const composite = densityScore * 0.6 + coverageScore * 0.4;
   const value = Math.round(composite * 100);
+  const basis: StrategyBasis = {
+    inTheme, nonLand: nonLandCount, densityTarget: STRATEGY_DENSITY_TARGET * nonLandCount,
+    hits, hitTarget, topNames,
+  };
 
   const plan = planName ?? 'your plan';
   const verb = inTheme === 1 ? 'reinforces' : 'reinforce';
   const surface = `${inTheme} of ${nonLandCount} non-land cards ${verb} ${plan}`;
   const bandLabel = bandFor(value);
 
-  return { value, surface, bandLabel };
+  return { value, surface, bandLabel, basis };
 }
 
 export function bandFor(score: number): string {
@@ -102,10 +138,12 @@ export function headlineFor(
   const plan = planName?.trim() || null;
   const at = bracketPhrase ? ` and sits at ${bracketPhrase}` : '';
 
+  // The score measures closeness to what this commander's decks run, not how well the deck plays,
+  // so the top rung claims a tight fit and nothing past it.
   if (score >= 90) {
     return plan
-      ? `Your deck masterfully executes the ${plan} plan${at}.`
-      : `Your deck is performing optimally${at}.`;
+      ? `Your deck is a tight fit for the ${plan} plan${at}.`
+      : `Your deck is a tight fit for its commander${at}.`;
   }
   if (score >= 75) {
     return plan
@@ -165,12 +203,13 @@ export function computeRolesSubscore(roleBreakdowns: RoleBreakdown[]): SubScore 
 
   for (const rb of roleBreakdowns) {
     const w = ROLE_WEIGHTS[rb.role] ?? 0.5;
-    const target = rb.target || 1;
-    const ratio = Math.min(1.2, rb.current / target); // mild credit for slight excess
-    const norm = ratio >= 1 ? 1 - Math.max(0, ratio - 1) * 0.5 : ratio; // penalize overshoot lightly
+    // Role targets are floors — the Roles tab labels each one "at least N" — so meeting one is full
+    // marks and running more costs nothing here. Excess is Card Fit's call: its cut list already
+    // names "excess removal" and the like. A zero target is met by definition.
+    const norm = rb.target > 0 ? Math.min(1, rb.current / rb.target) : 1;
     weighted += norm * w;
     weightTotal += w;
-    if (rb.current < target * 0.7) thin.push(rb.label);
+    if (rb.current < rb.target * 0.7) thin.push(rb.label);
   }
 
   const value = Math.round((weighted / Math.max(1, weightTotal)) * 100);
@@ -182,9 +221,7 @@ export function computeRolesSubscore(roleBreakdowns: RoleBreakdown[]): SubScore 
 }
 
 // Tempo: deviation of deck curve from EDHREC commander average curve.
-// Lower deviation = higher score. Early-CMC gaps weighted heavier.
-const CMC_WEIGHTS = [0, 1.5, 1.5, 1.2, 1.0, 0.8, 0.6, 0.5];
-
+// Lower deviation = higher score. Early-game gaps weighted heavier.
 export function computeTempoSubscore(curvePhases: CurvePhaseAnalysis[]): SubScore {
   if (curvePhases.length === 0) {
     return { value: 50, surface: 'No curve data available.', bandLabel: 'Unscored', partial: true, partialReason: 'no-data' };
@@ -196,10 +233,12 @@ export function computeTempoSubscore(curvePhases: CurvePhaseAnalysis[]): SubScor
   let weakestPhase: string | null = null;
   let weakestRatio = Infinity;
   for (const phase of curvePhases) {
-    const target = phase.target || 1;
-    const ratio = Math.min(1.2, phase.current / target);
+    // Only shortfalls count. getCurvePhases normalizes the phase targets to sum to the non-land
+    // count, so a phase over target always forces another one under it — penalizing the overshoot
+    // as well charged the same misplaced cards twice.
+    const ratio = phase.target > 0 ? phase.current / phase.target : 1;
     const w = phase.phase === 'early' ? 1.4 : phase.phase === 'mid' ? 1.0 : 0.7;
-    const norm = ratio >= 1 ? 1 - Math.max(0, ratio - 1) * 0.5 : ratio;
+    const norm = Math.min(1, ratio);
     weighted += norm * w;
     weightTotal += w;
     if (ratio < weakestRatio) {
@@ -216,16 +255,92 @@ export function computeTempoSubscore(curvePhases: CurvePhaseAnalysis[]): SubScor
   return { value, surface, bandLabel: bandFor(value) };
 }
 
-// CMC_WEIGHTS kept for potential per-bin refinement; not used in the phase-level
-// version above. Leave in for the v2 enhancement (per-CMC-bin deviation).
-void CMC_WEIGHTS;
-
 const WEIGHTS: Record<SubScoreKey, number> = {
   strategy: 0.30,
   roles: 0.25,
   tempo: 0.20,
   cardFit: 0.25,
 };
+
+export interface PointsToGain {
+  key: SubScoreKey;
+  /** Whole points the overall score would gain if this area reached 100. */
+  points: number;
+}
+
+/**
+ * How the gap between the overall score and 100 splits across the scored areas — the Overview's
+ * "path to 100". Each area's share is its shortfall × its weight in the composite; partial areas are
+ * left out exactly as composePlanScore leaves them out. Whole points via largest remainder, so the
+ * parts always add up to `100 − overall` and the line never promises a point the score can't show.
+ */
+export function pointsToHundred(planScore: PlanScore): PointsToGain[] {
+  const scored = (Object.keys(planScore.subscores) as SubScoreKey[]).filter(k => !planScore.subscores[k].partial);
+  const weightTotal = scored.reduce((s, k) => s + WEIGHTS[k], 0);
+  const gap = 100 - planScore.overall;
+  if (weightTotal === 0 || gap <= 0) return [];
+
+  const raw = scored.map(k => ({ key: k, exact: (100 - planScore.subscores[k].value) * WEIGHTS[k] / weightTotal }));
+  const rawTotal = raw.reduce((s, r) => s + r.exact, 0);
+  if (rawTotal <= 0) return [];
+  // Rescale so the parts sum to the rounded gap the ring actually shows.
+  const scaled = raw.map(r => ({ ...r, exact: r.exact * gap / rawTotal }));
+  const out = scaled.map(r => ({ key: r.key, points: Math.floor(r.exact), rem: r.exact - Math.floor(r.exact) }));
+  let left = gap - out.reduce((s, r) => s + r.points, 0);
+  for (const r of [...out].sort((a, b) => b.rem - a.rem)) {
+    if (left <= 0) break;
+    r.points++;
+    left--;
+  }
+  return out.filter(r => r.points > 0).map(({ key, points }) => ({ key, points }));
+}
+
+/**
+ * The overall score after each prefix of a run of one-for-one swaps, as far as Card Fit can tell
+ * without re-analysing the deck: each outgoing card leaves the misfit list, each incoming card leaves
+ * the gap list, and Card Fit is recomputed with its own formula. Other areas are held where they are
+ * — the launch pad pairs swaps by role, so roles and curve rarely move. An incoming card that would
+ * itself be a misfit isn't modelled, so this is a projection, labelled as one wherever it's shown.
+ *
+ * `result[i]` is the score after swaps 0..i; a row's own gain is `result[i] − result[i−1]`.
+ */
+export function projectSwaps(
+  planScore: PlanScore,
+  misfits: Misfit[],
+  gaps: GapAnalysisCard[],
+  swaps: { out?: string; in?: string }[],
+  /** When given, an incoming card on this list counts toward Strategy (the offered theme adds). */
+  strategy?: { basis: StrategyBasis; themeAdds: string[] },
+): number[] {
+  const out = new Set<string>();
+  const inn = new Set<string>();
+  const themeAdds = new Set((strategy?.themeAdds ?? []).map(n => n.toLowerCase()));
+  const top = new Set(strategy?.basis.topNames ?? []);
+  return swaps.map(s => {
+    if (s.out) out.add(s.out);
+    if (s.in) inn.add(s.in);
+    const cardFit = computeCardFitSubscore(
+      misfits.filter(m => !out.has(m.card.name)),
+      gaps.filter(g => !inn.has(g.name)),
+    );
+    const original = planScore.subscores.cardFit;
+    let strat = planScore.subscores.strategy;
+    if (strategy && !strat.partial) {
+      const ins = [...inn].map(n => n.toLowerCase()).filter(n => themeAdds.has(n));
+      strat = { ...strat, value: strategyValue({
+        ...strategy.basis,
+        inTheme: strategy.basis.inTheme + ins.length,
+        hits: strategy.basis.hits + ins.filter(n => top.has(n)).length,
+      }) };
+    }
+    return composePlanScore({
+      ...planScore.subscores,
+      strategy: strat,
+      // Keep the area's partial status: an unscored Card Fit stays out of the composite.
+      cardFit: { ...original, value: original.partial ? original.value : cardFit.value },
+    }).overall;
+  });
+}
 
 export interface ComposePlanScoreInputs {
   strategy: SubScore;
@@ -268,5 +383,42 @@ export function composePlanScore(inputs: ComposePlanScoreInputs): PlanScore {
   // This is the fallback for any other consumer.
   const byline = bylineFor(inputs.sampleSize);
 
-  return { overall, bandLabel, headline, byline, subscores, limitedData };
+  return { overall, bandLabel, headline, byline, subscores, limitedData, planName: inputs.planName };
+}
+
+/**
+ * Card Fit charged only for what Card Fit offers. The analysis scores every misfit and every
+ * widely played card the deck lacks, but the columns protect must-includes and combo pieces and
+ * only trade a staple for a weaker card the deck runs. Scoring the analysis's lists left points
+ * no swap could earn: a 60-card Valgavoth list sat at 80 with both columns empty. Re-scored here,
+ * taking every offered swap reaches 100.
+ */
+export function scoreAgainstSwaps<A extends DeckAnalysis>(analysis: A, swaps: OptimizeSwaps | null): A {
+  const plan = analysis.planScore;
+  if (!plan || !swaps) return analysis;
+  const offeredCuts = new Set(swaps.removals.map(r => r.name));
+  const misfits = (analysis.misfits ?? []).filter(m => offeredCuts.has(m.card.name));
+  const gaps = swaps.stapleGaps ?? [];
+  const original = plan.subscores.cardFit;
+  const fit = computeCardFitSubscore(misfits, gaps);
+  // An unscored Card Fit stays unscored and out of the composite.
+  const cardFit = original.partial ? original : { ...original, value: fit.value, surface: fit.surface, bandLabel: fit.bandLabel };
+  // Strategy, the same way: its targets come down to what the offered theme swaps can reach. With
+  // none on offer, the deck is as on-plan as Card Fit can make it.
+  let strategy = plan.subscores.strategy;
+  let strategyBasis = analysis.strategyBasis;
+  if (strategyBasis && !strategy.partial) {
+    const offered = swaps.themeAdds ?? [];
+    const top = new Set(strategyBasis.topNames);
+    const offeredHits = offered.filter(n => top.has(n.toLowerCase())).length;
+    strategyBasis = {
+      ...strategyBasis,
+      densityTarget: Math.min(strategyBasis.densityTarget, strategyBasis.inTheme + offered.length),
+      hitTarget: strategyBasis.hitTarget == null ? null : Math.min(strategyBasis.hitTarget, strategyBasis.hits + offeredHits),
+    };
+    const value = strategyValue(strategyBasis);
+    strategy = { ...strategy, value, bandLabel: bandFor(value) };
+  }
+  const planScore = { ...composePlanScore({ ...plan.subscores, cardFit, strategy, planName: plan.planName }), byline: plan.byline };
+  return { ...analysis, planScore, cardFitMisfits: misfits, cardFitGaps: gaps, strategyBasis, strategyThemeAdds: swaps.themeAdds ?? [] };
 }

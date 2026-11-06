@@ -81,22 +81,25 @@ interface ManaCostProps {
   className?: string;
 }
 
+/**
+ * Map a Scryfall symbol body ("G", "2/W", "G/U/P", "T") to its mana-font class
+ * suffix: lowercase, every slash dropped, tap/untap renamed.
+ */
+export function manaSymbolClass(symbol: string): string {
+  const s = symbol.toLowerCase().replace(/\//g, '');
+  return s === 't' ? 'tap' : s === 'q' ? 'untap' : s;
+}
+
 // Render mana symbols from a cost string part
 function renderManaSymbols(costPart: string, keyPrefix: string = '') {
   const symbols = costPart.match(/\{[^}]+\}/g) || [];
 
-  return symbols.map((symbol, i) => {
-    const clean = symbol.replace(/[{}]/g, '');
-    // Convert to mana-font class format (lowercase, no slashes for hybrid)
-    const manaClass = clean.toLowerCase().replace('/', '');
-
-    return (
-      <i
-        key={`${keyPrefix}${i}`}
-        className={`ms ms-${manaClass} ms-cost`}
-      />
-    );
-  });
+  return symbols.map((symbol, i) => (
+    <i
+      key={`${keyPrefix}${i}`}
+      className={`ms ms-${manaSymbolClass(symbol.replace(/[{}]/g, ''))} ms-cost`}
+    />
+  ));
 }
 
 export function ManaCost({ cost, className = '' }: ManaCostProps) {
@@ -123,7 +126,7 @@ export function ManaText({ text, className = '' }: { text: string; className?: s
     <span className={`inline ${className}`}>
       {parts.map((part, i) =>
         /^\{[^}]+\}$/.test(part) ? (
-          <i key={i} className={`ms ms-${part.replace(/[{}]/g, '').toLowerCase().replace('/', '')} ms-cost`} />
+          <i key={i} className={`ms ms-${manaSymbolClass(part.replace(/[{}]/g, ''))} ms-cost`} />
         ) : (
           <span key={i}>{part}</span>
         )

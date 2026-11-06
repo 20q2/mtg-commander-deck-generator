@@ -590,7 +590,7 @@ function applyEffect(effect: AppliedEffect, casterId: string) {
   // spell resolved hands nothing back.
   if (effect.grants && effect.destroy.length > 0) {
     const caster = useOpponentStore.getState().opponents.find(o => o.id === casterId);
-    const token = caster ? findToken(caster.tokens, effect.grants) : undefined;
+    const token = caster ? findToken(caster.tokens, effect.grants.name, effect.grants) : undefined;
     if (token) {
       for (let i = 0; i < effect.destroy.length; i++) playtest.spawnToken(token);
       playtest.appendLog(`You create ${tokenPhrase(effect.destroy.length, token.name)}`, 'bot', [casterId]);
@@ -1865,7 +1865,7 @@ export const useOpponentStore = create<OpponentState & OpponentActions>((set, ge
         // The Beast Within Beast, on a rival's board: straight onto it, one per
         // permanent taken, out of the caster's pool as on yours.
         if (e.grants) {
-          const token = findToken(caster.tokens, e.grants);
+          const token = findToken(caster.tokens, e.grants.name, e.grants);
           if (token) {
             set(s => ({
               opponents: s.opponents.map(o => o.id === seatId

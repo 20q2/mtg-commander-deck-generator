@@ -1,6 +1,8 @@
 import type { ScryfallCard, EDHRECCommanderData, EDHRECCard, DetectedCombo, PlanScore, Misfit, GapAnalysisCard } from '@/types';
-import { hasClassifierThemeEvidence, type ThemeMembership } from '@/components/analyze/themeMembership';
-import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, getProtectionSubtype, isUtilityLand, isTapland, type RoleKey } from '@/services/tagger/client';
+import { hasClassifierThemeEvidence, isLiteralThemeMember, type ThemeMembership } from '@/components/analyze/themeMembership';
+import { getCardRole, cardMatchesRole, getAllCardRoles, hasTag, getCardSubtype, getProtectionSubtype, isUtilityLand, isTapland, isTutor, isMassLandDenial, isExtraTurn, type RoleKey } from '@/services/tagger/client';
+import { isFastMana } from './bracketEstimator';
+import { pickOverBracketCuts, type OverBracketGroup } from './overBracket';
 import { getFrontFaceTypeLine, isMdfcLand, isChannelLand, getCachedCard, getCardImageUrl, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { calculateCurvePercentages } from './curveUtils';
 import { detectPacing, type Pacing } from './themeDetector';
@@ -10,8 +12,9 @@ import {
   computeRolesSubscore,
   computeTempoSubscore,
   composePlanScore,
+  type StrategyBasis,
 } from './planScore';
-import { computeMisfits, computeCardFitSubscore } from './cardFit';
+import { computeMisfits, computeCardFitSubscore, pairStaplesWithCuts, GAP_PENALTY_MIN_INCLUSION, type CuttableCard } from './cardFit';
 import {
   CHANNEL_LAND_BOOST,
   MDFC_LAND_BOOST,
@@ -21,6 +24,7 @@ import {
   OMNIPRESENCE_LANDS,
   omnipresenceColor,
   omnipresenceBoost,
+  LOW_FIT_INCLUSION,
 } from './cutRanking';
 import { getLandProducedColors } from './manaSources';
 
@@ -73,6 +77,8 @@ export interface TypeSlot {
 export interface RecommendedCard {
   name: string;
   inclusion: number;
+  /** What `inclusion` is a share of, when it isn't this commander's decks — e.g. "of Golgari decks". */
+  inclusionLabel?: string;
   synergy: number;
   role?: string;
   roleLabel?: string;
@@ -245,10 +251,25 @@ export interface DeckAnalysis {
   misfits?: Misfit[];
   /** Live-filtered gap candidates (stale entries already in the deck removed). */
   gapAnalysis?: GapAnalysisCard[];
+  /** What Card Fit's score is charged on once scoreAgainstSwaps has run: the misfits offered as
+   *  cuts and the staples offered as adds. Projections of a swap's points read these. */
+  cardFitMisfits?: Misfit[];
+  cardFitGaps?: GapAnalysisCard[];
+  /** What Strategy was scored on (see computeStrategySubscore); after scoreAgainstSwaps, its
+   *  targets are what the offered theme swaps can reach. */
+  strategyBasis?: StrategyBasis;
+  /** The theme adds Card Fit offers (OptimizeSwaps.themeAdds), set by scoreAgainstSwaps. */
+  strategyThemeAdds?: string[];
+  /** The theme page's top non-land cards the deck doesn't run — the adds that raise Strategy. */
+  themeStaples?: GapAnalysisCard[];
   /** Per-card relevancy for in-deck cards (same scoreRecommendation composite the
    *  generator and trim drawer use). Cards with no EDHREC data have no entry —
    *  consumers fall back to inclusion-based ordering. */
   cardRelevancyMap: Record<string, number>;
+  /** The bracket the deck was judged at, when there was one (see AnalyzeDeckOptions.bracket). */
+  bracket?: number;
+  /** Set when the role targets are that bracket's decks' rather than the all-brackets average. */
+  targetsBracket?: number;
 }
 
 /**
@@ -1065,11 +1086,21 @@ export interface OptimizeCard {
   isThemeSynergy?: boolean;
   /** Selected themes the classifier says this card carries — shown as chips in the drill-down. */
   themeMatched?: string[];
+  /** % of this commander's decks at the bracket the deck is judged at that play the card (the
+   *  commander's page, blended to that bracket). Undefined when the card isn't on the page — a
+   *  theme- or archetype-only pick. The common scale pairSwaps compares cuts and adds on. */
+  fitInclusion?: number;
 }
 
 export interface OptimizeSwaps {
   removals: OptimizeCard[];
   additions: OptimizeCard[];
+  /** The missing staples the add column offers — what Card Fit's score may charge for (see
+   *  scoreAgainstSwaps). A staple the deck has no weaker card to trade for isn't here. */
+  stapleGaps?: GapAnalysisCard[];
+  /** Names of the theme cards the add column offers against off-plan cuts — what Strategy may
+   *  charge for. */
+  themeAdds?: string[];
 }
 
 /**
@@ -1095,6 +1126,13 @@ export interface ComputeOptimizeSwapsOptions {
    *  low-inclusion and low-synergy cut categories: EDHREC not having seen a card with this
    *  commander is not evidence against it. Role excess and deck-size balance still apply. */
   themeMembership?: ThemeMembership | null;
+  /** Inclusion on the commander's page at the bracket the deck is judged at, for every card on it
+   *  (not just the deck's). Stamped onto each cut and add as `fitInclusion`. */
+  commanderInclusion?: Record<string, number>;
+  /** The bracket the player is aiming at, and what holds the deck above it (overBracketGroups).
+   *  Absent when there is no aim — the estimate alone never cuts anything for power. With it, those
+   *  cards lead the cut column as "Above your bracket", and adds the aim doesn't allow are dropped. */
+  aim?: { bracket: number; groups: OverBracketGroup[] };
 }
 
 export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): OptimizeSwaps {
@@ -1134,10 +1172,18 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
   // Two-pass approach: first collect all potential candidates, then sort & cap
 
   // Map of role → excess count (flag when 2+ over target)
+  // From bracket 3 up, tutors are neither cut as excess draw (see powerTutor below) nor counted
+  // toward it — otherwise twelve tutors over a draw target of ten would aim every cut at the eight
+  // actual draw spells.
+  const tutorsAsPower = (analysis.bracket ?? 0) >= 3;
+  const drawTutors = tutorsAsPower
+    ? currentCards.filter(c => (c.deckRole || getCardRole(c.name)) === 'cardDraw' && isTutor(c.name)).length
+    : 0;
   const excessRoles = new Map<string, number>();
   for (const rd of analysis.roleDeficits) {
-    if (rd.current > rd.target + 1) {
-      excessRoles.set(rd.role, rd.current - rd.target);
+    const current = rd.role === 'cardDraw' ? rd.current - drawTutors : rd.current;
+    if (current > rd.target + 1) {
+      excessRoles.set(rd.role, current - rd.target);
     }
   }
 
@@ -1167,8 +1213,23 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
   // General non-land candidates
   const generalCandidates: CandidateCard[] = [];
 
+  // ── Above your bracket ──
+  // Picked before everything else and exempt from the protections below: game changers and combo
+  // pieces are protected because they're the deck's power, which is exactly what aiming lower asks
+  // to give up. The player's own locks still hold.
+  const aim = opts.aim;
+  const overPicked = aim && aim.groups.length > 0
+    ? pickOverBracketCuts(
+        aim.groups,
+        name => currentCardNames.has(name) && !BASIC_LANDS.has(name) && !mustIncludeNames.has(name)
+          && name !== commanderName && name !== partnerCommanderName,
+        name => keepScore(name, inclusionMap[name] ?? 0, true),
+      )
+    : new Map<string, OverBracketGroup>();
+
   for (const card of currentCards) {
     if (BASIC_LANDS.has(card.name)) continue;
+    if (overPicked.has(card.name)) continue;
     if (card.name === commanderName || card.name === partnerCommanderName) continue;
     if (mustIncludeNames.has(card.name)) continue;
     if (card.isGameChanger) continue; // never suggest cutting a game changer
@@ -1229,7 +1290,11 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
     // surplus of it. isThemeSynergyCard only sees EDHREC's high-synergy lists, which a deck this far
     // off its commander's beaten path never appears on.
     const themeDoubleDuty = hasClassifierThemeEvidence(themeMembership, card.name);
-    if (role && excessRoles.has(role) && !card.isThemeSynergyCard && !themeDoubleDuty) {
+    // Tutors are tagged card draw, so a tuned deck reads as drowning in it and its tutors become
+    // "excess draw" — Entomb and Razaketh traded for filler creatures. From bracket 3 up, a tutor is
+    // there for power the way fast mana is; it isn't surplus card flow.
+    const powerTutor = role === 'cardDraw' && tutorsAsPower && isTutor(card.name);
+    if (role && excessRoles.has(role) && !card.isThemeSynergyCard && !themeDoubleDuty && !powerTutor) {
       const bucket = excessRoleCandidates.get(role) || [];
       bucket.push({ ...base, reason: `Excess ${roleLabel}`, reasonCategory: `excess:${role}`, sortScore: keepScore(card.name, inclusion ?? 50, true) + curveAdjust });
       excessRoleCandidates.set(role, bucket);
@@ -1256,6 +1321,27 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
 
   // ── Now sort each bucket by sortScore (lowest inclusion = best cut) and cap ──
   const removalCandidates: CandidateCard[] = [];
+
+  // Above-your-bracket cuts lead the column, in group order (game changers, combos, land denial,
+  // extra turns, then the power-score cards).
+  let overOffset = 0;
+  for (const [name, group] of overPicked) {
+    const card = currentCards.find(c => c.name === name);
+    if (!card) continue;
+    const role = card.deckRole || getCardRole(card.name) || undefined;
+    removalCandidates.push({
+      name, role, roleLabel: role ? (ROLE_LABELS[role] || role) : undefined,
+      inclusion: inclusionMap[name] ?? null,
+      cmc: card.cmc ?? 0,
+      primaryType: getFrontFaceTypeLine(card).split('—')[0].replace(/Legendary\s+/i, '').trim() || undefined,
+      imageUrl: getCardImageUrl(card, 'small'),
+      isGameChanger: card.isGameChanger || undefined,
+      isThemeSynergy: card.isThemeSynergyCard || undefined,
+      reason: group.reason,
+      reasonCategory: 'over-bracket',
+      sortScore: -2000 + overOffset++,
+    });
+  }
 
   // Excess role cards: sort by inclusion ASC, take up to (excess - 1) per role
   for (const [role, candidates] of excessRoleCandidates) {
@@ -1284,11 +1370,8 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
   removalCandidates.push(...generalCandidates);
 
   // ── Misfit cuts: cards flagged as not fitting the plan ──
-  // These bypass the inclusion floor AND the game-changer protection — a
-  // popular card (e.g. Imperial Seal at 80%+ in tutor decks, or any card on
-  // the Brackets Game Changer list) is "fine by EDHREC" but bad for *this*
-  // plan if it doesn't match the user's themes/roles. Surface them so the
-  // optimize tab matches what NextBestMove already suggested.
+  // These bypass the inclusion floor, so the column matches the misfits Card Fit scores. Game
+  // changers never get here: computeMisfits leaves them out (and fast mana at bracket 4+).
   // Note: we still honor must-include + active combo pieces + commander —
   // those reflect explicit user/strategy intent that overrides plan-fit.
   if (analysis.misfits && analysis.misfits.length > 0) {
@@ -1557,6 +1640,26 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
     ));
   }
 
+  // ── Adds the aim allows ──
+  // Never suggest the thing an aim below 4 rules out: a game changer past the aim's allowance (none
+  // below 3, three at 3, counting what stays after the cuts above), fast mana, land denial, extra
+  // turns, or a card that finishes combos at 2 and under.
+  if (aim && aim.bracket <= 3) {
+    const gcStaying = currentCards.filter(c => c.isGameChanger && !overPicked.has(c.name)).length;
+    let gcRoom = aim.bracket === 3 ? Math.max(0, 3 - gcStaying) : 0;
+    const allowed = additionCandidates.filter(a => {
+      if (isFastMana(a.name) || isMassLandDenial(a.name) || isExtraTurn(a.name)) return false;
+      if (aim.bracket <= 2 && a.reasonCategory === 'combo-enabler') return false;
+      if (a.isGameChanger) {
+        if (gcRoom <= 0) return false;
+        gcRoom--;
+      }
+      return true;
+    });
+    additionCandidates.length = 0;
+    additionCandidates.push(...allowed);
+  }
+
   // ── No hard caps — show all candidates the algorithm found ──
   // Surface each candidate's sortScore as `score` for UI display.
   const removals = removalCandidates.map(c => ({ ...c, score: c.sortScore }));
@@ -1577,6 +1680,128 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
   const comboEnablerRoom = additionCandidates.filter(c => c.reasonCategory === 'combo-enabler').length;
   const additionRoom = Math.max(0, targetDeckSize - currentDeckSize + netRemoved) + landDeficitRoom + comboEnablerRoom;
   const additions = additionCandidates.slice(0, additionRoom);
+
+  // ── Missing staples, each traded for a weaker card ──
+  // Cards most of this commander's decks run that this one doesn't. The room cap above would hide
+  // every one of them in a full deck with nothing to cut, and Card Fit's score charged for them
+  // anyway: a dead end at 80. Each staple that clearly outplays a card the deck runs comes in here
+  // with that card going out, so the score's gaps and these columns are one list.
+  const offeredAdds = new Set(additions.map(a => a.name));
+  const recByName = new Map(analysis.recommendations.map(r => [r.name, r]));
+  const staples = (analysis.gapAnalysis ?? []).filter(g => {
+    if (g.inclusion < GAP_PENALTY_MIN_INCLUSION) return false;
+    if (currentCardNames.has(g.name) || bannedNames.has(g.name)) return false;
+    if (g.name === commanderName || g.name === partnerCommanderName) return false;
+    // Whatever the aim rules out stays out here too (see "Adds the aim allows").
+    if (aim && aim.bracket <= 3) {
+      if (isFastMana(g.name) || isMassLandDenial(g.name) || isExtraTurn(g.name)) return false;
+      if (recByName.get(g.name)?.isGameChanger) return false;
+    }
+    return true;
+  });
+  const alreadyCut = new Set(removals.map(r => r.name));
+  // A role card only goes out while the role has spares: trading the deck's one Toxic Deluge for a
+  // Talisman isn't an upgrade, whatever the play rates say.
+  const roleSpare = new Map(analysis.roleDeficits.map(rd => [rd.role, rd.current - rd.target]));
+  const cuttable: CuttableCard[] = [];
+  for (const card of [...currentCards].sort((a, b) => (inclusionMap[a.name] ?? 0) - (inclusionMap[b.name] ?? 0))) {
+    if (BASIC_LANDS.has(card.name) || alreadyCut.has(card.name)) continue;
+    if (card.name === commanderName || card.name === partnerCommanderName) continue;
+    if (mustIncludeNames.has(card.name) || comboCountMap.has(card.name)) continue;
+    if (card.isGameChanger || isChannelLand(card) || isMdfcLand(card)) continue;
+    // On-plan cards stay, as they do against role excess: few decks with this commander running a
+    // Group Slug piece is no reason to cut it from a Group Slug deck.
+    if (card.isThemeSynergyCard || isLiteralThemeMember(themeMembership, card.name)) continue;
+    if (hasClassifierThemeEvidence(themeMembership, card.name)) continue;
+    // In for power, judged on the Bracket tab, not on this page's play rates (as in computeMisfits).
+    if ((analysis.bracket ?? 0) >= 3 && isTutor(card.name)) continue;
+    if ((analysis.bracket ?? 0) >= 4 && isFastMana(card.name)) continue;
+    const role = card.deckRole || getCardRole(card.name);
+    if (role) {
+      const spare = roleSpare.get(role) ?? 0;
+      if (spare <= 0) continue;
+      roleSpare.set(role, spare - 1);
+    }
+    cuttable.push({
+      name: card.name,
+      inclusion: inclusionMap[card.name] ?? 0,
+      isLand: getFrontFaceTypeLine(card).toLowerCase().includes('land'),
+    });
+  }
+  // Staples already in the add column are offered; only the rest need a card to trade for.
+  const stapleGaps = staples.filter(g => offeredAdds.has(g.name));
+  const pairedCuts = new Set<string>();
+  for (const { add, cut } of pairStaplesWithCuts(staples.filter(g => !offeredAdds.has(g.name)), cuttable)) {
+    const rec = recByName.get(add.name);
+    additions.push(rec
+      ? recToOptCard(rec, `In ${Math.round(add.inclusion)}% of decks`, 'staple')
+      : {
+          name: add.name, reason: `In ${Math.round(add.inclusion)}% of decks`, reasonCategory: 'staple',
+          inclusion: add.inclusion, price: add.price ?? undefined, role: add.role, roleLabel: add.roleLabel,
+          imageUrl: add.imageUrl, cmc: add.cmc, primaryType: add.typeLine.split('—')[0].replace(/Legendary\s+/i, '').trim() || undefined,
+        });
+    const card = currentCards.find(c => c.name === cut.name)!;
+    const role = card.deckRole || getCardRole(card.name) || undefined;
+    removals.push({
+      name: card.name, inclusion: cut.inclusion, role, roleLabel: role ? (ROLE_LABELS[role] || role) : undefined,
+      cmc: card.cmc ?? 0, primaryType: getFrontFaceTypeLine(card).split('—')[0].replace(/Legendary\s+/i, '').trim() || undefined,
+      imageUrl: getCardImageUrl(card, 'small'),
+      isThemeSynergy: card.isThemeSynergyCard || undefined,
+      reason: `In ${Math.round(cut.inclusion)}% of decks; ${add.name} is in ${Math.round(add.inclusion)}%`,
+      reasonCategory: 'outplayed',
+      sortScore: keepScore(card.name, cut.inclusion, true),
+      score: keepScore(card.name, cut.inclusion, true),
+    });
+    stapleGaps.push(add);
+    pairedCuts.add(cut.name);
+  }
+
+  // ── Theme cards, each traded for an off-plan card ──
+  // Strategy scores how much of the deck serves the plan and how many of the theme page's top cards
+  // it runs. The room cap hid those adds in a full deck just as it hid staples, so Strategy held
+  // points no swap could earn. Only as many as the score still wants come in, each against the
+  // weakest off-plan card few of this commander's decks play — so trading it never opens a staple gap.
+  const themeAdds: string[] = [];
+  const sb = analysis.strategyBasis;
+  if (sb) {
+    const top = new Set(sb.topNames);
+    const wanted = Math.max(
+      Math.ceil(sb.densityTarget) - sb.inTheme,
+      sb.hitTarget == null ? 0 : Math.ceil(sb.hitTarget) - sb.hits,
+      0,
+    );
+    // Theme cards already in the add column count first.
+    for (const a of additions) {
+      if (themeAdds.length >= wanted) break;
+      if (top.has(a.name.toLowerCase())) themeAdds.push(a.name);
+    }
+    const offeredNow = new Set(additions.map(a => a.name));
+    const themeCandidates = (analysis.themeStaples ?? [])
+      .filter(g => !offeredNow.has(g.name) && !bannedNames.has(g.name) && !currentCardNames.has(g.name))
+      .filter(g => !(aim && aim.bracket <= 3 && (isFastMana(g.name) || isMassLandDenial(g.name) || isExtraTurn(g.name) || recByName.get(g.name)?.isGameChanger)))
+      .sort((a, b) => b.inclusion - a.inclusion);
+    const offPlan = cuttable
+      .filter(c => !c.isLand && !pairedCuts.has(c.name) && c.inclusion < GAP_PENALTY_MIN_INCLUSION);
+    for (let i = 0; i < themeCandidates.length && themeAdds.length < wanted && offPlan.length > 0; i++) {
+      const add = themeCandidates[i];
+      const cut = offPlan.shift()!;
+      const rec = recByName.get(add.name);
+      additions.push(rec
+        ? recToOptCard(rec, 'Builds your plan', 'theme-staple')
+        : { name: add.name, reason: 'Builds your plan', reasonCategory: 'theme-staple', inclusion: null, primaryType: add.typeLine || undefined });
+      const card = currentCards.find(c => c.name === cut.name)!;
+      const role = card.deckRole || getCardRole(card.name) || undefined;
+      removals.push({
+        name: card.name, inclusion: cut.inclusion, role, roleLabel: role ? (ROLE_LABELS[role] || role) : undefined,
+        cmc: card.cmc ?? 0, primaryType: getFrontFaceTypeLine(card).split('—')[0].replace(/Legendary\s+/i, '').trim() || undefined,
+        imageUrl: getCardImageUrl(card, 'small'),
+        reason: "Doesn't serve your plan", reasonCategory: 'off-plan',
+        sortScore: keepScore(card.name, cut.inclusion, true),
+        score: keepScore(card.name, cut.inclusion, true),
+      });
+      themeAdds.push(add.name);
+    }
+  }
 
   // ── Balance pass ──
   // Top priority: leave the deck at its target size (40/60/100). If accepting all
@@ -1623,7 +1848,69 @@ export function computeOptimizeSwaps(opts: ComputeOptimizeSwapsOptions): Optimiz
     removals.push(...balanceCandidates.slice(0, sizeOverflow).map(c => ({ ...c, score: c.sortScore })));
   }
 
-  return { removals, additions };
+  const fit = opts.commanderInclusion;
+  if (!fit) return { removals, additions, stapleGaps, themeAdds };
+  const stamp = (c: OptimizeCard): OptimizeCard => ({ ...c, fitInclusion: fit[c.name] ?? fit[c.name.split(' // ')[0]] });
+  return { removals: removals.map(stamp), additions: additions.map(stamp), stapleGaps, themeAdds };
+}
+
+// ─── Swap pairing ───────────────────────────────────────────────────
+
+export interface SwapPair {
+  out: OptimizeCard;
+  in: OptimizeCard;
+}
+
+const isLandCard = (c: OptimizeCard) => (c.primaryType ?? '').toLowerCase().includes('land');
+
+/**
+ * Whether `add` is worth `cut`'s slot: played at least as often by this commander's decks at the
+ * bracket the deck is judged at (`fitInclusion`). A card that isn't on the commander's page at all —
+ * a theme or archetype pick — only replaces one those decks barely play either; otherwise a deck's
+ * Sylvan Library goes out for a Greater Mossdog that no Mycotyrant list runs, because the deck was
+ * over on draw and short on four-drops. Lands are left to the role and mana logic: their figures
+ * mostly measure how common a land is, not how good the swap is.
+ */
+export function isUpgradeFor(cut: OptimizeCard, add: OptimizeCard): boolean {
+  // Cutting for the aim gives up power on purpose; the add only has to be a good card at that
+  // bracket, which pairSwaps handles by taking the most-played one.
+  // So does cutting for the plan: the add's case is the plan, not this page's play rate.
+  if (isLandCard(cut) || cut.reasonCategory === 'over-bracket' || cut.reasonCategory === 'off-plan') return true;
+  const out = cut.fitInclusion ?? 0;
+  return add.fitInclusion == null ? out < LOW_FIT_INCLUSION : add.fitInclusion >= out;
+}
+
+/**
+ * One-for-one pairs from Card Fit's own cut and add columns, so every surface that offers a swap
+ * names the same cards. A land only ever trades for a land (the land count is the Mana tab's call,
+ * not a side effect of a swap); then the same role; then an add that fills a gap the cut's excess
+ * leaves room for; then the strongest add left — and only ever an add that is an upgrade for the
+ * cut (isUpgradeFor). A cut with no such add is left out rather than paired with a downgrade.
+ */
+export function pairSwaps(removals: OptimizeCard[], additions: OptimizeCard[], limit = 3): SwapPair[] {
+  const used = new Set<string>();
+  const pairs: SwapPair[] = [];
+  for (const out of removals) {
+    if (pairs.length >= limit) break;
+    const pool = additions.filter(a =>
+      !used.has(a.name) && a.name !== out.name && isLandCard(a) === isLandCard(out) && isUpgradeFor(out, a));
+    if (pool.length === 0) continue;
+    if (out.reasonCategory === 'over-bracket') {
+      // What this bracket's decks play most, same role first.
+      pool.sort((a, b) => (b.fitInclusion ?? -1) - (a.fitInclusion ?? -1));
+    }
+    // The trades made for a reason keep their partner's kind: an off-plan cut makes room for the
+    // plan, an outplayed card for a staple.
+    const kind = out.reasonCategory === 'off-plan' ? 'theme-staple' : out.reasonCategory === 'outplayed' ? 'staple' : null;
+    const pick =
+      (kind ? pool.find(a => a.reasonCategory === kind) : undefined)
+      ?? (out.role ? pool.find(a => a.role === out.role) : undefined)
+      ?? (out.reasonCategory.startsWith('excess:') ? pool.find(a => a.reasonCategory.startsWith('fills:')) : undefined)
+      ?? pool[0];
+    used.add(pick.name);
+    pairs.push({ out, in: pick });
+  }
+  return pairs;
 }
 
 /** SVG markup for a summary icon */
@@ -1826,6 +2113,11 @@ export interface AnalyzeDeckOptions {
   /** Combos detected in the deck. Passed through to ScoringContext so
    *  recommendation scoring boosts combo pieces. */
   detectedCombos?: DetectedCombo[];
+  /** The bracket Card Fit judges the deck at: the player's intended bracket, else the estimate. */
+  bracket?: number;
+  /** Role targets as that bracket's decks run them (see BracketBlend.roleScale). Absent → the
+   *  targets stand as given. */
+  bracketTargets?: { bracket: number; scale: Record<string, number> };
 }
 
 export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
@@ -1833,13 +2125,19 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     edhrecData,
     currentCards,
     roleCounts,
-    roleTargets,
     deckSize,
     cardInclusionMap,
     colorIdentity,
     overridePacing,
     overrideLandTarget,
   } = opts;
+  const roleScale = opts.bracketTargets?.scale;
+  const roleTargets: Record<string, number> = roleScale
+    ? Object.fromEntries(Object.entries(opts.roleTargets).map(([role, t]) => [
+        role,
+        Math.max(role === 'boardwipe' ? 0 : 1, Math.round(t * (roleScale[role] ?? 1))),
+      ]))
+    : opts.roleTargets;
   // --- Role Deficits ---
   const roleDeficits: RoleDeficit[] = Object.entries(roleTargets).map(([role, target]) => {
     const current = roleCounts[role] || 0;
@@ -2726,12 +3024,19 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
   const primaryThemeData = opts.primaryThemeData ?? null;
   const planName = opts.planName ?? null;
 
-  const strategySub = computeStrategySubscore({
+  const { basis: strategyBasis, ...strategySub } = computeStrategySubscore({
     cards: opts.currentCards,
     themeMembership,
     primaryThemeData,
     planName,
   });
+  // The theme page's top cards the deck doesn't run: the adds Card Fit can offer to raise Strategy.
+  const inDeck = new Set(opts.currentCards.map(c => c.name.toLowerCase()));
+  const themeStaples: GapAnalysisCard[] = strategyBasis && primaryThemeData
+    ? (primaryThemeData.cardlists.allNonLand ?? [])
+        .filter(tc => strategyBasis.topNames.includes(tc.name.toLowerCase()) && !inDeck.has(tc.name.toLowerCase()))
+        .map(tc => ({ name: tc.name, inclusion: tc.inclusion, synergy: tc.synergy ?? 0, typeLine: tc.primary_type ?? '', price: null }))
+    : [];
   const rolesSub = computeRolesSubscore(roleBreakdowns);
   const tempoSub = computeTempoSubscore(curvePhases);
 
@@ -2755,9 +3060,9 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     gapCandidates: liveGapCandidates,
     commanderData: opts.edhrecData ?? null,
     commanderNames: opts.commanderNames,
+    bracket: opts.bracket,
   });
-  const gapCount = liveGapCandidates.length;
-  const cardFitSub = computeCardFitSubscore(misfits, gapCount);
+  const cardFitSub = computeCardFitSubscore(misfits, liveGapCandidates);
 
   const planScore = composePlanScore({
     strategy: strategySub,
@@ -2795,6 +3100,10 @@ export function analyzeDeck(opts: AnalyzeDeckOptions): DeckAnalysis {
     planScore,
     misfits,
     gapAnalysis: liveGapCandidates,
+    strategyBasis,
+    themeStaples,
     cardRelevancyMap,
+    bracket: opts.bracket,
+    targetsBracket: opts.bracketTargets?.bracket,
   };
 }

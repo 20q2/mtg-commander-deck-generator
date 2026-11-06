@@ -92,7 +92,6 @@ export function OptimizeDrilldown({
             onClick={() => onPreviewCard?.(card.name)}
             disabled={!onPreviewCard}
             className="group/preview relative block w-full rounded-lg overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
-            title={onPreviewCard ? 'Click to preview card' : card.name}
             aria-label={onPreviewCard ? `Preview ${card.name}` : card.name}
           >
             <img
@@ -238,7 +237,6 @@ export function OptimizeDrilldown({
                       type="button"
                       onClick={() => onPreviewCard?.(cand.name)}
                       className="shrink-0 w-12 rounded border border-border/40 hover:border-emerald-500/40 transition-colors overflow-hidden"
-                      title={cand.name}
                     >
                       <img src={candImg} alt={cand.name} className="w-full aspect-[5/7] object-cover" loading="lazy" />
                     </button>

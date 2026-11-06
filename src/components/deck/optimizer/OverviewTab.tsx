@@ -5,10 +5,10 @@ import {
   Ban,
   Tag, ArrowUpDown,
   RotateCcw, Info, Zap, Mountain,
-  AlertTriangle, Layers, Package, Waypoints,
+  AlertTriangle, Layers, Package, Waypoints, Gauge,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import type { ScryfallCard, UserCardList, EDHRECTheme } from '@/types';
+import type { ScryfallCard, UserCardList, EDHRECTheme, IntendedBracket } from '@/types';
 import type { DeckAnalysis, RecommendedCard, AnalyzedCard } from '@/services/deckBuilder/deckAnalyzer';
 import type { DetectedThemeResult, Pacing } from '@/services/deckBuilder/themeDetector';
 import { getCardPrice, getCachedCard } from '@/services/scryfall/client';
@@ -18,8 +18,10 @@ import {
   ROLE_LABEL_ICONS, SUBTYPE_BADGE_COLORS,
   TEMPO_OPTIONS,
   SORT_KEY, sortListeners,
+  BRACKET_COLORS, BRACKET_LABELS, BRACKET_DESCRIPTIONS,
   type SuggestionSortMode,
 } from './constants';
+import type { BracketBasis } from '@/services/deckBuilder/bracketBlend';
 
 // ─── Suggestion Sort Hook ─────────────────────────────────────────────
 
@@ -41,7 +43,7 @@ export function useSuggestionSort() {
 // ─── Shared: Suggestion Card Grid (for upgrade recommendations) ──────
 
 export function SuggestionCardGrid({
-  cards, onAdd, onPreview, addedCards, deficit = 0, onCardAction, menuProps, title, hideSort,
+  cards, onAdd, onPreview, addedCards, deficit = 0, onCardAction, menuProps, title, hideSort, headerControls,
 }: {
   cards: RecommendedCard[];
   onAdd: (name: string) => void;
@@ -52,6 +54,8 @@ export function SuggestionCardGrid({
   menuProps?: { userLists: UserCardList[]; mustIncludeNames: Set<string>; bannedNames: Set<string>; sideboardNames: Set<string>; maybeboardNames: Set<string>; collectionNames?: Set<string> };
   title?: React.ReactNode;
   hideSort?: boolean;
+  /** Extra controls rendered in the header, left of the sort toggle. */
+  headerControls?: React.ReactNode;
 }) {
   const [sortMode, setSortMode] = useSuggestionSort();
   const sorted = useMemo(() => {
@@ -86,16 +90,17 @@ export function SuggestionCardGrid({
 
   return (
     <div>
-      {(title || !hideSort) && (
-        <div className="flex items-center gap-2 mb-1.5 px-0.5">
+      {(title || !hideSort || headerControls) && (
+        <div className="flex flex-wrap items-center gap-2 mb-1.5 px-0.5">
           {title && (
             <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground/80 flex items-center gap-1">
               <Sparkles className="w-3 h-3" />
               {title}
             </p>
           )}
+          {headerControls && <div className="ml-auto flex items-center">{headerControls}</div>}
           {!hideSort && (
-            <div className="ml-auto flex items-center gap-1">
+            <div className={`${headerControls ? '' : 'ml-auto '}flex items-center gap-1`}>
               <ArrowUpDown className="w-3 h-3 text-muted-foreground/40" />
               <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
                 <button
@@ -267,6 +272,7 @@ export function SuggestionCardItem({
             <span
               className="text-[10px] font-bold tabular-nums shrink-0"
               style={{ color: `hsl(${Math.min(pct / 50, 1) * 120}, 70%, 55%)` }}
+              title={rec.inclusionLabel ? `In ${pct}% ${rec.inclusionLabel}` : undefined}
             >
               {pct}%
             </span>
@@ -274,7 +280,11 @@ export function SuggestionCardItem({
         ) : sortMode === 'cmc' ? null : (
           <span
             className="text-[10px] font-bold tabular-nums shrink-0 text-violet-400"
-            title={`Relevance score: ${Math.round(rec.score ?? 0)} (inclusion: ${pct}%)`}
+            title={rec.inclusionLabel
+              ? `Relevance score: ${Math.round(rec.score ?? 0)} (in ${pct}% ${rec.inclusionLabel})`
+              : pct >= 0
+                ? `Relevance score: ${Math.round(rec.score ?? 0)} (inclusion: ${pct}%)`
+                : `Relevance score: ${Math.round(rec.score ?? 0)}`}
           >
             {Math.round(rec.score ?? 0)}
           </span>
@@ -549,6 +559,8 @@ export function AdjustPopoverContent({
   detectedPacing,
   userPacing,
   onPacingChange,
+  bracketBasis,
+  onBracketChange,
 }: {
   analysis: DeckAnalysis;
   detection: DetectedThemeResult;
@@ -566,6 +578,9 @@ export function AdjustPopoverContent({
   detectedPacing?: Pacing;
   userPacing?: Pacing | null;
   onPacingChange: (pacing: Pacing | null) => void;
+  /** The bracket recommendations aim at, and whether the player chose it. */
+  bracketBasis?: BracketBasis | null;
+  onBracketChange?: (bracket: IntendedBracket | null) => void;
 }) {
   const [showAllThemes, setShowAllThemes] = useState(false);
   const chipThemes = useMemo(() => {
@@ -665,6 +680,58 @@ export function AdjustPopoverContent({
           </div>
         )}
       </div>
+
+      {/* Bracket the suggestions aim at */}
+      {onBracketChange && (
+      <div className="p-3 pt-2 border-t border-border/20">
+        <div className="flex items-center gap-2 mb-2">
+          <Gauge className="w-3 h-3 text-muted-foreground" />
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Bracket</span>
+          {bracketBasis?.source === 'set' && (
+            <button
+              onClick={() => onBracketChange(null)}
+              className="text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors ml-auto"
+              title="Go back to the bracket your cards play like"
+            >
+              Reset
+            </button>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {([1, 2, 3, 4, 5] as const).map(b => {
+            const isActive = bracketBasis?.bracket === b;
+            const colors = BRACKET_COLORS[b];
+            return (
+              <button
+                key={b}
+                onClick={() => onBracketChange(isActive && bracketBasis?.source === 'set' ? null : b)}
+                aria-pressed={isActive}
+                className={`
+                  w-8 py-1 text-xs rounded-full border tabular-nums
+                  transition-all duration-200 cursor-pointer
+                  ${isActive
+                    ? `${colors.bg} ${colors.border} ${colors.text} font-semibold`
+                    : 'bg-card/80 border-border/40 text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                  }
+                `}
+                title={`${BRACKET_LABELS[b]} — ${BRACKET_DESCRIPTIONS[b]}`}
+              >
+                {b}
+              </button>
+            );
+          })}
+        </div>
+        {bracketBasis && (
+          <p className="text-[11px] text-muted-foreground/70 leading-snug mt-2">
+            {bracketBasis.source === 'set'
+              ? `Suggestions aim at Bracket ${bracketBasis.bracket} · ${BRACKET_LABELS[bracketBasis.bracket]}.`
+              : bracketBasis.source === 'generated'
+                ? `Built at Bracket ${bracketBasis.bracket} · ${BRACKET_LABELS[bracketBasis.bracket]}, so suggestions aim there.`
+                : `Your cards play like Bracket ${bracketBasis.bracket} · ${BRACKET_LABELS[bracketBasis.bracket]}. Pick one to aim somewhere else.`}
+          </p>
+        )}
+      </div>
+      )}
 
       {/* Deck Size override */}
       {onDeckSizeChange && (

@@ -229,8 +229,12 @@ async function edhrecFetch<T>(endpoint: string): Promise<T> {
   return data;
 }
 
-// Tags that represent high-priority theme synergy cards
-const THEME_SYNERGY_TAGS = new Set(['highsynergycards', 'topcards', 'gamechangers']);
+// Tags that represent high-priority theme synergy cards. EDHREC replaced `highsynergycards` with
+// `highliftcards` on commander, theme and tag pages; both are kept so cached old-shape responses
+// still parse.
+const THEME_SYNERGY_TAGS = new Set(['highsynergycards', 'highliftcards', 'topcards', 'gamechangers']);
+// Card lists that hold no deck cards (tag pages list commanders); skipped without a warning.
+const COMMANDER_LIST_TAGS = new Set(['topcommanders', 'newcommanders']);
 
 /**
  * Parse raw EDHREC card into our format
@@ -552,12 +556,16 @@ function parseCardlists(response: RawEDHRECResponse): EDHRECCommanderData['cardl
         place(cardlists.lands, card);
       } else if (
         tag === 'newcards' ||
-        tag === 'highsynergycards' ||
-        tag === 'topcards' ||
-        tag === 'gamechangers'
+        tag === 'battles' ||
+        THEME_SYNERGY_TAGS.has(tag)
       ) {
+        // EDHREC lists each card in one section only: a card here is in no type list, so
+        // dropping the section drops the card from every inclusion map.
         place(cardlists.allNonLand, card);
       }
+    }
+    if (!impliedType && tag !== 'newcards' && tag !== 'battles' && !THEME_SYNERGY_TAGS.has(tag) && !COMMANDER_LIST_TAGS.has(tag)) {
+      console.warn(`[EDHREC] Unrecognized card list "${list.tag}" dropped (${list.cardviews.length} cards)`);
     }
   }
 
@@ -1802,6 +1810,44 @@ export function colorIdentityToSlug(colorIdentity: string[]): string {
     case 'WUBRG': return 'five-color';
     default: return 'colorless';
   }
+}
+
+// --- Color-identity land pages ---
+// /pages/lands/{identity-slug}.json lists every land played in that identity,
+// grouped by cycle (checklands, fetchlands, utilitylands, ...). Inclusion is
+// num_decks / potential_decks — the share of all decks of that identity.
+
+export interface ColorIdentityLand {
+  name: string;
+  /** % of decks of this color identity that run it. */
+  inclusion: number;
+  /** EDHREC's grouping tag, e.g. `utilitylands`, `fetchlands`. */
+  section: string;
+}
+
+const colorLandsCache = new Map<string, ColorIdentityLand[]>();
+
+export async function fetchColorIdentityLands(colorIdentity: string[]): Promise<ColorIdentityLand[]> {
+  const slug = colorIdentityToSlug(colorIdentity);
+  const cached = colorLandsCache.get(slug);
+  if (cached) return cached;
+
+  const response = await edhrecFetch<{
+    container?: { json_dict?: { cardlists?: { tag: string; cardviews: { name: string; num_decks?: number; potential_decks?: number }[] }[] } };
+  }>(`/pages/lands/${slug}.json`);
+
+  const seen = new Set<string>();
+  const lands: ColorIdentityLand[] = [];
+  for (const list of response.container?.json_dict?.cardlists ?? []) {
+    for (const cv of list.cardviews ?? []) {
+      if (seen.has(cv.name) || !cv.potential_decks) continue;
+      seen.add(cv.name);
+      lands.push({ name: cv.name, inclusion: ((cv.num_decks ?? 0) / cv.potential_decks) * 100, section: list.tag });
+    }
+  }
+  lands.sort((a, b) => b.inclusion - a.inclusion);
+  colorLandsCache.set(slug, lands);
+  return lands;
 }
 
 // --- Strategy tags (browse by strategy) ---

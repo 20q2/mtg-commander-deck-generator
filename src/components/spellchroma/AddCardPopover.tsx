@@ -53,7 +53,7 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
   const inputRef = useRef<HTMLInputElement>(null);
 
   const exclude = useMemo(() => new Set([...deckNames].map(n => n.toLowerCase())), [deckNames]);
-  const { query, setQuery, suggestions, loading, clear } = useCardNameSearch({ exclude });
+  const { query, setQuery, suggestions, loading, clear, activeIndex, setActiveIndex, activeSuggestion, navKeyDown, listRef } = useCardNameSearch({ exclude });
 
   // Resolve the chosen name to a full card, then route it through onCardAction.
   // The popover stays open and the input refocuses so several cards can be added
@@ -89,16 +89,17 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
     }
   };
 
-  // Enter adds the top suggestion, or resolves the typed name fuzzily so a
-  // near-miss (spelling/casing) still lands.
+  // ↑/↓ move the highlight; Enter adds the highlighted suggestion, or resolves
+  // the typed name fuzzily so a near-miss (spelling/casing) still lands.
   const onKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (navKeyDown(e)) return;
     if (e.key !== 'Enter') return;
     e.preventDefault();
     const name = query.trim();
     if (!name) return;
-    if (suggestions[0]) {
-      if (swapping) void requestSwap(suggestions[0]);
-      else void add(suggestions[0], 'addToDeck');
+    if (activeSuggestion) {
+      if (swapping) void requestSwap(activeSuggestion);
+      else void add(activeSuggestion, 'addToDeck');
       return;
     }
     setResolving(name);
@@ -172,9 +173,10 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
         </div>
 
         {suggestions.length > 0 ? (
-          <div className="mt-2 max-h-[300px] overflow-y-auto flex flex-col">
-            {suggestions.map((name) => (
-              <div key={name} className="flex items-center gap-2 rounded-md hover:bg-accent/50 transition-colors group">
+          <div ref={listRef} className="mt-2 max-h-[300px] overflow-y-auto flex flex-col">
+            {suggestions.map((name, i) => (
+              <div key={name} data-suggestion-index={i} onMouseMove={() => setActiveIndex(i)}
+                className={`flex items-center gap-2 rounded-md transition-colors group ${i === activeIndex ? 'bg-accent/50' : ''}`}>
                 <button
                   type="button"
                   onClick={() => swapping ? void requestSwap(name) : void add(name, 'addToDeck')}
@@ -186,7 +188,7 @@ export function AddCardPopover({ colorIdentity: _colorIdentity, boardsEnabled = 
                   <span className="flex-1 min-w-0 truncate text-sm">{name}</span>
                   {/* At target the click means something different, so the row says so. */}
                   {swapping && (
-                    <span className="shrink-0 text-[10px] font-semibold text-violet-300/80 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className={`shrink-0 text-[10px] font-semibold text-violet-300/80 transition-opacity ${i === activeIndex ? 'opacity-100' : 'opacity-0'}`}>
                       Swap in
                     </span>
                   )}

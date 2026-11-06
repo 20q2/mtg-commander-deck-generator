@@ -82,6 +82,27 @@ function baselineNarrative(key: BaselineKey, lastEditedAt?: number): string {
   return BASELINE_OPTIONS.find(o => o.key === key)?.label ?? key;
 }
 
+const baselineStoreKeyFor = (listId?: string) => `mtg-newcards-baseline-${listId ?? 'adhoc'}`;
+
+/** The baseline the player last chose for this deck, else the default (their last edit, if known). */
+function readBaselineKey(listId?: string, lastEditedAt?: number): BaselineKey {
+  let stored: BaselineKey | null = null;
+  try { stored = localStorage.getItem(baselineStoreKeyFor(listId)) as BaselineKey | null; } catch { /* storage unavailable */ }
+  const valid = stored && BASELINE_OPTIONS.some(o => o.key === stored) && (stored !== 'last-edit' || lastEditedAt);
+  if (valid) return stored!;
+  return lastEditedAt ? 'last-edit' : 'recent';
+}
+
+/**
+ * The "since when" this deck's New Cards tab is answering, for the Overview preview — so the two
+ * ask the same question and share one cached fetch. `date` is read once per call (Date.now()), so
+ * callers memoize it.
+ */
+export function newCardsBaseline(listId?: string, lastEditedAt?: number): { date?: number; narrative: string } {
+  const key = readBaselineKey(listId, lastEditedAt);
+  return { date: baselineMs(key, lastEditedAt), narrative: baselineNarrative(key, lastEditedAt) };
+}
+
 // ── Sections ─────────────────────────────────────────────────────────────
 
 type SectionKey = 'upgrades' | 'build' | 'broad' | 'longshots';
@@ -197,13 +218,8 @@ export function NewCardsTab({
     _setViewMode(v);
   };
 
-  const baselineStoreKey = `mtg-newcards-baseline-${listId ?? 'adhoc'}`;
-  const [baselineKey, _setBaselineKey] = useState<BaselineKey>(() => {
-    const stored = localStorage.getItem(baselineStoreKey) as BaselineKey | null;
-    const valid = stored && BASELINE_OPTIONS.some(o => o.key === stored) && (stored !== 'last-edit' || lastEditedAt);
-    if (valid) return stored;
-    return lastEditedAt ? 'last-edit' : 'recent';
-  });
+  const baselineStoreKey = baselineStoreKeyFor(listId);
+  const [baselineKey, _setBaselineKey] = useState<BaselineKey>(() => readBaselineKey(listId, lastEditedAt));
   const setBaselineKey = (k: BaselineKey) => {
     localStorage.setItem(baselineStoreKey, k);
     _setBaselineKey(k);

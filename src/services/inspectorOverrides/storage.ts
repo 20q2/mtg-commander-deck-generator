@@ -1,7 +1,7 @@
-import type { Pacing } from '@/types';
+import type { Pacing, IntendedBracket } from '@/types';
 import type { ThemeRef } from '@/services/lists/listThemes';
 
-// The four Inspector "Adjust" controls — themes, tempo, land target, deck size —
+// The Inspector "Adjust" controls — themes, tempo, land target, deck size, bracket —
 // persisted per deck so a reload (or a trip through another page) doesn't drop
 // them back to whatever auto-detection guessed.
 //
@@ -31,6 +31,8 @@ export interface InspectorOverrides {
   pacing?: Pacing | null;
   landTarget?: number | null;
   deckSize?: number | null;
+  /** Only read for decks with no saved list — saved decks keep it on the list, which isn't evicted. */
+  intendedBracket?: IntendedBracket | null;
   /** Eviction ordering only. */
   updatedAt?: number;
 }
@@ -72,6 +74,9 @@ function sanitize(value: unknown): InspectorOverrides | null {
   }
   if (typeof v.landTarget === 'number' && Number.isFinite(v.landTarget)) out.landTarget = v.landTarget;
   if (typeof v.deckSize === 'number' && Number.isFinite(v.deckSize)) out.deckSize = v.deckSize;
+  if (typeof v.intendedBracket === 'number' && [1, 2, 3, 4, 5].includes(v.intendedBracket)) {
+    out.intendedBracket = v.intendedBracket as IntendedBracket;
+  }
   if (typeof v.updatedAt === 'number') out.updatedAt = v.updatedAt;
 
   return out;
@@ -80,7 +85,8 @@ function sanitize(value: unknown): InspectorOverrides | null {
 /** A record with nothing but bookkeeping left is dropped rather than stored, so
  *  resetting every control back to auto leaves no trace behind. */
 function isEmpty(o: InspectorOverrides): boolean {
-  return !o.themesTouched && o.pacing == null && o.landTarget == null && o.deckSize == null;
+  return !o.themesTouched && o.pacing == null && o.landTarget == null && o.deckSize == null
+    && o.intendedBracket == null;
 }
 
 function readMap(): OverridesMap {

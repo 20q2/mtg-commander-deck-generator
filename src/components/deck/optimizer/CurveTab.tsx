@@ -17,6 +17,7 @@ import { cardMatchesRole } from '@/services/tagger/client';
 import { PACING_LABELS, PHASE_META, tileGradeStyles, type CollapsibleGroup } from './constants';
 import { AnalyzedCardRow, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid, CutCardGrid } from './OverviewTab';
+import { useSubtypeFacets, SubtypeFacetChips } from './subtypeFacets';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -262,6 +263,30 @@ export function TrajectoryTooltip({ active, payload, label }: {
   );
 }
 
+/**
+ * Per-CMC targets bent by the deck's pacing, rescaled so they still sum to the unpaced total. The
+ * Tempo chart and the Overview's mini curve both draw from this, so their "expected" lines match.
+ */
+export function pacedCurveSlots(curveAnalysis: CurveSlot[], pacing?: Pacing): { cmc: number; current: number; target: number }[] {
+  const multipliers = pacing ? PACING_MULTIPLIERS[pacing] : PACING_MULTIPLIERS.balanced;
+  const slots = curveAnalysis.map(s => {
+    const phase = s.cmc <= 2 ? 'early' : s.cmc <= 4 ? 'mid' : 'late';
+    return { cmc: s.cmc, current: s.current, target: Math.round(s.target * multipliers[phase]) };
+  });
+  const rawTotal = curveAnalysis.reduce((sum, s) => sum + s.target, 0);
+  const adjTotal = slots.reduce((sum, s) => sum + s.target, 0);
+  if (adjTotal > 0 && adjTotal !== rawTotal) {
+    const scale = rawTotal / adjTotal;
+    for (const s of slots) s.target = Math.round(s.target * scale);
+    const drift = rawTotal - slots.reduce((sum, s) => sum + s.target, 0);
+    if (drift !== 0) {
+      const largest = slots.reduce((m, s) => s.target > m.target ? s : m, slots[0]);
+      largest.target += drift;
+    }
+  }
+  return slots;
+}
+
 export function ManaCurveLineChart({
   curveAnalysis, curveBreakdowns, pacing, activePhases, selectedCmc, onCmcClick, chartHeight = 140,
 }: {
@@ -283,30 +308,8 @@ export function ManaCurveLineChart({
   }, []);
   const show = (key: string) => !hidden.has(key);
 
-  if (curveAnalysis.length === 0) return null;
-
-  const multipliers = pacing ? PACING_MULTIPLIERS[pacing] : PACING_MULTIPLIERS.balanced;
   const hasPhaseFilter = activePhases != null && activePhases.size > 0;
-
-  // Build per-CMC adjusted targets
-  const slots = curveAnalysis.map(s => {
-    const phase = s.cmc <= 2 ? 'early' : s.cmc <= 4 ? 'mid' : 'late';
-    const adjustedTarget = Math.round(s.target * multipliers[phase]);
-    return { cmc: s.cmc, current: s.current, target: adjustedTarget };
-  });
-
-  // Normalize adjusted targets to sum to same total as raw targets
-  const rawTotal = curveAnalysis.reduce((sum, s) => sum + s.target, 0);
-  const adjTotal = slots.reduce((sum, s) => sum + s.target, 0);
-  if (adjTotal > 0 && adjTotal !== rawTotal) {
-    const scale = rawTotal / adjTotal;
-    for (const s of slots) s.target = Math.round(s.target * scale);
-    const drift = rawTotal - slots.reduce((sum, s) => sum + s.target, 0);
-    if (drift !== 0) {
-      const largest = slots.reduce((m, s) => s.target > m.target ? s : m, slots[0]);
-      largest.target += drift;
-    }
-  }
+  const slots = pacedCurveSlots(curveAnalysis, pacing);
 
   // Determine which CMCs belong to any active phase
   const cmcToPhase = (cmc: number): CurvePhase => cmc <= 2 ? 'early' : cmc <= 4 ? 'mid' : 'late';
@@ -338,6 +341,9 @@ export function ManaCurveLineChart({
     }
     return map;
   }, [curveBreakdowns]);
+
+  // After the hooks: returning before useMemo changed the hook count when a curve appeared.
+  if (curveAnalysis.length === 0) return null;
 
   const chartData = slots.map(s => ({
     cmcLabel: s.cmc === 7 ? '7+' : String(s.cmc),
@@ -1012,7 +1018,7 @@ export function ManaTrajectorySparkline({
           </span>
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={chartHeight} debounce={1} className="flex-1 min-h-[120px]">
+      <ResponsiveContainer width="100%" height={chartHeight} debounce={1} className="flex-1 min-h-[120px] [&_*:focus-visible]:outline-none [&_*:focus]:outline-none">
         <RechartsAreaChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
           <XAxis
             dataKey="turnLabel"
@@ -1238,6 +1244,15 @@ function PhaseRoleCardList({
   return <CollapsibleCardGroups groups={groups} totalCount={totalCount} />;
 }
 
+const CURVE_SUGGESTION_LIMIT = 18;
+
+const CURVE_GROUP_ROLES: Record<RoleGroupKey, string[]> = {
+  ramp:        ['ramp'],
+  interaction: ['removal', 'boardwipe'],
+  cardDraw:    ['cardDraw'],
+  other:       [],
+};
+
 function buildCurveSuggestions({
   phases, roleBreakdowns, activeRoleGroups, allRecommendations,
 }: {
@@ -1246,14 +1261,8 @@ function buildCurveSuggestions({
   activeRoleGroups: Set<RoleGroupKey>;
   allRecommendations?: RecommendedCard[];
 }): RecommendedCard[] {
-  const TARGET_COUNT = 18;
-
-  const roleKeyMap: Record<RoleGroupKey, string[]> = {
-    ramp:        ['ramp'],
-    interaction: ['removal', 'boardwipe'],
-    cardDraw:    ['cardDraw'],
-    other:       [],
-  };
+  const TARGET_COUNT = CURVE_SUGGESTION_LIMIT;
+  const roleKeyMap = CURVE_GROUP_ROLES;
   const knownRoles = new Set(['ramp', 'removal', 'boardwipe', 'cardDraw']);
 
   // Per-role-group deficit, summed across the active phases.
@@ -1387,18 +1396,10 @@ function buildCurveSuggestions({
     }
   }
 
-  if (seen.size === 0) {
-    for (const group of activeGroups) {
-      const pool = poolFor(group);
-      for (const rec of pool) {
-        if (!seen.has(rec.name) && inRange(rec)) seen.set(rec.name, rec);
-      }
-    }
-  }
-
+  // Uncapped: the panel narrows by subtype facet first, then caps at CURVE_SUGGESTION_LIMIT.
   const result = Array.from(seen.values());
   result.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  return result.slice(0, TARGET_COUNT);
+  return result;
 }
 
 // Map a deck card's deckRole to the phase role group it counts toward.
@@ -1578,9 +1579,20 @@ function CurveSuggestionPanel({
   allRecommendations?: RecommendedCard[];
   detectedCombos?: DetectedCombo[];
 }) {
-  const suggestions = useMemo(() =>
+  const suggestionPool = useMemo(() =>
     buildCurveSuggestions({ phases, roleBreakdowns, activeRoleGroups, allRecommendations }),
     [phases, roleBreakdowns, activeRoleGroups, allRecommendations]
+  );
+  // Subtype chips only when the user has picked role lanes — auto mode is a deficit-weighted
+  // mix of every lane, where "Draw" would just carve out a handful of cards.
+  const facetRoles = useMemo(
+    () => ROLE_GROUP_ORDER.filter(g => activeRoleGroups.has(g)).flatMap(g => CURVE_GROUP_ROLES[g]),
+    [activeRoleGroups]
+  );
+  const facets = useSubtypeFacets(suggestionPool, facetRoles, CURVE_SUGGESTION_LIMIT);
+  const suggestions = useMemo(
+    () => facets.filtered.slice(0, CURVE_SUGGESTION_LIMIT),
+    [facets.filtered]
   );
 
   const { cuts, cutReasons } = useMemo(() =>
@@ -1719,6 +1731,7 @@ function CurveSuggestionPanel({
           deficit={totalDeficit}
           onCardAction={onCardAction}
           menuProps={menuProps}
+          headerControls={<SubtypeFacetChips options={facets.options} active={facets.active} onChange={facets.setActive} />}
         />
       )}
     </div>

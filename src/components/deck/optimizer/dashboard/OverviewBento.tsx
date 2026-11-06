@@ -1,18 +1,15 @@
 // src/components/deck/optimizer/dashboard/OverviewBento.tsx
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { DollarSign, ChartNetwork, ArrowRight } from 'lucide-react';
 import type { ScryfallCard } from '@/types';
 import type { DeckAnalysis } from '@/services/deckBuilder/deckAnalyzer';
 import { getCardImageUrl, useScryfallImage } from '@/services/scryfall/client';
 import { formatPrice, type SwapRow } from '@/services/deckBuilder/costAnalyzer';
-import {
-  scanLiftCandidates, edgeScore, selectTopLiftPicks,
-  LIFT_SCAN_CACHE, liftDeckKey, buildLiftScanInputs,
-  type LiftCandidate,
-} from '@/services/optimizer/liftClusters';
+import { edgeScore, type LiftCandidate } from '@/services/optimizer/liftClusters';
 import type { TabKey } from '../constants';
 import { scryfallImg } from '../constants';
 import { useCostPlan } from '../useCostPlan';
+import { useLiftPicks } from './launchpad/useLiftPicks';
 
 export interface OverviewBentoProps {
   commanderName: string;
@@ -31,50 +28,6 @@ export interface OverviewBentoProps {
 
 /** EDHREC caps lift display at 99+; mirror that so absurd values never read as e.g. ×1376. */
 const liftLabel = (l: number) => (l >= 99 ? '99+' : `×${l.toFixed(1)}`);
-
-type LiftPicks = { bomb: LiftCandidate | null; cluster: LiftCandidate | null };
-
-/**
- * Background lift scan for the bento teaser. Reads the cache the Lift Web tab writes (and writes it
- * back), so warming here makes the tab instant and EDHREC isn't hit twice. Keyed on the decklist.
- */
-function useLiftPicks(opts: OverviewBentoProps): { picks: LiftPicks | null; loading: boolean } {
-  const { commander, partnerCommander, commanderName, partnerCommanderName, currentCards, colorIdentity } = opts;
-  const deckKey = useMemo(
-    () => liftDeckKey(commanderName, partnerCommanderName, currentCards),
-    [commanderName, partnerCommanderName, currentCards],
-  );
-  const [state, setState] = useState<{ picks: LiftPicks | null; loading: boolean }>({ picks: null, loading: true });
-
-  useEffect(() => {
-    let cancelled = false;
-    const cached = LIFT_SCAN_CACHE.get(deckKey);
-    if (cached) {
-      setState({ picks: selectTopLiftPicks(cached.candidates), loading: false });
-      return;
-    }
-    if (currentCards.length === 0) {
-      setState({ picks: null, loading: false });
-      return;
-    }
-    setState({ picks: null, loading: true });
-    const inputs = buildLiftScanInputs({
-      commander, partnerCommander, commanderName, partnerCommanderName, currentCards, colorIdentity,
-    });
-    scanLiftCandidates({ ...inputs, isCancelled: () => cancelled })
-      .then(result => {
-        if (cancelled) return;
-        LIFT_SCAN_CACHE.set(deckKey, result);
-        setState({ picks: selectTopLiftPicks(result.candidates), loading: false });
-      })
-      .catch(() => { if (!cancelled) setState({ picks: null, loading: false }); });
-    return () => { cancelled = true; };
-    // deckKey captures commander/partner/cards; the rest are stable for a given key.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deckKey]);
-
-  return state;
-}
 
 /**
  * Overview tools row — shown in the next-steps slot when a deck has no structural next steps left.
