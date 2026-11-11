@@ -21,7 +21,7 @@ import type {
   BracketLevel,
   BudgetOption,
   CollectionStrategy, ComboTemplate } from '@/types';
-import { searchCards, getCardByName, getCardsByNames, getCheapestPrintings, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, frontFaceName, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetsFromQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, normalizeCardNameKey, CHANNEL_LANDS } from '@/services/scryfall/client';
+import { searchCards, getCardByName, getCardsByNames, getCheapestPrintings, prefetchBasicLands, getCachedCard, getGameChangerNames, getArenaLegalNames, frontFaceName, getCardPrice, getFrontFaceTypeLine, fetchMultiCopyCardNames, parseSetsFromQuery, normalizeScryfallQuery, upgradeCardPrintings, isMdfcLand, isChannelLand, normalizeCardNameKey, CHANNEL_LANDS } from '@/services/scryfall/client';
 import { assessCombo, recomputeComboCompleteness, mergeComboPools } from '@/services/combos/detect';
 import { fitTemplate, fitTemplates } from '@/services/combos/templateFit';
 import { fetchCommanderData, fetchCommanderThemeData, fetchPartnerCommanderData, fetchPartnerThemeData, fetchAverageDeckMultiCopies, fetchCommanderCombos, fetchColorIdentityCombos, fetchTagPageData, edhrecColorSegment } from '@/services/edhrec/client';
@@ -806,6 +806,23 @@ export function stampRoleSubtypes(card: ScryfallCard): void {
   card.protectionSubtype = getProtectionSubtype(card.name) ?? undefined;
 }
 
+/**
+ * Stamp tagger role + subtypes on every non-land card in the finished deck. Selection
+ * stages only stamp the cards they pick themselves, so anything that arrives through a
+ * Scryfall / collection / fallback fill reaches the deck unstamped — and the deck view's
+ * role badge reads card.deckRole, so it stayed blank for cards the role counts (live
+ * tagger lookups) had counted. Lands are skipped: a utility land's "UL" tag only shows
+ * when there's no role badge, and lands were never role-stamped.
+ */
+export function stampDeckRoles(categories: Record<DeckCategory, ScryfallCard[]>): void {
+  for (const [category, cards] of Object.entries(categories)) {
+    if (category === 'lands') continue;
+    for (const card of cards) {
+      if (!BASIC_LAND_NAMES.has(card.name)) stampRoleSubtypes(card);
+    }
+  }
+}
+
 /** Map a ScryfallCard to a type-based swap bucket key, or null for lands. */
 function getPrimaryTypeKey(card: ScryfallCard): string | null {
   const t = getFrontFaceTypeLine(card).toLowerCase();
@@ -1010,9 +1027,11 @@ async function fillWithScryfall(
   if (arenaOnly) {
     fullQuery += ` game:arena`;
   }
-  // Append user's additional Scryfall filters
+  // Append user's additional Scryfall filters. Grouped so an `or` in them (e.g.
+  // `set:a or set:b`) stays inside the group instead of splitting the whole query —
+  // ungrouped, the colour-identity and other filters apply to only one branch.
   if (scryfallQuery.trim()) {
-    fullQuery += ` ${scryfallQuery.trim()}`;
+    fullQuery += ` (${scryfallQuery.trim()})`;
   }
 
   try {
@@ -2148,7 +2167,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
   const allowedRarities = customization.allowedRarities ?? null;
   const maxCmc = customization.tinyLeaders ? 3 : null;
   const arenaOnly = !!customization.arenaOnly;
-  const scryfallQuery = customization.scryfallQuery ?? '';
+  const scryfallQuery = normalizeScryfallQuery(customization.scryfallQuery ?? '');
   // All sets the query references (a multi-set OR query lists several). preferredSet is
   // just the first, used as a single-set printing hint when batch-fetching; preferredSets
   // is the full list used to keep any card printed in ANY requested set.
@@ -4969,6 +4988,9 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
       console.log(`[DeckGen] Fixup pass: ${fixupSwaps} swap(s) applied`);
     }
   }
+
+  // Every card in the final deck carries its role stamp (badge + relevancy scoring read it).
+  stampDeckRoles(categories);
 
   // Reconcile role + subtype counts against the FINAL deck. Shortfall fills (collection
   // pool, EDHREC remainder, Scryfall fallback) add cards without touching the fill-time

@@ -20,16 +20,46 @@ const cardCache = new Map<string, ScryfallCard>();
 const searchCache = new Map<string, { data: ScryfallSearchResponse; timestamp: number }>();
 const SEARCH_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
-/**
- * Extract a set code from a scryfallQuery string.
- * Recognizes: set:xxx, s:xxx, e:xxx, edition:xxx (with or without quotes).
- */
+/** A positive set term: set:xxx, s:xxx, e:xxx, edition:xxx (quotes optional). The
+ *  lookbehind skips `-set:xxx` — an excluded set is not one to draw cards from. */
+const SET_TERM = /(?<![-\w])(?:set|s|e|edition):["']?([a-zA-Z0-9_]+)["']?/gi;
+
 /** All set codes referenced in a scryfall query, in order. A query can OR several
  *  (e.g. `set:fin or set:spm`); each one is a set the user wants cards drawn from. */
 export function parseSetsFromQuery(scryfallQuery: string): string[] {
   if (!scryfallQuery) return [];
-  const matches = scryfallQuery.matchAll(/\b(?:set|s|e|edition):["']?([a-zA-Z0-9_]+)["']?/gi);
-  return [...matches].map(m => m[1].toLowerCase());
+  return [...new Set([...scryfallQuery.matchAll(SET_TERM)].map(m => m[1].toLowerCase()))];
+}
+
+/**
+ * Make a user-typed query mean what the user meant. Scryfall joins bare terms with AND,
+ * and a printing lives in exactly one set, so `set:tla set:tle` can never match anything —
+ * the only sensible reading is "either set". Collapse several bare set terms into one OR
+ * group. A query that already has `or` or parentheses is the user's own structure and is
+ * left alone.
+ */
+export function normalizeScryfallQuery(scryfallQuery: string): string {
+  const query = scryfallQuery.trim();
+  if (/[()]|\bor\b/i.test(query)) return query;
+  const sets = parseSetsFromQuery(query);
+  if (sets.length < 2) return query;
+  const group = `(${sets.map(s => `set:${s}`).join(' or ')})`;
+  let placed = false;
+  return query
+    .replace(SET_TERM, () => (placed ? '' : ((placed = true), group)))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** The query minus its positive set terms (those are handled by getCardsByNames and the
+ *  generator's set post-filter), with the `( or )` / dangling `or` they leave behind tidied. */
+export function stripSetTerms(scryfallQuery: string): string {
+  return scryfallQuery
+    .replace(SET_TERM, ' ')
+    .replace(/\(\s*(?:(?:or|and)\s*)*\)/gi, ' ')
+    .replace(/^\s*(?:or|and)\b|\b(?:or|and)\s*$/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** The first set code in a scryfall query, used as a single-set printing hint for
@@ -906,7 +936,7 @@ export async function upgradeCardPrintings(
   if (!scryfallQuery) return;
 
   // Strip set filters — already handled by getCardsByNames' preferredSet
-  const filters = scryfallQuery.replace(/\b(?:set|s|e|edition):["']?[a-zA-Z0-9_]+["']?/gi, '').trim();
+  const filters = stripSetTerms(scryfallQuery);
   if (!filters) return;
 
   // Collect card names, using front-face name for DFCs in search queries
