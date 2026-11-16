@@ -2331,6 +2331,8 @@ export function DeckOptimizer({
         {activeTab === 'lands' && (
           <LandsTabContent
             analysis={analysis}
+            commanderName={commanderName}
+            partnerName={partnerCommanderName}
             activeSection={activeSection}
             onSectionChange={setActiveSection}
             onPreview={handlePreview}

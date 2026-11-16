@@ -1,5 +1,12 @@
 [
   {
+    "version": "1.3.56",
+    "notes": [
+      "Inspector > Mana: Fixed the suggested land count showing a long decimal (like 34.2688…) instead of a whole number",
+      "Inspector > Mana: The Opening Hand chart now flips to a Non-basic mix view, showing your deck's fixing, utility, spell lands and other non-basics next to what decks for your commander usually run. Flex Lands shows the same breakdown",
+    ]
+  },
+  {
     "version": "1.3.55",
     "notes": [
       "Deck Generation: New option to split your non-basic lands by type. Click the sliders icon next to Non-Basic Lands to choose how many are fixing, utility, spell lands (MDFCs) or fetch lands. It starts on a recommended split based on what real decks for your commander play, and hovering a group shows example lands in your colors",      

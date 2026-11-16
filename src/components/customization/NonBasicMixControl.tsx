@@ -1,20 +1,36 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type PointerEvent as ReactPointerEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Blend, Shuffle, SlidersHorizontal, Wrench } from 'lucide-react';
+import { Blend, CircleDot, Shuffle, SlidersHorizontal, Wrench } from 'lucide-react';
 import { useStore } from '@/store';
 import { LandGroupExamples } from './LandGroupExamples';
 import { defaultLandMix, flexKind, resolveLandMix, type LandKind } from '@/services/deckBuilder/landMix';
 import { recommendLandMix, recommendedMix } from '@/services/deckBuilder/landMixRecommendation';
 import type { NonBasicLandMix } from '@/types';
 
-interface Group { kind: LandKind; label: string; hint: string; fill: string; text: string; icon: ReactNode }
+export interface LandGroup { kind: LandKind; label: string; hint: string; fill: string; text: string; icon: ReactNode }
 
-const GROUPS: Group[] = [
-  { kind: 'fixing', label: 'Fixing', hint: 'Taps for two or more of your colors', fill: 'bg-sky-500/55', text: 'text-sky-300', icon: <Blend className="w-[1em] h-[1em]" strokeWidth={2.5} /> },
+const OTHER_STYLE = { kind: 'other' as const, fill: 'bg-slate-500/55', text: 'text-slate-300' };
+
+/** The four non-basic groups in bar order, as a multicolour deck sees them. */
+const LAND_GROUPS: LandGroup[] = [
+  { kind: 'fixing', label: 'Fixing', hint: 'Makes or fetches two or more of your colors', fill: 'bg-sky-500/55', text: 'text-sky-300', icon: <Blend className="w-[1em] h-[1em]" strokeWidth={2.5} /> },
   { kind: 'utility', label: 'Utility', hint: 'Does more than tap for one mana', fill: 'bg-amber-500/50', text: 'text-amber-300', icon: <Wrench className="w-[1em] h-[1em]" strokeWidth={2.5} /> },
   { kind: 'mdfc', label: 'Spell lands', hint: 'MDFCs: a spell on the front, a land on the back', fill: 'bg-fuchsia-500/50', text: 'text-fuchsia-300', icon: <i className="ms ms-dfc-modal-face" /> },
-  { kind: 'other', label: 'Fetch lands', hint: 'Plus lands that just tap for one mana', fill: 'bg-slate-500/55', text: 'text-slate-300', icon: <Shuffle className="w-[1em] h-[1em]" strokeWidth={2.5} /> },
+  // A fetch that finds two of your colors is Fixing, so in a multicolour deck this group is the
+  // lands that only ever give one color — calling it "Fetch lands" there hid the real fetches.
+  { ...OTHER_STYLE, label: 'One-color', hint: 'Makes or fetches just one of your colors', icon: <CircleDot className="w-[1em] h-[1em]" strokeWidth={2.5} /> },
 ];
+
+/** Mono-colour decks have nothing to fix: no Fixing group, and the rest is mostly fetches. */
+const MONO_GROUPS: LandGroup[] = [
+  ...LAND_GROUPS.filter(g => g.kind !== 'fixing' && g.kind !== 'other'),
+  { ...OTHER_STYLE, label: 'Fetch lands', hint: 'Plus lands that just tap for one mana', icon: <Shuffle className="w-[1em] h-[1em]" strokeWidth={2.5} /> },
+];
+
+/** The groups shown for a deck of these colors — shared with the Inspector's Mana tab. */
+export function landGroupsFor(colorIdentity: string[]): LandGroup[] {
+  return flexKind(colorIdentity) === 'fixing' ? LAND_GROUPS : MONO_GROUPS;
+}
 
 function useCommanders() {
   const commander = useStore(s => s.commander);
@@ -23,16 +39,21 @@ function useCommanders() {
   return { commander, partner, colors };
 }
 
-/** What this commander's EDHREC decks actually play, by group. Shared by the toggle and the panel. */
-function useRecommendation() {
-  const { commander, partner, colors } = useCommanders();
+/** What a commander's EDHREC decks actually play, by group. Cached per commander pair. */
+export function useLandMixRecommendation(commander: string | null | undefined, partner: string | null | undefined, colors: string[]) {
   return useQuery({
-    queryKey: ['land-mix-rec', commander?.name, partner?.name ?? null],
+    queryKey: ['land-mix-rec', commander, partner ?? null],
     enabled: !!commander,
     staleTime: Infinity,
     retry: false,
-    queryFn: () => recommendLandMix(commander!.name, partner?.name ?? null, colors),
+    queryFn: () => recommendLandMix(commander!, partner ?? null, colors),
   });
+}
+
+/** The builder's commander, for the toggle and the panel. */
+function useRecommendation() {
+  const { commander, partner, colors } = useCommanders();
+  return useLandMixRecommendation(commander?.name, partner?.name, colors);
 }
 
 // The last mix the player tuned for this commander this session, so closing and reopening the
@@ -110,7 +131,7 @@ export function NonBasicMixPanel() {
 
   // A mono deck has nothing that fixes: Fixing is hidden and fetch lands take what's left.
   const flex = flexKind(colors);
-  const groups = flex === 'fixing' ? GROUPS : GROUPS.filter(g => g.kind !== 'fixing');
+  const groups = landGroupsFor(colors);
   const resolved = resolveLandMix(stored ?? lastMix?.mix ?? { mdfc: 0, utility: 0, other: 0 }, total);
   if (flex === 'other') { resolved.other += resolved.fixing; resolved.fixing = 0; }
   const counts = groups.map(g => resolved[g.kind]);

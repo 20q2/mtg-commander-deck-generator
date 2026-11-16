@@ -405,7 +405,8 @@ function parseLandDistribution(response: RawEDHRECResponse): EDHRECCommanderStat
     }
   }
   const land = response.land || 0;
-  const extra = land > 0 ? spellLands : 0; // 0 = no stats; callers fall back on that
+  // Whole cards, like EDHREC's own counts — consumers display these as-is. 0 = no stats; callers fall back on that.
+  const extra = land > 0 ? Math.round(spellLands) : 0;
   return {
     basic: response.basic || 0,
     nonbasic: (response.nonbasic || 0) + extra,

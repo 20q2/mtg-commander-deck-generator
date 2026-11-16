@@ -2,7 +2,7 @@ import { Fragment, useState, useMemo, useCallback, useEffect } from 'react';
 import {
   Plus, Minus, Check, ChevronRight,
   Palette, FlipHorizontal2, Info,
-  Loader2, Sparkles, Mountain, Sprout, Scissors,
+  Loader2, Sparkles, Mountain, Sprout, Scissors, ListFilter,
 } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import type { ScryfallCard } from '@/types';
@@ -20,6 +20,8 @@ import {
 import { AnalyzedCardRow, AnimatedCollapse, CollapsibleCardGroups, type CardAction, type CardRowMenuProps } from './shared';
 import { SuggestionCardGrid, CutCardGrid } from './OverviewTab';
 import { selectLandCuts, type LandCut } from '@/services/deckBuilder/landCutSelection';
+import { LandMixCompare } from './LandMixCompare';
+import { landKind as classifyLand } from '@/services/deckBuilder/landMix';
 
 // ═══════════════════════════════════════════════════════════════════════
 // LANDS TAB Components
@@ -95,22 +97,22 @@ export function getMdfcStatus(count: number): {
   if (count === 0) return {
     label: 'NONE', color: 'text-amber-400', bgColor: 'bg-amber-500/15',
     border: 'border-amber-500/40', bg: 'bg-amber-500/10', titleColor: 'text-amber-400',
-    message: 'No MDFC spell/lands yet. MDFCs act as both a spell and a land, reducing flood risk while still providing action.',
+    message: 'No flex lands yet. Spell lands (MDFCs) and channel lands play as a land or a spell, so they cut flood risk while still giving you action.',
   };
   if (count <= 2) return {
     label: 'FEW', color: 'text-amber-400', bgColor: 'bg-amber-500/15',
     border: 'border-amber-500/30', bg: 'bg-amber-500/5', titleColor: 'text-amber-400/80',
-    message: `${count} MDFC${count > 1 ? 's' : ''} in your deck. Running 3–6 MDFCs gives noticeably better consistency.`,
+    message: `${count} flex land${count > 1 ? 's' : ''} in your deck. Running 3–6 gives noticeably better consistency.`,
   };
   if (count <= 5) return {
     label: 'GOOD', color: 'text-emerald-400', bgColor: 'bg-emerald-500/15',
     border: 'border-emerald-500/30', bg: 'bg-emerald-500/5', titleColor: 'text-emerald-400',
-    message: `${count} MDFCs — solid flexibility without feeling forced.`,
+    message: `${count} flex lands — solid flexibility without feeling forced.`,
   };
   return {
     label: 'GREAT', color: 'text-sky-400', bgColor: 'bg-sky-500/15',
     border: 'border-sky-500/30', bg: 'bg-sky-500/5', titleColor: 'text-sky-400',
-    message: `${count} MDFCs — excellent flexibility. Every one replaces a dead land draw with a live spell.`,
+    message: `${count} flex lands — excellent flexibility. Every one turns a dead land draw into a live spell.`,
   };
 }
 
@@ -231,8 +233,28 @@ export function GradeInfoPopover({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
+const HAND_VIEW_KEY = 'inspector-mana-summary-view';
+type SummaryView = 'hand' | 'mix';
+function readSummaryView(): SummaryView {
+  try { return localStorage.getItem(HAND_VIEW_KEY) === 'mix' ? 'mix' : 'hand'; } catch { return 'hand'; }
+}
+
+export function LandRatingSummary({ analysis, commanderName, partnerName, colorIdentity }: {
+  analysis: DeckAnalysis;
+  commanderName?: string;
+  partnerName?: string | null;
+  colorIdentity: string[];
+}) {
   const mb = analysis.manaBase;
+  const [view, setViewState] = useState<SummaryView>(readSummaryView);
+  const setView = (v: SummaryView) => {
+    setViewState(v);
+    try { localStorage.setItem(HAND_VIEW_KEY, v); } catch { /* blocked storage — just won't persist */ }
+  };
+  const seg = (on: boolean) =>
+    `text-[10px] px-2 py-0.5 whitespace-nowrap transition-colors ${on
+      ? 'bg-accent text-foreground font-medium'
+      : 'text-muted-foreground/80 bg-card/40 hover:text-foreground hover:bg-accent/70'}`;
   const vs = VERDICT_STYLES[mb.verdict] || VERDICT_STYLES['ok'];
   const grade = getManaBaseGrade(mb);
 
@@ -271,10 +293,29 @@ export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
       </div>
 
       <div>
-        <div className="flex items-baseline justify-between mb-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Opening Hand</p>
-          <p className="text-[11px] text-muted-foreground/70">avg <span className="font-semibold text-foreground/70">{avgLands.toFixed(1)}</span> lands</p>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center border border-border/50 rounded-md overflow-hidden shrink-0">
+            <button type="button" onClick={() => setView('hand')} className={seg(view === 'hand')} aria-pressed={view === 'hand'}>
+              Opening hand
+            </button>
+            <div className="w-px h-3 bg-border/50" />
+            <button type="button" onClick={() => setView('mix')} className={seg(view === 'mix')} aria-pressed={view === 'mix'}>
+              Non-basic mix
+            </button>
+          </div>
+          {view === 'hand' && (
+            <p className="text-[11px] text-muted-foreground/70 whitespace-nowrap">avg <span className="font-semibold text-foreground/70">{avgLands.toFixed(1)}</span> lands</p>
+          )}
         </div>
+        {view === 'mix' ? (
+          <LandMixCompare
+            landCards={analysis.landCards}
+            commanderName={commanderName}
+            partnerName={partnerName}
+            colorIdentity={colorIdentity}
+            suggestedNonbasic={mb.suggestedNonbasic}
+          />
+        ) : (
         <div className="flex gap-1.5">
           {segments.map(seg => {
             const pctNum = Math.round(seg.pct * 100);
@@ -287,6 +328,7 @@ export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
             );
           })}
         </div>
+        )}
       </div>
     </div>
   );
@@ -295,9 +337,11 @@ export function LandRatingSummary({ analysis }: { analysis: DeckAnalysis }) {
 const LAND_SUGGESTIONS_PER_KIND = 30;
 
 export function LandCountDetail({
-  analysis, landPool = [], onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, cardInclusionMap, aurora,
+  analysis, landPool = [], onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, cardInclusionMap, aurora, commanderName, partnerName,
 }: {
   analysis: DeckAnalysis;
+  commanderName?: string;
+  partnerName?: string | null;
   /** Color-identity land pool that fills in behind the commander-page picks. */
   landPool?: RecommendedCard[];
   onPreview: (name: string) => void;
@@ -353,7 +397,9 @@ export function LandCountDetail({
       if (isMdfcLand(ac.card)) mdfc.push(ac);
       else if (isChannelLand(ac.card)) channel.push(ac);
       else if (isBasicLand(ac.card)) basic.push(ac);
-      else if (isUtilityLand(ac.card.name)) utility.push(ac);
+      // Same rule as the Non-basic mix bar above, so the two never disagree: anything that does more
+      // than make mana (tagged utility, big mana, other abilities) unless it fixes.
+      else if (classifyLand(ac.card, colorIdentity) === 'utility') utility.push(ac);
       else nonbasic.push(ac);
     }
     const byInclusion = (a: AnalyzedCard, b: AnalyzedCard) => (b.inclusion ?? 0) - (a.inclusion ?? 0);
@@ -364,7 +410,7 @@ export function LandCountDetail({
       nonbasicLands: nonbasic.sort(byInclusion),
       basicLands: basic,
     };
-  }, [analysis.landCards]);
+  }, [analysis.landCards, colorIdentity]);
 
   // Cut candidates via selectLandCuts helper
   const nonLandCardsInDeck = useMemo(
@@ -497,7 +543,7 @@ export function LandCountDetail({
       <div className={`${hasRightColumn ? 'flex flex-col md:flex-row md:items-stretch gap-4' : ''}`}>
         {/* Left: rating summary + lands list */}
         <div className={`${hasRightColumn ? 'md:w-[calc(30%_+_2rem)] shrink-0 bg-background/70 backdrop-blur-sm md:-my-3 md:-ml-4 md:-mr-4 md:py-3 md:px-4' : 'w-full'} space-y-3`}>
-              <LandRatingSummary analysis={analysis} />
+              <LandRatingSummary analysis={analysis} commanderName={commanderName} partnerName={partnerName} colorIdentity={colorIdentity} />
               {analysis.landCards.length > 0 && (
                 <CollapsibleCardGroups groups={landCardGroups} totalCount={analysis.landCards.length} />
               )}
@@ -651,18 +697,23 @@ export function LandCountDetail({
                 onCardAction={onCardAction}
                 menuProps={menuProps}
                 headerControls={showLandKindToggle ? (
+                  <div className="flex items-center gap-1">
+                  <ListFilter className="w-3 h-3 text-muted-foreground/40" />
                   <div className="flex items-center border border-border/50 rounded-md overflow-hidden">
                     {(['all', 'mana', 'utility'] as const).map((kind, i) => (
                       <Fragment key={kind}>
                         {i > 0 && <div className="w-px h-3 bg-border/50" />}
                         <button
+                          type="button"
                           onClick={() => setLandKind(kind)}
+                          aria-pressed={effectiveLandKind === kind}
                           className={`text-[10px] px-2 py-0.5 transition-colors ${effectiveLandKind === kind ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/80 bg-card/40 hover:text-foreground hover:bg-accent/70'}`}
                         >
                           {kind === 'all' ? 'All' : kind === 'mana' ? 'Mana' : 'Utility'}
                         </button>
                       </Fragment>
                     ))}
+                  </div>
                   </div>
                 ) : undefined}
               />
@@ -1323,7 +1374,7 @@ export function FixingDetail({
 }
 
 // ─── Flex Lands Summary Box ──────────────────────────────────────
-export function FlexLandSummaryBox({ mdfcCount, channelLandCount }: { mdfcCount: number; channelLandCount: number; totalAvailable?: number; loading?: boolean }) {
+export function FlexLandSummaryBox({ mdfcCount, channelLandCount, children }: { mdfcCount: number; channelLandCount: number; totalAvailable?: number; loading?: boolean; children?: React.ReactNode }) {
   const flexCount = mdfcCount + channelLandCount;
   const status = getMdfcStatus(flexCount);
   const grade = getMdfcGrade(flexCount);
@@ -1353,13 +1404,14 @@ export function FlexLandSummaryBox({ mdfcCount, channelLandCount }: { mdfcCount:
           </div>
         </div>
       </div>
+      {children}
     </div>
   );
 }
 
 // ─── MDFC Lands Detail Panel ─────────────────────────────────────
 export function MdfcDetail({
-  analysis, mdfcSuggestions, totalMdfcAvailable, mdfcLoading, channelLandCards = [], currentCardNames = new Set<string>(), onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, aurora,
+  analysis, mdfcSuggestions, totalMdfcAvailable, mdfcLoading, channelLandCards = [], currentCardNames = new Set<string>(), onPreview, onAdd, addedCards, onCardAction, menuProps, colorIdentity, onAddBasicLand, onRemoveBasicLand, aurora, commanderName, partnerName,
 }: {
   analysis: DeckAnalysis;
   mdfcSuggestions: RecommendedCard[];
@@ -1373,6 +1425,8 @@ export function MdfcDetail({
   onCardAction?: (card: ScryfallCard, action: CardAction) => void;
   menuProps?: CardRowMenuProps;
   colorIdentity: string[];
+  commanderName?: string;
+  partnerName?: string | null;
   onAddBasicLand?: (name: string) => void;
   onRemoveBasicLand?: (name: string) => void;
   aurora?: string;
@@ -1469,7 +1523,18 @@ export function MdfcDetail({
             channelLandCount={channelLands.length}
             totalAvailable={totalMdfcAvailable}
             loading={mdfcLoading}
-          />
+          >
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-2">Non-basic mix</p>
+              <LandMixCompare
+                landCards={analysis.landCards}
+                commanderName={commanderName}
+                partnerName={partnerName}
+                colorIdentity={colorIdentity}
+                suggestedNonbasic={analysis.manaBase.suggestedNonbasic}
+              />
+            </div>
+          </FlexLandSummaryBox>
 
           {analysis.landCards.length > 0 ? (
             <CollapsibleCardGroups groups={fixLandGroups} totalCount={analysis.landCards.length} />
@@ -1562,9 +1627,11 @@ export function MdfcDetail({
 
 // ─── Lands Tab Content Orchestrator ──────────────────────────────
 export function LandsTabContent({
-  analysis, activeSection, onSectionChange, onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, onAddBasicLand, onRemoveBasicLand, cardInclusionMap,
+  analysis, activeSection, onSectionChange, onPreview, onAdd, addedCards, currentCards, onCardAction, menuProps, onAddBasicLand, onRemoveBasicLand, cardInclusionMap, commanderName, partnerName,
 }: {
   analysis: DeckAnalysis;
+  commanderName?: string;
+  partnerName?: string | null;
   activeSection: LandSection | null;
   onSectionChange: (section: LandSection) => void;
   onPreview: (name: string) => void;
@@ -1773,7 +1840,7 @@ export function LandsTabContent({
         channelLandCount={(analysis.channelLandsInDeck || []).length}
       />
       {activeSection === 'landCount' && (
-        <LandCountDetail aurora={aurora} analysis={analysis} landPool={landPool} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} currentCards={currentCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} cardInclusionMap={cardInclusionMap} />
+        <LandCountDetail aurora={aurora} analysis={analysis} commanderName={commanderName} partnerName={partnerName} landPool={landPool} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} currentCards={currentCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} cardInclusionMap={cardInclusionMap} />
       )}
       {activeSection === 'manaSources' && (
         <ManaSourcesDetail aurora={aurora} analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} />
@@ -1782,7 +1849,7 @@ export function LandsTabContent({
         <FixingDetail aurora={aurora} analysis={analysis} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
       )}
       {activeSection === 'mdfc' && (
-        <MdfcDetail aurora={aurora} analysis={analysis} mdfcSuggestions={mdfcSuggestions} totalMdfcAvailable={totalMdfcAvailable} mdfcLoading={mdfcLoading} channelLandCards={channelLandCards} currentCardNames={currentCardNames} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
+        <MdfcDetail aurora={aurora} analysis={analysis} commanderName={commanderName} partnerName={partnerName} mdfcSuggestions={mdfcSuggestions} totalMdfcAvailable={totalMdfcAvailable} mdfcLoading={mdfcLoading} channelLandCards={channelLandCards} currentCardNames={currentCardNames} onPreview={onPreview} onAdd={onAdd} addedCards={addedCards} onCardAction={onCardAction} menuProps={menuProps} colorIdentity={colorIdentity} onAddBasicLand={handleAddBasic} onRemoveBasicLand={handleRemoveBasic} />
       )}
     </div>
   );
