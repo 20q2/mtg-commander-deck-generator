@@ -82,6 +82,8 @@ export async function finishBrew(
     // The wheel's blend steers WHICH lands fill the base (resolveManaMix in the generator reads this).
     manaPhilosophy: undefined,
     manaPhilosophyMix: mixTotal > 0 ? landMix : undefined,
+    // The capstone wheel is brew's land control; the builder's non-basic split doesn't carry over.
+    nonBasicLandMix: undefined,
   };
   // The capstone's chosen land COUNT is authoritative when set (the player dialed it within the
   // recommendation's wiggle room); the mix then only steers the basic/nonbasic split, not the total.

@@ -39,6 +39,8 @@ import { analyzeDeck, getDeckSummaryData, scoreRecommendation, type ScoringConte
 import { getDynamicRoleTargets, estimatePacingFromStats, ROLE_LABELS } from './roleTargets';
 import type { Pacing, RoleTargetBreakdown } from '@/types';
 import { loadUserLists } from '@/hooks/useUserLists';
+import { LandMixPlan, landKind, resolveLandMix, type LandKind } from './landMix';
+import type { NonBasicLandMix } from '@/types';
 
 /** Lightweight owned-card metadata used to build a collection-first candidate pool
  *  without a Scryfall round-trip. Sourced from the local collection DB. */
@@ -1010,7 +1012,9 @@ async function fillWithScryfall(
   scryfallQuery: string = '',
   collectionStrategy: CollectionStrategy = 'full',
   ignoreOwnedBudget: boolean = false,
-  ignoreOwnedRarity: boolean = false
+  ignoreOwnedRarity: boolean = false,
+  /** Last check before a card is kept; may record the pick (see LandMixPlan.tryTake). */
+  accept?: (card: ScryfallCard) => boolean,
 ): Promise<ScryfallCard[]> {
   if (count <= 0) return [];
 
@@ -1055,6 +1059,7 @@ async function fillWithScryfall(
       // Arena-only is already enforced by the `game:arena` operator appended to the
       // query above; a name-level notOnArena() re-check here would wrongly drop these
       // Scryfall-sourced cards (their names aren't in the candidate set).
+      if (accept && !accept(card)) continue;
 
       result.push(card);
       usedNames.add(card.name);
@@ -1166,7 +1171,8 @@ async function fillShortageFromCollection(opts: {
 
     const card = cardMap.get(meta.name);
     if (!card) continue;
-    if (getFrontFaceTypeLine(card).toLowerCase().includes('land')) continue; // lands filled elsewhere
+    // Lands (spell lands too — they'd push the land count past the player's) are filled elsewhere.
+    if (getFrontFaceTypeLine(card).toLowerCase().includes('land') || isMdfcLand(card)) continue;
     if (!fitsColorIdentity(card, colorIdentity)) continue;
     if (notOnArena(card, arenaOnly)) continue;
     if (exceedsCmcCap(card, maxCmc)) continue;
@@ -1215,11 +1221,13 @@ async function fillLandsFromCollection(opts: {
   collectionNames?: Set<string>;
   preferredSet?: string;
   scryfallQuery: string;
+  /** Player's non-basic mix: lets dual-faced lands in and keeps every kind under its ceiling. */
+  plan?: LandMixPlan;
 }): Promise<ScryfallCard[]> {
   const {
     ownedCards, need, usedNames, bannedCards, colorIdentity, allowedRarities,
     arenaOnly, maxCardPrice, currency, ignoreOwnedRarity, collectionNames,
-    preferredSet, scryfallQuery,
+    preferredSet, scryfallQuery, plan,
   } = opts;
   if (need <= 0 || ownedCards.length === 0) return [];
 
@@ -1250,7 +1258,8 @@ async function fillLandsFromCollection(opts: {
     const card = cardMap.get(meta.name);
     if (!card) continue;
     const tl = getFrontFaceTypeLine(card).toLowerCase();
-    if (!tl.includes('land') || tl.includes('basic')) continue;
+    // A dual-faced spell//land only fills a land slot when the player's mix asks for them.
+    if ((!tl.includes('land') && !(plan && isMdfcLand(card))) || tl.includes('basic')) continue;
     if (!fitsColorIdentity(card, colorIdentity)) continue;
     if (isWastedFixingLand(card, colorIdentity)) continue; // e.g. Mana Confluence in a mono deck
     if (notOnArena(card, arenaOnly)) continue;
@@ -1258,6 +1267,7 @@ async function fillLandsFromCollection(opts: {
     if (!isOwnedRarityExempt(meta.name, collectionNames, ignoreOwnedRarity)) {
       if (!rarityAllowed(card.rarity, allowedRarities)) continue;
     }
+    if (plan && !plan.tryTake(card)) continue;
     result.push(card);
     usedNames.add(meta.name);
     if (card.name !== meta.name) usedNames.add(card.name);
@@ -1590,6 +1600,58 @@ async function topUpGatesForMazesEnd(opts: {
   );
 }
 
+/** Shortage fills top up spells; a spell land there would push the land count past the player's. */
+const notSpellLand = (card: ScryfallCard) => !isMdfcLand(card);
+
+/**
+ * The land step's targets, with the spell lands (MDFCs) the spell picks already chose counted as
+ * lands. The player's land count and non-basic count are totals: a Sink into Stupor in the
+ * instants is one of their lands, so it takes a land slot, not an extra spell slot. Spell lands
+ * past what the player's counts allow (more than the non-basic count, or more than the split's
+ * spell-land count) leave the deck; the shortage fill replaces them with spells that aren't lands.
+ * Must-include cards always stay.
+ */
+function planLandTargets(
+  categories: Record<DeckCategory, ScryfallCard[]>,
+  landTarget: number,
+  nonBasicLandCount: number,
+  landMix: NonBasicLandMix | null | undefined,
+  colorIdentity: string[],
+): { mustIncludeLands: ScryfallCard[]; spellLands: ScryfallCard[]; dropped: ScryfallCard[]; adjustedLandTarget: number; nonbasicTarget: number; basicCount: number } {
+  const mustIncludeLands = categories.lands.filter(c => c.isMustInclude);
+  const isNonBasic = (c: ScryfallCard) => !getFrontFaceTypeLine(c).toLowerCase().includes('basic');
+  const nonBasicBudget = Math.max(0, nonBasicLandCount - mustIncludeLands.filter(isNonBasic).length);
+  const landBudget = Math.max(0, landTarget - mustIncludeLands.length);
+
+  // Spell-side MDFCs, best first: must-includes, then by position in their category (index 0 = top pick).
+  const candidates: { card: ScryfallCard; cat: DeckCategory; rank: number }[] = [];
+  for (const cat of Object.keys(categories) as DeckCategory[]) {
+    if (cat === 'lands') continue;
+    categories[cat].forEach((card, i, arr) => {
+      if (isMdfcLand(card)) candidates.push({ card, cat, rank: card.isMustInclude ? -1 : i / arr.length });
+    });
+  }
+  candidates.sort((a, b) => a.rank - b.rank);
+
+  let cap = Math.min(nonBasicBudget, landBudget);
+  if (landMix) {
+    const mixCap = resolveLandMix(landMix, nonBasicLandCount).mdfc
+      - mustIncludeLands.filter(c => landKind(c, colorIdentity) === 'mdfc').length;
+    cap = Math.min(cap, Math.max(0, mixCap));
+  }
+  const spellLands: ScryfallCard[] = [];
+  const dropped: ScryfallCard[] = [];
+  for (const { card, cat } of candidates) {
+    if (card.isMustInclude || spellLands.length < cap) { spellLands.push(card); continue; }
+    categories[cat] = categories[cat].filter(c => c !== card);
+    dropped.push(card);
+  }
+
+  const adjustedLandTarget = Math.max(0, landBudget - spellLands.length);
+  const nonbasicTarget = Math.min(Math.max(0, nonBasicBudget - spellLands.length), adjustedLandTarget);
+  return { mustIncludeLands, spellLands, dropped, adjustedLandTarget, nonbasicTarget, basicCount: Math.max(0, adjustedLandTarget - nonbasicTarget) };
+}
+
 // Generate lands from EDHREC data + basics
 async function generateLands(
   edhrecLands: EDHRECCard[],
@@ -1622,6 +1684,8 @@ async function generateLands(
   /** Must-include lands the caller prepends to the result. Only read by the Maze's End rule,
    *  which has to see the whole mana base to count Gates. */
   committedLands: ScryfallCard[] = [],
+  /** Player's non-basic split (fixing / dual-faced / utility / other). Undefined = no split. */
+  landMix?: NonBasicLandMix,
 ): Promise<ScryfallCard[]> {
   const lands: ScryfallCard[] = [];
 
@@ -1640,14 +1704,24 @@ async function generateLands(
   // First, get non-basic lands from EDHREC
   const nonBasicTarget = count - basicCount;
 
+  // The player's split is over ALL their non-basics, so must-include non-basics count against it.
+  const committedNonBasics = committedLands.filter(c => !getFrontFaceTypeLine(c).toLowerCase().includes('basic'));
+  const plan = landMix && nonBasicTarget > 0
+    ? new LandMixPlan(landMix, nonBasicTarget + committedNonBasics.length, nonBasicTarget, committedNonBasics, colorIdentity)
+    : undefined;
+  if (plan) console.log('[DeckGen] Non-basic mix (open slots):', plan.want);
+  // Kept-aside EDHREC candidates for the mix's "best of the rest" pass further down.
+  let mixPool: { edhrec: EDHRECCard[]; cards: Map<string, ScryfallCard>; boosts?: Map<string, number> } | null = null;
+
   if (nonBasicTarget > 0 && nonBasicEdhrecLands.length > 0) {
     onProgress?.('Discovering exotic lands...', 82);
     console.log(`[DeckGen] Picking ${nonBasicTarget} non-basic lands from ${nonBasicEdhrecLands.length} EDHREC suggestions`);
 
-    // Batch fetch candidate lands — fetch more than needed to account for filtering
+    // Batch fetch candidate lands — fetch more than needed to account for filtering. A mix
+    // fills each kind separately, so it needs a deeper pool to find enough of each.
     const landNamesToFetch = nonBasicEdhrecLands
       .filter(c => !usedNames.has(c.name) && !bannedCards.has(c.name))
-      .slice(0, nonBasicTarget * 2)
+      .slice(0, nonBasicTarget * (plan ? 4 : 2))
       .map(c => c.name);
 
     // Ensure channel lands for this color identity are always fetched and in
@@ -1747,7 +1821,26 @@ async function generateLands(
       }
     }
 
-    const nonBasics = pickFromPrefetched(nonBasicEdhrecLands, landCardMap, nonBasicTarget, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, allowedRarities, maxCmc, budgetTracker, collectionNames, landPenalties.size > 0 ? landPenalties : undefined, currency, new Set(), arenaOnly, collectionStrategy, collectionOwnedPercent, ignoreOwnedBudget, ignoreOwnedRarity);
+    const boosts = landPenalties.size > 0 ? landPenalties : undefined;
+    const pickLands = (pool: EDHRECCard[], n: number) => n <= 0 ? [] : pickFromPrefetched(pool, landCardMap, n, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, allowedRarities, maxCmc, budgetTracker, collectionNames, boosts, currency, new Set(), arenaOnly, collectionStrategy, collectionOwnedPercent, ignoreOwnedBudget, ignoreOwnedRarity);
+
+    let nonBasics: ScryfallCard[];
+    if (plan) {
+      // Fill each kind from its own slice of the EDHREC list, in priority order within the slice.
+      const ofKind = (kinds: LandKind[]) => nonBasicEdhrecLands.filter(c => {
+        const card = landCardMap.get(c.name);
+        return card !== undefined && kinds.includes(plan.kindOf(card));
+      });
+      nonBasics = [];
+      for (const kind of ['fixing', 'mdfc', 'utility', 'other'] as const) {
+        const got = pickLands(ofKind([kind]), Math.min(plan.unmet(kind), nonBasicTarget - nonBasics.length));
+        plan.record(got);
+        nonBasics.push(...got);
+      }
+      mixPool = { edhrec: ofKind([plan.flex]), cards: landCardMap, boosts };
+    } else {
+      nonBasics = pickLands(nonBasicEdhrecLands, nonBasicTarget);
+    }
     lands.push(...nonBasics);
     console.log(`[DeckGen] Got ${nonBasics.length} non-basic lands:`, nonBasics.map(l => l.name));
 
@@ -1775,6 +1868,24 @@ async function generateLands(
     }
   }
 
+  if (plan) {
+    // MDFCs are rare on EDHREC's land list (it files them by their spell side), so search for
+    // them directly when the mix still wants some.
+    const mdfcShort = Math.min(plan.unmet('mdfc'), nonBasicTarget - lands.length);
+    if (mdfcShort > 0) {
+      const mdfcs = await fillWithScryfall('is:mdfc t:land -t:basic', colorIdentity, mdfcShort, usedNames, bannedCards, maxCardPrice, allowedRarities, maxCmc, budgetTracker, collectionNames, currency, arenaOnly, scryfallQuery, collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity, card => isMdfcLand(card) && plan.tryTake(card));
+      lands.push(...mdfcs);
+    }
+    // A slot the mix couldn't fill with its kind goes to the best remaining fixing land from the
+    // commander's own EDHREC list — never past the MDFC / utility / other counts. Whatever is
+    // still empty after the fallbacks below becomes a basic.
+    if (mixPool && lands.length < nonBasicTarget) {
+      const rest = pickFromPrefetched(mixPool.edhrec, mixPool.cards, nonBasicTarget - lands.length, usedNames, colorIdentity, bannedCards, maxCardPrice, Infinity, { value: 0 }, allowedRarities, maxCmc, budgetTracker, collectionNames, mixPool.boosts, currency, new Set(), arenaOnly, collectionStrategy, collectionOwnedPercent, ignoreOwnedBudget, ignoreOwnedRarity);
+      plan.record(rest);
+      lands.push(...rest);
+    }
+  }
+
   // Collection-first land fill: pull owned non-basic lands that the EDHREC list and the
   // popularity-ordered Scryfall fallback both miss (a niche collection's lands rarely rank
   // high enough to surface). Runs before the generic fallback so owned lands win the slots.
@@ -1793,6 +1904,7 @@ async function generateLands(
       collectionNames,
       preferredSet,
       scryfallQuery,
+      plan,
     });
     lands.push(...owned);
     if (owned.length > 0) {
@@ -1806,22 +1918,36 @@ async function generateLands(
     const query = colorIdentity.length > 0
       ? `t:land (${colorIdentity.map((c) => `o:{${c}}`).join(' OR ')}) -t:basic`
       : `t:land id:c -t:basic`;
-    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, allowedRarities, maxCmc, budgetTracker, collectionNames, currency, arenaOnly, scryfallQuery, collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity);
+    const moreLands = await fillWithScryfall(query, colorIdentity, nonBasicTarget - lands.length, usedNames, bannedCards, maxCardPrice, allowedRarities, maxCmc, budgetTracker, collectionNames, currency, arenaOnly, scryfallQuery, collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity, plan ? card => plan.tryTake(card) : undefined);
     lands.push(...moreLands);
   }
 
   // Add Command Tower for multicolor Commander decks — same constraint gates as
   // the staple-rock auto-includes (collection / budget / rarity / arena).
-  if (format === 99 && colorIdentity.length >= 2 && !usedNames.has('Command Tower') && !bannedCards.has('Command Tower')
+  // It takes one of the player's non-basic slots: when they're all filled, it replaces the
+  // last-picked fixing land (so a split keeps its shape), and with no non-basic slots it stays out.
+  if (format === 99 && colorIdentity.length >= 2 && nonBasicTarget > 0 && !usedNames.has('Command Tower') && !bannedCards.has('Command Tower')
     && !(collectionStrategy === 'full' && notInCollection('Command Tower', collectionNames))) {
     try {
       const commandTower = await getCardByName('Command Tower', true);
       const budgetExempt = isOwnedBudgetExempt('Command Tower', collectionNames, ignoreOwnedBudget);
       const rarityOk = isOwnedRarityExempt('Command Tower', collectionNames, ignoreOwnedRarity)
         || rarityAllowed(commandTower.rarity, allowedRarities);
+      let replaceAt = -1;
+      if (lands.length >= nonBasicTarget) {
+        for (let i = lands.length - 1; i >= 0; i--) {
+          if (!isMdfcLand(lands[i]) && (!plan || plan.kindOf(lands[i]) === 'fixing')) { replaceAt = i; break; }
+        }
+      }
       if (rarityOk
         && (budgetExempt || !exceedsMaxPrice(commandTower, maxCardPrice, currency))
-        && !notOnArena(commandTower, arenaOnly)) {
+        && !notOnArena(commandTower, arenaOnly)
+        && (lands.length < nonBasicTarget || replaceAt >= 0)) {
+        if (replaceAt >= 0) {
+          const [replaced] = lands.splice(replaceAt, 1);
+          usedNames.delete(replaced.name);
+          console.log(`[DeckGen] Command Tower replaces ${replaced.name} to keep the non-basic count`);
+        }
         lands.push(commandTower);
         usedNames.add('Command Tower');
         if (!budgetExempt) budgetTracker?.deductCard(commandTower);
@@ -3466,21 +3592,20 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
 
     // 7. Lands from EDHREC
     onProgress?.('Surveying the mana base...', 78);
-    // Preserve must-include lands added earlier
-    const mustIncludeLands = categories.lands.filter(c => c.isMustInclude);
-    const adjustedLandTarget = Math.max(0, targets.lands - mustIncludeLands.length);
-    // Must-include lands are almost always non-basic — subtract them from the non-basic budget
-    // so the remaining slots respect the user's basic/non-basic split
-    const mustIncludeNonBasicCount = mustIncludeLands.filter(
-      c => !getFrontFaceTypeLine(c).toLowerCase().includes('basic')
-    ).length;
-    const remainingNonBasicBudget = Math.max(0, customization.nonBasicLandCount - mustIncludeNonBasicCount);
-    const nonbasicTarget = Math.min(remainingNonBasicBudget, adjustedLandTarget);
-    const basicCount = Math.max(0, adjustedLandTarget - nonbasicTarget);
+    // Must-include lands and spell lands the spell picks chose count against the player's land
+    // and non-basic totals, so the deck lands exactly on the counts they set.
+    const { mustIncludeLands, spellLands, dropped: droppedSpellLands, adjustedLandTarget, nonbasicTarget, basicCount } =
+      planLandTargets(categories, targets.lands, customization.nonBasicLandCount, customization.nonBasicLandMix, colorIdentity);
+    for (const card of droppedSpellLands) {
+      const role = getCardRole(card.name);
+      if (role && currentRoleCounts[role] > 0) currentRoleCounts[role]--;
+    }
 
     console.log('[DeckGen] Land targets (from user preference):', {
       totalLandTarget: targets.lands,
       mustIncludeLands: mustIncludeLands.length,
+      spellLands: spellLands.length,
+      spellLandsDropped: droppedSpellLands.map(c => c.name),
       adjustedLandTarget,
       nonbasicTarget,
       basicTarget: basicCount,
@@ -3532,7 +3657,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         resolveManaMix(customization),
         landSwapPool,
         context.collectionCards,
-        mustIncludeLands,
+        [...mustIncludeLands, ...spellLands],
+        customization.nonBasicLandMix ?? undefined,
       ),
     ];
 
@@ -3768,16 +3894,18 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
     }
 
     onProgress?.('Surveying the mana base...', 80);
-    // Preserve must-include lands added earlier
-    const fallbackMustIncludeLands = categories.lands.filter(c => c.isMustInclude);
-    const fallbackAdjustedLandTarget = Math.max(0, targets.lands - fallbackMustIncludeLands.length);
-    // Subtract must-include non-basics from the non-basic budget (same logic as EDHREC path)
-    const fallbackMustIncludeNonBasicCount = fallbackMustIncludeLands.filter(
-      c => !getFrontFaceTypeLine(c).toLowerCase().includes('basic')
-    ).length;
-    const fallbackRemainingNonBasicBudget = Math.max(0, customization.nonBasicLandCount - fallbackMustIncludeNonBasicCount);
-    const fallbackNonbasicTarget = Math.min(fallbackRemainingNonBasicBudget, fallbackAdjustedLandTarget);
-    const fallbackBasicCount = Math.max(0, fallbackAdjustedLandTarget - fallbackNonbasicTarget);
+    // Same accounting as the EDHREC path: must-include lands and chosen spell lands are lands.
+    const {
+      mustIncludeLands: fallbackMustIncludeLands,
+      spellLands: fallbackSpellLands,
+      dropped: fallbackDroppedSpellLands,
+      adjustedLandTarget: fallbackAdjustedLandTarget,
+      basicCount: fallbackBasicCount,
+    } = planLandTargets(categories, targets.lands, customization.nonBasicLandCount, customization.nonBasicLandMix, colorIdentity);
+    for (const card of fallbackDroppedSpellLands) {
+      const role = getCardRole(card.name);
+      if (role && currentRoleCounts[role] > 0) currentRoleCounts[role]--;
+    }
     const fallbackNonLandCards = [
       ...categories.creatures,
       ...categories.ramp,
@@ -3817,7 +3945,8 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         resolveManaMix(customization),
         undefined,
         context.collectionCards,
-        fallbackMustIncludeLands,
+        [...fallbackMustIncludeLands, ...fallbackSpellLands],
+        customization.nonBasicLandMix ?? undefined,
       ),
     ];
   }
@@ -4063,6 +4192,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
         const scryfallCard = fillCardMap.get(edhrecCard.name);
         if (!scryfallCard) continue;
         if (usedNames.has(scryfallCard.name)) continue;
+        if (isMdfcLand(scryfallCard)) continue; // a spell land here would overshoot the land count
 
         if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
         if (notOnArena(scryfallCard, arenaOnly)) continue;
@@ -4104,6 +4234,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           const scryfallCard = fillCardMap.get(edhrecCard.name);
           if (!scryfallCard) continue;
           if (usedNames.has(scryfallCard.name)) continue;
+          if (isMdfcLand(scryfallCard)) continue;
 
           if (!fitsColorIdentity(scryfallCard, colorIdentity)) continue;
           if (notOnArena(scryfallCard, arenaOnly)) continue;
@@ -4190,7 +4321,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           query, colorIdentity, toFill, usedNames, bannedCards,
           shortagePriceCap, allowedRarities, maxCmc, null,
           context.collectionNames, currency, arenaOnly, scryfallQuery,
-          collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity
+          collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity, notSpellLand
         );
         if (type === 'creature') categories.creatures.push(...cards);
         else if (type === 'instant') categorizeCards(cards, categories);
@@ -4209,7 +4340,7 @@ export async function generateDeck(context: GenerationContext): Promise<Generate
           colorIdentity, remaining, usedNames, bannedCards,
           shortagePriceCap, allowedRarities, maxCmc, null,
           context.collectionNames, currency, arenaOnly, scryfallQuery,
-          collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity
+          collectionStrategy, ignoreOwnedBudget, ignoreOwnedRarity, notSpellLand
         );
         categories.synergy.push(...moreCards);
         filled += moreCards.length;

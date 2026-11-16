@@ -4382,11 +4382,21 @@ export function DeckDisplay({ onRegenerate, readOnly, hideRegenerate, regenerate
     return map;
   }, [groupedCards]);
 
+  // Every source the generator treats as must-include, read live so toggling one updates the
+  // badge at once: single pins, combo-panel temps, cards in include lists that are switched on,
+  // and the original deck's cards in the build-from-deck flow (fixed at generation).
   const mustIncludeNames = useMemo(() => {
     const set = new Set(customization.mustIncludeCards);
     for (const n of customization.tempMustIncludeCards ?? []) set.add(n);
+    for (const ref of customization.appliedIncludeLists ?? []) {
+      if (!ref.enabled) continue;
+      for (const n of userLists.find(l => l.id === ref.listId)?.cards ?? []) set.add(n);
+    }
+    for (const { card } of Object.values(groupedCards).flat()) {
+      if (card.isMustInclude && card.mustIncludeSource === 'deck') set.add(card.name);
+    }
     return set;
-  }, [customization.mustIncludeCards, customization.tempMustIncludeCards]);
+  }, [customization.mustIncludeCards, customization.tempMustIncludeCards, customization.appliedIncludeLists, userLists, groupedCards]);
 
   const bannedNames = useMemo(() => {
     const set = new Set(customization.bannedCards);

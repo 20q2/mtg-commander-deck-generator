@@ -1,5 +1,13 @@
 [
   {
+    "version": "1.3.55",
+    "notes": [
+      "Deck Generation: New option to split your non-basic lands by type. Click the sliders icon next to Non-Basic Lands to choose how many are fixing, utility, spell lands (MDFCs) or fetch lands. It starts on a recommended split based on what real decks for your commander play, and hovering a group shows example lands in your colors",      
+      "Fixed a bug where spell lands weren't being counted correctly during generation and inspection",
+      "Deck view: Fixed must-include cards, including ones from an applied list, not showing their must-include badge"
+    ]
+  },
+  {
     "version": "1.3.54",
     "notes": [
       "Deck Generation: Fixed building from more than one set at once. Typing something like \"set:tla set:tle\" into the custom query used to come back empty and fill the deck with basic lands - it now draws from either set. Queries that use \"or\" also no longer leak cards outside your commander's colors",

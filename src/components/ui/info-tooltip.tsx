@@ -7,18 +7,27 @@ interface InfoTooltipProps {
   placement?: 'top' | 'bottom';
 }
 
+const BUBBLE_W = 224; // w-56
+const EDGE = 8;       // keep this far from the viewport edge
+
 export function InfoTooltip({ text, children, placement = 'top' }: InfoTooltipProps) {
   const [visible, setVisible] = useState(false);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0, arrow: BUBBLE_W / 2 });
   const ref = useRef<HTMLSpanElement>(null);
   const below = placement === 'bottom';
 
   const show = useCallback(() => {
     if (!ref.current) return;
     const rect = ref.current.getBoundingClientRect();
+    const anchor = rect.left + rect.width / 2;
+    // Center on the anchor, but slide the bubble back inside the viewport near an edge (phones),
+    // keeping the arrow pointed at the anchor.
+    const half = BUBBLE_W / 2;
+    const left = Math.min(Math.max(anchor, EDGE + half), window.innerWidth - EDGE - half);
     setPos({
       top: below ? rect.bottom + 8 : rect.top - 8,
-      left: rect.left + rect.width / 2,
+      left,
+      arrow: Math.min(Math.max(anchor - (left - half), 10), BUBBLE_W - 10),
     });
     setVisible(true);
   }, [below]);
@@ -29,6 +38,8 @@ export function InfoTooltip({ text, children, placement = 'top' }: InfoTooltipPr
       className="inline-flex cursor-help text-muted-foreground hover:text-foreground transition-colors"
       onMouseEnter={show}
       onMouseLeave={() => setVisible(false)}
+      // Touch has no hover: a tap toggles the bubble.
+      onClick={() => (visible ? setVisible(false) : show())}
     >
       {children ?? (
         <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
@@ -49,13 +60,13 @@ export function InfoTooltip({ text, children, placement = 'top' }: InfoTooltipPr
           {text}
           {below ? (
             <>
-              <span className="absolute bottom-full left-1/2 -translate-x-1/2 -mb-px border-4 border-transparent border-b-border" />
-              <span className="absolute bottom-full left-1/2 -translate-x-1/2 -mb-[5px] border-4 border-transparent border-b-popover" />
+              <span className="absolute bottom-full -translate-x-1/2 -mb-px border-4 border-transparent border-b-border" style={{ left: pos.arrow }} />
+              <span className="absolute bottom-full -translate-x-1/2 -mb-[5px] border-4 border-transparent border-b-popover" style={{ left: pos.arrow }} />
             </>
           ) : (
             <>
-              <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-px border-4 border-transparent border-t-border" />
-              <span className="absolute top-full left-1/2 -translate-x-1/2 -mt-[5px] border-4 border-transparent border-t-popover" />
+              <span className="absolute top-full -translate-x-1/2 -mt-px border-4 border-transparent border-t-border" style={{ left: pos.arrow }} />
+              <span className="absolute top-full -translate-x-1/2 -mt-[5px] border-4 border-transparent border-t-popover" style={{ left: pos.arrow }} />
             </>
           )}
         </span>,

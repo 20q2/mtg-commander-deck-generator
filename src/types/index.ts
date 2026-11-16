@@ -703,6 +703,17 @@ export interface Customization {
   tempoPacing: Pacing;
   manaPhilosophy?: ManaPhilosophy; // brew capstone land style; undefined = standard (non-brew) selection
   manaPhilosophyMix?: ManaMix;     // brew capstone: blended land-style ratios; supersedes manaPhilosophy when set
+  nonBasicLandMix?: NonBasicLandMix | null; // optional split of nonBasicLandCount by land kind; null/undefined = no split
+}
+
+/** How the non-basic slots split by what the land does. Fixing is the remainder of
+ *  nonBasicLandCount; MDFC, utility and other counts are ceilings. `total` is the non-basic count
+ *  the split was tuned at — when the count moves, the split scales with it. */
+export interface NonBasicLandMix {
+  mdfc: number;
+  utility: number;
+  other: number;
+  total?: number;
 }
 
 /** Brew mana-base capstone styles. undefined = "Balanced" (standard land selection, no re-weighting). */

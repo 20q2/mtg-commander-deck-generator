@@ -379,6 +379,40 @@ function pageDeckCount(response: RawEDHRECResponse): number {
   return response.container?.json_dict?.card?.num_decks ?? response.num_decks_avg ?? 0;
 }
 
+/** Typed spell lists. Generic ones (topcards, highsynergycards, …) carry ordinary lands too. */
+const SPELL_TAGS = new Set(['creatures', 'instants', 'sorceries', 'utilityartifacts', 'manaartifacts', 'enchantments', 'planeswalkers']);
+
+/**
+ * EDHREC's land stats count only front-face lands: an MDFC like Fell the Profane is counted as an
+ * instant (the type counts sum to the deck size). The generator, the land sliders and the Inspector
+ * all count MDFCs as lands, so add the commander's expected number of them — otherwise a deck seeded
+ * from these stats plays that many fewer land drops than the decks it copies (Yuriko: 30 → ~32).
+ * EDHREC lists each MDFC under both its spell type and "lands", which is how they're found.
+ */
+function parseLandDistribution(response: RawEDHRECResponse): EDHRECCommanderStats['landDistribution'] {
+  const lists = response.container?.json_dict?.cardlists ?? [];
+  const spellSide = new Set(
+    lists.filter(l => SPELL_TAGS.has(l.tag.toLowerCase())).flatMap(l => (l.cardviews ?? []).map(c => c.name)),
+  );
+  const counted = new Set<string>();
+  let spellLands = 0;
+  for (const list of lists) {
+    if (!list.tag.toLowerCase().endsWith('lands')) continue;
+    for (const c of list.cardviews ?? []) {
+      if (!spellSide.has(c.name) || counted.has(c.name)) continue;
+      counted.add(c.name);
+      if (c.potential_decks) spellLands += (c.num_decks ?? 0) / c.potential_decks;
+    }
+  }
+  const land = response.land || 0;
+  const extra = land > 0 ? spellLands : 0; // 0 = no stats; callers fall back on that
+  return {
+    basic: response.basic || 0,
+    nonbasic: (response.nonbasic || 0) + extra,
+    total: land + extra,
+  };
+}
+
 function parseEdhrecResponse(
   response: RawEDHRECResponse,
   cacheKey: string
@@ -421,11 +455,7 @@ function parseEdhrecResponse(
       planeswalker: response.planeswalker || 0,
       battle: response.battle || 0,
     },
-    landDistribution: {
-      basic: response.basic || 0,
-      nonbasic: response.nonbasic || 0,
-      total: response.land || 0,
-    },
+    landDistribution: parseLandDistribution(response),
   };
 
   // Parse card lists directly from EDHREC tags
@@ -899,11 +929,7 @@ export async function fetchCommanderThemeData(
         planeswalker: response.planeswalker || 0,
         battle: response.battle || 0,
       },
-      landDistribution: {
-        basic: response.basic || 0,
-        nonbasic: response.nonbasic || 0,
-        total: response.land || 0,
-      },
+      landDistribution: parseLandDistribution(response),
     };
 
     // Parse card lists using shared parser
@@ -975,11 +1001,7 @@ export async function fetchPartnerThemeData(
           planeswalker: response.planeswalker || 0,
           battle: response.battle || 0,
         },
-        landDistribution: {
-          basic: response.basic || 0,
-          nonbasic: response.nonbasic || 0,
-          total: response.land || 0,
-        },
+        landDistribution: parseLandDistribution(response),
       };
 
       const cardlists = parseCardlists(response);

@@ -356,7 +356,11 @@ export function CommanderSpotlight({ commander, readiness, savedDeck, discover =
             )}
           </div>
 
-          <h3 className="text-base sm:text-xl font-bold leading-tight">{commander.name}</h3>
+          {/* Every slot below has a fixed height (clamped text, non-wrapping buttons) so the
+              carousel never changes height from one commander to the next. */}
+          <h3 className="text-base sm:text-xl font-bold leading-tight truncate" title={commander.name}>
+            {commander.name}
+          </h3>
 
           <div className="flex items-center gap-1.5 pt-0.5">
             {(commander.colorIdentity ?? []).length > 0 ? (
@@ -369,7 +373,7 @@ export function CommanderSpotlight({ commander, readiness, savedDeck, discover =
           </div>
 
           {/* Plain-language explainer — what the % actually measures */}
-          <p className="text-xs text-muted-foreground/90 leading-snug pt-1 max-w-prose">
+          <p className="text-xs text-muted-foreground/90 leading-[1.1rem] h-[3.3rem] line-clamp-3 mt-1 max-w-prose">
             You{discover ? ' already own' : ' own'}{' '}
             <span className="text-foreground font-semibold">{readiness.ownedCount}</span>
             {' '}of the top{' '}
@@ -405,11 +409,11 @@ export function CommanderSpotlight({ commander, readiness, savedDeck, discover =
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 mt-2">
+          <div className="flex items-center gap-2 mt-2 h-8">
             <button
               type="button"
               onClick={() => buildFromCollection(navigate, commander.name)}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-violet-500 hover:bg-violet-400 text-white rounded-md transition-colors shadow-lg shadow-violet-900/40"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-violet-500 hover:bg-violet-400 text-white rounded-md transition-colors shadow-lg shadow-violet-900/40 shrink-0 whitespace-nowrap"
             >
               <LogoMark className="w-3.5 h-3.5" />
               {discover ? 'Preview a deck' : hasSavedDeck ? 'Try another theme' : 'Assemble a deck'}
@@ -418,11 +422,12 @@ export function CommanderSpotlight({ commander, readiness, savedDeck, discover =
               <button
                 type="button"
                 onClick={() => navigate(`/decks/${savedDeck!.id}`)}
-                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-violet-200 hover:text-white bg-white/5 hover:bg-white/15 rounded-md transition-colors"
+                className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-violet-200 hover:text-white bg-white/5 hover:bg-white/15 rounded-md transition-colors shrink-0 whitespace-nowrap"
                 title={`Open ${savedDeck!.name}`}
+                aria-label={`View saved deck: ${savedDeck!.name}`}
               >
                 <Bookmark className="w-3 h-3" fill="currentColor" />
-                View saved deck
+                <span className="hidden sm:inline">View saved deck</span>
                 <ExternalLink className="w-3 h-3 opacity-70" />
               </button>
             )}

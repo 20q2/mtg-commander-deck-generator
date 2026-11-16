@@ -6,6 +6,7 @@ import { getDeckFormatConfig } from '@/lib/constants/archetypes';
 import { BannedCards } from './BannedCards';
 import { MustIncludeCards } from './MustIncludeCards';
 import { AdvancedCustomization } from './AdvancedCustomization';
+import { NonBasicMixButton, NonBasicMixPanel } from './NonBasicMixControl';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useCollection } from '@/hooks/useCollection';
@@ -553,8 +554,8 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
 
       {/* Non-Basic Land Count */}
       <div>
-        <div className="flex justify-between mb-2">
-          <label className="text-sm font-medium flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 mb-2">
+          <label className="text-sm font-medium flex items-center gap-1.5 whitespace-nowrap">
             Non-Basic Lands
             {edhrecLandSuggestion && customization.nonBasicLandCount === edhrecLandSuggestion.nonBasicLandCount && (
               <span className="flex items-center gap-0.5 text-[11px] font-normal text-emerald-500">
@@ -565,12 +566,15 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
               </span>
             )}
           </label>
-          <span className="text-sm font-bold">
-            {customization.nonBasicLandCount}
-            <span className="text-muted-foreground font-normal ml-1">
-              ({customization.landCount - customization.nonBasicLandCount} basics)
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-sm font-bold whitespace-nowrap">
+              {customization.nonBasicLandCount}
+              <span className="text-muted-foreground font-normal ml-1">
+                ({customization.landCount - customization.nonBasicLandCount} basics)
+              </span>
             </span>
-          </span>
+            <NonBasicMixButton />
+          </div>
         </div>
         <Slider
           value={customization.nonBasicLandCount}
@@ -589,6 +593,7 @@ export function DeckCustomizer({ advancedOpen = false, onAdvancedClose, onToast,
           <span>{Math.floor(customization.landCount / 2)} (Balanced)</span>
           <span>{customization.landCount} (Varied)</span>
         </div>
+        <NonBasicMixPanel />
       </div>
 
       {/* Tempo / Pacing */}

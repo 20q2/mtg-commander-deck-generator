@@ -9,6 +9,16 @@ import type { SwapInPlan } from '@/services/deckBuilder/swapFinder';
 import { getCardByName } from '@/services/scryfall/client';
 import { SwapInPanel } from '@/components/lists/SwapInPanel';
 
+/** The panel remounts every time its popover opens, so the Add / Swap choice is kept
+ *  in localStorage (shared by every surface that hosts this panel) to survive that. */
+const MODE_KEY = 'add-cards-mode';
+function readStoredMode(): 'add' | 'swap' {
+  try { return localStorage.getItem(MODE_KEY) === 'swap' ? 'swap' : 'add'; } catch { return 'add'; }
+}
+function storeMode(mode: 'add' | 'swap') {
+  try { localStorage.setItem(MODE_KEY, mode); } catch { /* private mode / blocked storage — it just won't persist */ }
+}
+
 export interface AddCardsPanelProps {
   /** Names already present — dropped from the autocomplete suggestions. */
   existingNames?: Set<string>;
@@ -66,7 +76,8 @@ export const AddCardsPanel = forwardRef<CollectionImporterHandle, AddCardsPanelP
   { existingNames, onAddCards, onAddCard, label, hideLabel, updatedLabel = 'already in deck', onCancel, textareaClassName, autoFocus, showDragDropHint, swapEnabled = false, contentPadding = 'md', getSwapPlan, onConfirmSwap }, ref
 ) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [mode, setMode] = useState<'add' | 'swap'>('add');
+  const [mode, setModeState] = useState<'add' | 'swap'>(readStoredMode);
+  const setMode = (m: 'add' | 'swap') => { setModeState(m); storeMode(m); };
   const swapping = swapEnabled && !!getSwapPlan && !!onConfirmSwap && mode === 'swap';
   // The card being swapped in, once chosen. Non-null means this panel is showing
   // the cut recommendation in place of the search.
@@ -258,18 +269,19 @@ export const AddCardsPanel = forwardRef<CollectionImporterHandle, AddCardsPanelP
                 incoming={swapCard}
                 plan={getSwapPlan?.(swapCard) ?? { roomToAdd: false, short: 0, incomingRole: null, candidates: [] }}
                 onBack={leaveSwap}
+                // A completed swap (or add-anyway) leaves the panel open and in Swap
+                // mode, back at the search bar — the same as a plain add — so the next
+                // card is one keystroke away. Closing is the user's call.
                 onSwap={async (cutName) => {
                   await onConfirmSwap!(swapCard, cutName);
-                  setPendingSwap(null);
                   clear();
-                  onCancel?.();
+                  leaveSwap();
                 }}
                 onAddAnyway={() => {
                   if (onAddCard) onAddCard(swapCard.name);
                   else onAddCards([swapCard.name]);
-                  setPendingSwap(null);
                   clear();
-                  onCancel?.();
+                  leaveSwap();
                 }}
               />
             )}
